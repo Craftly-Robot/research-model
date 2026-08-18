@@ -293,6 +293,10 @@ The legacy `ablation_report.json` only prepares data mixes. It cannot promote a
 tokenizer, architecture, or checkpoint. Controlled scientific decisions use
 the authoritative experiment state machine:
 
+`python -m src.aeitron.learning.ablation_runner --help` lists the authoritative
+scientific commands. The older flag-only mix invocation remains available for
+backward compatibility when its first argument is `--inputs` or `--base-run-dir`.
+
 ```powershell
 python -m src.aeitron.evaluation.qualification_campaign plan `
   --config config\defensive_checkpoint_qualification.json `

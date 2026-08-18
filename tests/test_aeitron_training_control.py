@@ -2,6 +2,7 @@
 
 import json
 import hashlib
+import io
 import sys
 import tempfile
 import unittest
@@ -9,6 +10,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src.aeitron.evaluation import benchmark_suites as benchmark_suites_module
+from src.aeitron.learning import ablation_runner as ablation_runner_module
 from src.aeitron.evaluation.benchmark_suites import BenchmarkSuitesReport
 from src.aeitron.evaluation.eval_runner import EvalRunReport, aggregate_scores, evaluate_checkpoint_with_schedule, regression_flags
 from src.aeitron.learning.mixer import build_mix
@@ -58,6 +60,15 @@ def write_jsonl(path: Path, rows: list[dict[str, object]]) -> Path:
 
 @unittest.skipIf(torch is None, "torch is required for Aeitron training-control tests")
 class AeitronTrainingControlTest(unittest.TestCase):
+    def test_scientific_experiment_authority_is_default_cli_help(self) -> None:
+        output = io.StringIO()
+        with patch.object(sys, "argv", ["ablation_runner", "--help"]), patch.object(sys, "stdout", output):
+            with self.assertRaises(SystemExit) as raised:
+                ablation_runner_module.main()
+        self.assertEqual(raised.exception.code, 0)
+        self.assertIn("Aeitron scientific experiment authority", output.getvalue())
+        self.assertIn("advance-7b", output.getvalue())
+
     def test_executable_benchmark_cli_binds_evaluation_manifest_only_to_executable_mode(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

@@ -2349,7 +2349,7 @@ def _legacy_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _authority_args() -> argparse.Namespace:
+def _authority_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Aeitron scientific experiment authority")
     commands = parser.add_subparsers(dest="command", required=True)
     plan = commands.add_parser("plan")
@@ -2391,7 +2391,7 @@ def _authority_args() -> argparse.Namespace:
     progression.add_argument("--architecture-promotion", required=True)
     progression.add_argument("--scaling-promotion", required=True)
     progression.add_argument("--output", required=True)
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def _parse_keyed_paths(values: Sequence[str]) -> dict[str, str]:
@@ -2486,7 +2486,10 @@ def main() -> None:
         "assemble-evaluation",
         "advance-7b",
     }
-    if len(sys.argv) > 1 and sys.argv[1] in commands:
+    # Scientific experiment control is the authoritative public interface. The
+    # legacy flag-only mix invocation remains supported for compatibility, but
+    # must not hide the evidence-gated commands from ``--help``.
+    if len(sys.argv) == 1 or sys.argv[1] in {"-h", "--help"} or sys.argv[1] in commands:
         raise SystemExit(_run_authority_cli(_authority_args()))
     args = _legacy_args()
     inputs = args.inputs

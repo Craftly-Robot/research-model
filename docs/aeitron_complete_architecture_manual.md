@@ -790,6 +790,10 @@ ship this code?" check.
 
 Command:
 
+`python -m src.aeitron.learning.ablation_runner --help` presents the
+authoritative scientific command surface. The older flag-only data-mix command
+remains compatible when invoked with `--inputs` or `--base-run-dir`.
+
 ```powershell
 python -m src.aeitron.evaluation.release_gate
 ```
