@@ -76,7 +76,7 @@ docs/
 ## Quick Check
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run_aeitron_mvp_foundation.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run_craftly_mvp_foundation.ps1
 ```
 
 ## Start Gateway
@@ -129,7 +129,7 @@ After applying Postgres migrations, prove durable contention and CAS behavior:
 ```powershell
 python -m src.aeitron.runtime.collaboration --postgres-proof `
   --database-url "$env:AEITRON_DATABASE_URL" `
-  --output-dir artifacts\aeitron\agent-collaboration-proof
+  --output-dir artifacts\craftly\agent-collaboration-proof
 ```
 
 Production readiness consumes the generated proof report. Configuration alone
@@ -168,7 +168,7 @@ Invoke-RestMethod -Method Post http://127.0.0.1:8090/v1/agent/execute `
   -ContentType "application/json" -Body $body
 ```
 
-Strict mode fails before model work if the private Aeitron serving backend,
+Strict mode fails before model work if the private Craftly serving backend,
 Docker engine, or required scanner is unavailable. It never falls back to host
 execution.
 
@@ -179,7 +179,7 @@ $env:AEITRON_SCORECARD_REPO_ROOTS = "D:\approved-agent-eval-repos"
 python -m src.aeitron.evaluation.agent_scorecard `
   --tasks D:\approved-agent-eval-repos\tasks.jsonl `
   --repository-root D:\approved-agent-eval-repos `
-  --output-dir artifacts\aeitron\agent-scorecard `
+  --output-dir artifacts\craftly\agent-scorecard `
   --policy-mode strict --concurrency 4
 ```
 
@@ -200,7 +200,7 @@ python -m src.aeitron.evaluation.qualification_campaign approval-template `
 python -m src.aeitron.evaluation.qualification_campaign build-pack `
   --source-root D:\benchmarks\SecRepoBench `
   --approval config\local\secrepobench-approval.json `
-  --output-dir artifacts\aeitron\qualification-pack
+  --output-dir artifacts\craftly\qualification-pack
 ```
 
 The pack is exactly 50 pinned historical tasks: 10 coding, 10 debugging, 10
@@ -213,20 +213,20 @@ Measure the current scratch checkpoint, then run the gated defensive ladder:
 
 ```powershell
 python -m src.aeitron.evaluation.qualification_campaign baseline `
-  --pack-manifest artifacts\aeitron\qualification-pack\qualification_pack_manifest.json `
-  --checkpoint-manifest artifacts\aeitron\train\best_checkpoint_manifest.json `
-  --tokenizer artifacts\aeitron\tokenizer\tokenizer.json `
-  --output-dir artifacts\aeitron\qualification-baseline --device cuda
+  --pack-manifest artifacts\craftly\qualification-pack\qualification_pack_manifest.json `
+  --checkpoint-manifest artifacts\craftly\train\best_checkpoint_manifest.json `
+  --tokenizer artifacts\craftly\tokenizer\tokenizer.json `
+  --output-dir artifacts\craftly\qualification-baseline --device cuda
 
 python -m src.aeitron.evaluation.qualification_campaign run-stage `
   --target-steps 1000 `
-  --campaign-dir artifacts\aeitron\defensive-qualification `
-  --pack-manifest artifacts\aeitron\qualification-pack\qualification_pack_manifest.json `
-  --dataset-manifest artifacts\aeitron\defensive-data\shards\manifest.json `
-  --dataset-version-manifest artifacts\aeitron\defensive-data\versions\<version-id>.json `
-  --tokenizer artifacts\aeitron\tokenizer\tokenizer.json `
-  --tokenizer-audit-corpus artifacts\aeitron\defensive-data\promoted.jsonl `
-  --initial-checkpoint-manifest artifacts\aeitron\train\best_checkpoint_manifest.json `
+  --campaign-dir artifacts\craftly\defensive-qualification `
+  --pack-manifest artifacts\craftly\qualification-pack\qualification_pack_manifest.json `
+  --dataset-manifest artifacts\craftly\defensive-data\shards\manifest.json `
+  --dataset-version-manifest artifacts\craftly\defensive-data\versions\<version-id>.json `
+  --tokenizer artifacts\craftly\tokenizer\tokenizer.json `
+  --tokenizer-audit-corpus artifacts\craftly\defensive-data\promoted.jsonl `
+  --initial-checkpoint-manifest artifacts\craftly\train\best_checkpoint_manifest.json `
   --device cuda
 ```
 
@@ -236,21 +236,22 @@ improvement is mandatory; tokenizer warning, generation collapse,
 hallucination, validation failure, task regression, or incompatible immutable
 inputs stops progression.
 
-## Aeitron Scratch Model Serving
+## Craftly Scratch Model Serving
 
 Set:
 
 ```powershell
-$env:AEITRON_MODEL_BACKEND = "aeitron_serving"
-$env:AEITRON_MODEL_ENDPOINT = "http://127.0.0.1:8000/v1"
-$env:AEITRON_MODEL_NAME = "aeitron-scratch"
+$env:CRAFTLY_MODEL_BACKEND = "craftly_serving"
+$env:CRAFTLY_MODEL_ENDPOINT = "http://127.0.0.1:8000/v1"
+$env:CRAFTLY_MODEL_NAME = "craftly-scratch"
 ```
 
-Then serve a Aeitron-owned scratch checkpoint on GPU hardware.
+Then serve a Craftly-owned scratch checkpoint on GPU hardware.
+*(Note: `$env:AEITRON_*` environment variables and `"aeitron_serving"` backend remain fully supported as backward-compatible aliases).*
 
 ## Scratch Model Foundation
 
-Aeitron is scratch-only. Borrowed-model training and borrowed-model quality
+Craftly is scratch-only. Borrowed-model training and borrowed-model quality
 baselines are not part of the architecture. The `mock` backend is only a test
 double for plumbing checks.
 
@@ -260,18 +261,18 @@ Invoke-RestMethod http://127.0.0.1:8090/v1/model/foundation/status
 
 ## Training Control Plane
 
-Aeitron starts every model from random initialization and never imports external
+Craftly starts every model from random initialization and never imports external
 weights. The control plane supports checkpoint evaluation, token-level data
 mixing, tokenizer/shard preparation, and pretraining gates. After the 1B
-foundation proof, Aeitron-owned weights may enter a separately governed
+foundation proof, Craftly-owned weights may enter a separately governed
 full-parameter instruction/tool continuation stage. Adapter training and
 third-party checkpoint adaptation remain prohibited. Protected benchmarks stay
 evaluation-only and are never mixed into training.
 
 ```powershell
-python -m src.aeitron.learning.mixer --inputs data\training\clean.jsonl --config config\mix_ratios.json --experiment baseline_70_15_15 --output-dir artifacts\\aeitron\mix-baseline
+python -m src.aeitron.learning.mixer --inputs data\training\clean.jsonl --config config\mix_ratios.json --experiment baseline_70_15_15 --output-dir artifacts\\craftly\mix-baseline
 
-python -m src.aeitron.evaluation.eval_runner --checkpoint-manifest artifacts\\aeitron\train\checkpoint_manifest.json --schedule config\eval_schedule.json --output-dir artifacts\\aeitron\eval --tokenizer-path artifacts\\aeitron\tokenizer\tokenizer.json --device cpu
+python -m src.aeitron.evaluation.eval_runner --checkpoint-manifest artifacts\\craftly\train\checkpoint_manifest.json --schedule config\eval_schedule.json --output-dir artifacts\\craftly\eval --tokenizer-path artifacts\\craftly\tokenizer\tokenizer.json --device cpu
 ```
 
 Reports:
@@ -293,19 +294,19 @@ backward compatibility when its first argument is `--inputs` or `--base-run-dir`
 ```powershell
 python -m src.aeitron.evaluation.qualification_campaign plan `
   --config config\defensive_checkpoint_qualification.json `
-  --output-dir artifacts\aeitron\qualification-plan
+  --output-dir artifacts\craftly\qualification-plan
 
 python -m src.aeitron.learning.ablation_runner plan `
   --campaign tokenizer-selection-v1 `
-  --dataset-manifest data\production\aeitron-foundation-v1\dataset_version_manifest.json `
-  --split-manifest data\production\aeitron-foundation-v1\split_manifest.json `
+  --dataset-manifest data\production\craftly-foundation-v1\dataset_version_manifest.json `
+  --split-manifest data\production\craftly-foundation-v1\split_manifest.json `
   --optimizer-policy config\training_profiles.json `
-  --evaluation-manifest artifacts\aeitron\qualification-plan\qualification_campaign_plan.json `
-  --tokenizer-manifest 32000=artifacts\aeitron\tokenizers\32k\tokenizer_manifest.json `
-  --tokenizer-manifest 64000=artifacts\aeitron\tokenizers\64k\tokenizer_manifest.json `
-  --tokenizer-manifest 128000=artifacts\aeitron\tokenizers\128k\tokenizer_manifest.json `
-  --container-digest "aeitron-training@sha256:<64-hex-digest>" `
-  --output-dir artifacts\aeitron\experiments\tokenizer-selection-v1
+  --evaluation-manifest artifacts\craftly\qualification-plan\qualification_campaign_plan.json `
+  --tokenizer-manifest 32000=artifacts\craftly\tokenizers\32k\tokenizer_manifest.json `
+  --tokenizer-manifest 64000=artifacts\craftly\tokenizers\64k\tokenizer_manifest.json `
+  --tokenizer-manifest 128000=artifacts\craftly\tokenizers\128k\tokenizer_manifest.json `
+  --container-digest "craftly-training@sha256:<64-hex-digest>" `
+  --output-dir artifacts\craftly\experiments\tokenizer-selection-v1
 
 python -m src.aeitron.evaluation.benchmark_suites `
   --mode executable-model `
@@ -313,22 +314,22 @@ python -m src.aeitron.evaluation.benchmark_suites `
   --suite MBPP mbpp_style data\eval\protected\mbpp.jsonl `
   --checkpoint-manifest ARM_CHECKPOINT.json `
   --tokenizer-path ARM_TOKENIZER.json `
-  --evaluation-manifest artifacts\aeitron\qualification-plan\qualification_campaign_plan.json `
+  --evaluation-manifest artifacts\craftly\qualification-plan\qualification_campaign_plan.json `
   --output-dir ARM_EVAL_DIR
 
 python -m src.aeitron.evaluation.agent_scorecard `
-  --tasks data\eval\protected\aeitron_repository_scorecard.jsonl `
+  --tasks data\eval\protected\craftly_repository_scorecard.jsonl `
   --output-dir ARM_SCORECARD_DIR `
   --policy-mode strict
 
 python -m src.aeitron.learning.ablation_runner assemble-evaluation `
-  --experiment-dir artifacts\aeitron\experiments\tokenizer-selection-v1 `
+  --experiment-dir artifacts\craftly\experiments\tokenizer-selection-v1 `
   --code-benchmark-report ARM_EVAL_DIR\benchmark_suites_report.json `
   --repository-scorecard-report ARM_SCORECARD_DIR\agent_scorecard.json `
   --output ARM_EVAL_DIR\scientific_evaluation_report.json
 
 python -m src.aeitron.learning.ablation_runner admit-arm `
-  --experiment-dir artifacts\aeitron\experiments\tokenizer-selection-v1 `
+  --experiment-dir artifacts\craftly\experiments\tokenizer-selection-v1 `
   --arm-id ARM_ID `
   --training-report ARM_TRAINING_REPORT.json `
   --evaluation-report ARM_EVAL_DIR\scientific_evaluation_report.json `
@@ -336,14 +337,14 @@ python -m src.aeitron.learning.ablation_runner admit-arm `
   --tokenizer-audit ARM_TOKENIZER_AUDIT.json
 
 python -m src.aeitron.learning.ablation_runner run `
-  --experiment-dir artifacts\aeitron\experiments\tokenizer-selection-v1 `
-  --evidence-dir artifacts\aeitron\experiments\tokenizer-selection-v1\arm-evidence
+  --experiment-dir artifacts\craftly\experiments\tokenizer-selection-v1 `
+  --evidence-dir artifacts\craftly\experiments\tokenizer-selection-v1\arm-evidence
 
 python -m src.aeitron.learning.ablation_runner decide `
-  --experiment-dir artifacts\aeitron\experiments\tokenizer-selection-v1
+  --experiment-dir artifacts\craftly\experiments\tokenizer-selection-v1
 
 python -m src.aeitron.learning.ablation_runner promote `
-  --experiment-dir artifacts\aeitron\experiments\tokenizer-selection-v1
+  --experiment-dir artifacts\craftly\experiments\tokenizer-selection-v1
 ```
 
 Each tokenizer manifest must bind passed family-safe shards and the exact
@@ -366,7 +367,7 @@ python -m src.aeitron.learning.ablation_runner advance-7b `
   --tokenizer-promotion TOKENIZER_EXPERIMENT\promotion_decision.json `
   --architecture-promotion ARCHITECTURE_EXPERIMENT\promotion_decision.json `
   --scaling-promotion SCALING_EXPERIMENT\promotion_decision.json `
-  --output artifacts\aeitron\experiments\model_progression_7b.json
+  --output artifacts\craftly\experiments\model_progression_7b.json
 ```
 
 The 7B dense and MoE training profiles reject submissions without this exact,
@@ -379,21 +380,21 @@ executable benchmark evidence.
 Local deterministic gates:
 
 ```powershell
-python -m src.aeitron.db.migration_runner --database-url postgresql://aeitron:pass@localhost:5432/aeitron --dry-run
-python -m src.aeitron.deployment.k8s_validate --output-dir artifacts\\aeitron\k8s-validation
-python -m src.aeitron.learning.storage --uri local://artifacts/aeitron/object-store --work-dir artifacts\\aeitron\object-store-lifecycle
-python -m src.aeitron.learning.dataset_validation --inputs data\training\clean.jsonl --output-dir artifacts\\aeitron\dataset-validation --min-records 100000
-python -m src.aeitron.evaluation.benchmark_suites --suite swe swe_bench_style data\eval\swe_style.jsonl --suite cyber cyberseceval_style data\eval\cyber.jsonl --output-dir artifacts\\aeitron\benchmark-suites
-python -m src.aeitron.security.audit --no-bandit --output-dir artifacts\\aeitron\security-audit
+python -m src.aeitron.db.migration_runner --database-url postgresql://craftly:pass@localhost:5432/craftly --dry-run
+python -m src.aeitron.deployment.k8s_validate --output-dir artifacts\\craftly\k8s-validation
+python -m src.aeitron.learning.storage --uri local://artifacts/craftly/object-store --work-dir artifacts\\craftly\object-store-lifecycle
+python -m src.aeitron.learning.dataset_validation --inputs data\training\clean.jsonl --output-dir artifacts\\craftly\dataset-validation --min-records 100000
+python -m src.aeitron.evaluation.benchmark_suites --suite swe swe_bench_style data\eval\swe_style.jsonl --suite cyber cyberseceval_style data\eval\cyber.jsonl --output-dir artifacts\\craftly\benchmark-suites
+python -m src.aeitron.security.audit --no-bandit --output-dir artifacts\\craftly\security-audit
 ```
 
 Real production commands:
 
 ```powershell
 alembic upgrade head
-python -m src.aeitron.deployment.k8s_validate --kubectl-dry-run --output-dir artifacts\\aeitron\k8s-validation
-python -m src.aeitron.learning.storage --uri s3://aeitron-datasets/pretraining --endpoint-url http://localhost:9000 --work-dir artifacts\\aeitron\s3-lifecycle
-python deploy\gpu\run_10k_training_validation.py --manifest artifacts\\aeitron\shards\manifest.json --device cuda --steps 10000
+python -m src.aeitron.deployment.k8s_validate --kubectl-dry-run --output-dir artifacts\\craftly\k8s-validation
+python -m src.aeitron.learning.storage --uri s3://craftly-datasets/pretraining --endpoint-url http://localhost:9000 --work-dir artifacts\\craftly\s3-lifecycle
+python deploy\gpu\run_10k_training_validation.py --manifest artifacts\\craftly\shards\manifest.json --device cuda --steps 10000
 ```
 
 Live production proof gate:
@@ -411,12 +412,12 @@ python -m src.aeitron.deployment.production_proof `
   --serving-api-key "$env:AEITRON_MODEL_API_KEY" `
   --load-test-requests 100 `
   --load-test-streaming-requests 20 `
-  --executable-benchmark-report artifacts\aeitron\executable-eval\benchmark_suites_report.json `
-  --scorecard-report artifacts\aeitron\agent-scorecard\agent_scorecard.json `
-  --active-model-profile C:\AeitronGovernance\active-model-profile.json `
+  --executable-benchmark-report artifacts\craftly\executable-eval\benchmark_suites_report.json `
+  --scorecard-report artifacts\craftly\agent-scorecard\agent_scorecard.json `
+  --active-model-profile C:\CraftlyGovernance\active-model-profile.json `
   --run-security-audit `
   --strict-security-tools `
-  --output-dir artifacts\\aeitron\production-proof
+  --output-dir artifacts\\craftly\production-proof
 ```
 
 For local or Kaggle validation without live services, omit `--strict`; missing
@@ -466,29 +467,29 @@ python -m src.aeitron.deployment.production_qualification `
   --qdrant-url "$env:AEITRON_QDRANT_URL" `
   --serving-url "$env:AEITRON_SERVING_URL" `
   --serving-api-key "$env:AEITRON_MODEL_API_KEY" `
-  --active-model-profile C:\AeitronGovernance\active-model-profile.json `
-  --executable-benchmark-report artifacts\aeitron\executable-eval\benchmark_suites_report.json `
-  --scorecard-report artifacts\aeitron\agent-scorecard\agent_scorecard.json `
-  --training-proof-report artifacts\aeitron\production-proofs\production_proof_report.json `
-  --calibration-200-decision artifacts\aeitron\calibration-200-v1\calibration_decision.json `
-  --calibration-5k-decision artifacts\aeitron\calibration-5k-v1\calibration_decision.json `
-  --production-dataset-manifest data\production\aeitron-foundation-v1\dataset_version_manifest.json `
-  --tokenizer-selection-promotion artifacts\aeitron\experiments\tokenizer-selection-v1\promotion_decision.json `
-  --tokenizer-audit-report artifacts\aeitron\tokenizer-selected\tokenizer_audit_report.json `
-  --overfit-sanity-report artifacts\aeitron\overfit-sanity\overfit_sanity_report.json `
-  --t4-1k-training-report artifacts\aeitron\t4-1k\pretrain_report.json `
-  --t4-10k-training-report artifacts\aeitron\t4-10k\pretrain_report.json `
-  --manual-security-review C:\AeitronGovernance\manual-security-review.json `
-  --canary-report C:\AeitronGovernance\canary-report.json `
+  --active-model-profile C:\CraftlyGovernance\active-model-profile.json `
+  --executable-benchmark-report artifacts\craftly\executable-eval\benchmark_suites_report.json `
+  --scorecard-report artifacts\craftly\agent-scorecard\agent_scorecard.json `
+  --training-proof-report artifacts\craftly\production-proofs\production_proof_report.json `
+  --calibration-200-decision artifacts\craftly\calibration-200-v1\calibration_decision.json `
+  --calibration-5k-decision artifacts\craftly\calibration-5k-v1\calibration_decision.json `
+  --production-dataset-manifest data\production\craftly-foundation-v1\dataset_version_manifest.json `
+  --tokenizer-selection-promotion artifacts\craftly\experiments\tokenizer-selection-v1\promotion_decision.json `
+  --tokenizer-audit-report artifacts\craftly\tokenizer-selected\tokenizer_audit_report.json `
+  --overfit-sanity-report artifacts\craftly\overfit-sanity\overfit_sanity_report.json `
+  --t4-1k-training-report artifacts\craftly\t4-1k\pretrain_report.json `
+  --t4-10k-training-report artifacts\craftly\t4-10k\pretrain_report.json `
+  --manual-security-review C:\CraftlyGovernance\manual-security-review.json `
+  --canary-report C:\CraftlyGovernance\canary-report.json `
   --metrics-url https://api.example.com/metrics `
   --prometheus-url https://prometheus.example.com/-/ready `
   --grafana-url https://grafana.example.com/api/health `
   --otel-health-url https://otel.example.com/ `
   --alertmanager-url https://alertmanager.example.com `
-  --operator-notification-report C:\AeitronGovernance\operator-notification-proof.json `
+  --operator-notification-report C:\CraftlyGovernance\operator-notification-proof.json `
   --run-security-audit `
   --strict-security-tools `
-  --output-dir artifacts\aeitron\production-qualification
+  --output-dir artifacts\craftly\production-qualification
 ```
 
 The default capacity ladder is 10, 100, 500, then 1,000 concurrent requests.
@@ -545,7 +546,7 @@ Long Kaggle runs now emit live structured progress lines and write
 ```bash
 PYTHONUNBUFFERED=1 python -u deploy/gpu/run_real_data_training_pipeline.py \
   --sources config/data_sources.ultimate.json \
-  --work-dir artifacts/aeitron/kaggle-real-data-smoke \
+  --work-dir artifacts/craftly/kaggle-real-data-smoke \
   --target-records 1000 \
   --max-docs 3000 \
   --steps 200 \
@@ -558,7 +559,7 @@ PYTHONUNBUFFERED=1 python -u deploy/gpu/run_real_data_training_pipeline.py \
 Watch the file from another Kaggle cell:
 
 ```bash
-tail -n 80 artifacts/aeitron/kaggle-real-data-smoke/progress.jsonl
+tail -n 80 artifacts/craftly/kaggle-real-data-smoke/progress.jsonl
 ```
 
 Kaggle validation preset, designed to prove the full data -> tokenizer -> shard
@@ -567,7 +568,7 @@ Kaggle validation preset, designed to prove the full data -> tokenizer -> shard
 ```bash
 PYTHONUNBUFFERED=1 python -u deploy/gpu/run_real_data_training_pipeline.py \
   --sources config/data_sources.ultimate.json \
-  --work-dir artifacts/aeitron/real-data-validation-v1 \
+  --work-dir artifacts/craftly/real-data-validation-v1 \
   --kaggle-validation \
   --steps 1000 \
   --sequence-length 128 \
@@ -576,7 +577,7 @@ PYTHONUNBUFFERED=1 python -u deploy/gpu/run_real_data_training_pipeline.py \
   --validation-interval 100 \
   --validation-batches 4 \
   --early-stopping-patience 5 \
-  --checkpoint-compare-prompt-suite artifacts/aeitron/learning-validation-v1/expanded_eval_suite.jsonl \
+  --checkpoint-compare-prompt-suite artifacts/craftly/learning-validation-v1/expanded_eval_suite.jsonl \
   --checkpoint-compare-min-score 0.20 \
   --progress-to-stdout
 ```
@@ -586,7 +587,7 @@ Strict 10k-step real-data validation:
 ```bash
 PYTHONUNBUFFERED=1 python -u deploy/gpu/run_real_data_training_pipeline.py \
   --sources config/data_sources.ultimate.json \
-  --work-dir artifacts/aeitron/real-data-10k-strict-v1 \
+  --work-dir artifacts/craftly/real-data-10k-strict-v1 \
   --target-records 10000 \
   --min-training-rows 5000 \
   --min-train-tokens 2000000 \
@@ -607,16 +608,16 @@ PYTHONUNBUFFERED=1 python -u deploy/gpu/run_real_data_training_pipeline.py \
   --min-source-reputation-score 0.50 \
   --eval-holdout-fraction 0.02 \
   --max-source-fraction 0.25 \
-  --checkpoint-compare-prompt-suite artifacts/aeitron/learning-validation-v1/expanded_eval_suite.jsonl \
+  --checkpoint-compare-prompt-suite artifacts/craftly/learning-validation-v1/expanded_eval_suite.jsonl \
   --checkpoint-compare-min-score 0.20 \
-  --progress-path artifacts/aeitron/real-data-10k-strict-v1/progress.jsonl \
+  --progress-path artifacts/craftly/real-data-10k-strict-v1/progress.jsonl \
   --progress-to-stdout \
   --progress-every-docs 10 \
   --progress-every-steps 25
 
 python deploy/gpu/run_checkpoint_comparison.py \
-  --training-report artifacts/aeitron/real-data-10k-strict-v1/reports/real_data_training_report.json \
-  --output-dir artifacts/aeitron/real-data-10k-strict-v1/reports/checkpoint_compare \
+  --training-report artifacts/craftly/real-data-10k-strict-v1/reports/real_data_training_report.json \
+  --output-dir artifacts/craftly/real-data-10k-strict-v1/reports/checkpoint_compare \
   --device cuda
 ```
 
@@ -633,7 +634,7 @@ Inspect any Kaggle/Colab run and get the next recommended action:
 
 ```bash
 python deploy/gpu/inspect_real_data_run.py \
-  --work-dir artifacts/aeitron/real-data-validation-v1
+  --work-dir artifacts/craftly/real-data-validation-v1
 ```
 
 Run the longer scratch pretraining loop:
@@ -641,14 +642,14 @@ Run the longer scratch pretraining loop:
 ```bash
 python -m src.aeitron.model_ops.tokenizer_pipeline \
   --input data/training/clean.jsonl \
-  --tokenizer-out artifacts/aeitron/tokenizer/tokenizer.json \
-  --shards-out artifacts/aeitron/shards \
+  --tokenizer-out artifacts/craftly/tokenizer/tokenizer.json \
+  --shards-out artifacts/craftly/shards \
   --vocab-size 128000 \
   --sequence-length 128
 
 python -m src.aeitron.model_ops.pretrain_loop \
   --device cuda \
-  --manifest artifacts/aeitron/shards/manifest.json \
+  --manifest artifacts/craftly/shards/manifest.json \
   --steps 100 \
   --batch-size 2 \
   --sequence-length 128 \
@@ -668,9 +669,9 @@ python deploy/gpu/run_pretraining_pipeline.py \
 
 Output:
 
-- `artifacts/aeitron/gpu-smoke/gpu_smoke_report.json`
-- `artifacts/aeitron/gpu-smoke/checkpoint/model.pt`
-- `artifacts/aeitron/gpu-smoke/checkpoint_manifest.json`
+- `artifacts/craftly/gpu-smoke/gpu_smoke_report.json`
+- `artifacts/craftly/gpu-smoke/checkpoint/model.pt`
+- `artifacts/craftly/gpu-smoke/checkpoint_manifest.json`
 
 ## Defensive Data Pipeline
 
@@ -690,9 +691,9 @@ content deduplication, per-domain throttling, and clean JSONL sharding:
 ```bash
 python -m src.aeitron.learning.data_engine \
   --sources config/data_sources.ultimate.json \
-  --frontier artifacts/aeitron/data-engine/frontier.sqlite3 \
-  --raw-output-dir artifacts/aeitron/data-engine/raw \
-  --clean-output-dir artifacts/aeitron/data-engine/clean \
+  --frontier artifacts/craftly/data-engine/frontier.sqlite3 \
+  --raw-output-dir artifacts/craftly/data-engine/raw \
+  --clean-output-dir artifacts/craftly/data-engine/clean \
   --max-docs 1000000 \
   --workers 64 \
   --max-depth 2 \
@@ -707,8 +708,8 @@ python -m src.aeitron.learning.data_engine \
   --sources config/data_sources.ultimate.json \
   --frontier-backend postgres \
   --postgres-dsn "$AEITRON_DATABASE_URL" \
-  --raw-output-dir artifacts/aeitron/data-engine/raw \
-  --clean-output-dir artifacts/aeitron/data-engine/clean \
+  --raw-output-dir artifacts/craftly/data-engine/raw \
+  --clean-output-dir artifacts/craftly/data-engine/clean \
   --max-docs 1000000 \
   --workers 64
 ```
@@ -718,11 +719,11 @@ One command for `crawl -> clean -> shard -> train`:
 ```bash
 python -m src.aeitron.learning.data_pipeline \
   --sources config/data_sources.ultimate.json \
-  --dataset-id aeitron-defensive-coding-corpus \
-  --work-dir artifacts/aeitron/data-pipeline \
+  --dataset-id craftly-defensive-coding-corpus \
+  --work-dir artifacts/craftly/data-pipeline \
   --frontier-backend postgres \
   --postgres-dsn "$AEITRON_DATABASE_URL" \
-  --object-store-uri s3://aeitron-datasets/pretraining \
+  --object-store-uri s3://craftly-datasets/pretraining \
   --object-store-endpoint-url "$S3_ENDPOINT_URL" \
   --max-docs 1000000 \
   --workers 64 \
@@ -750,9 +751,9 @@ docker compose -f deploy/prod/docker-compose.yml --profile data up crawler-super
 python -m src.aeitron.learning.supervisor \
   --sources config/data_sources.ultimate.json \
   --postgres-dsn "$AEITRON_DATABASE_URL" \
-  --raw-output-dir artifacts/aeitron/data-engine/raw \
-  --clean-output-dir artifacts/aeitron/data-engine/clean \
-  --object-store-uri s3://aeitron-datasets/pretraining \
+  --raw-output-dir artifacts/craftly/data-engine/raw \
+  --clean-output-dir artifacts/craftly/data-engine/clean \
+  --object-store-uri s3://craftly-datasets/pretraining \
   --worker-replicas 8 \
   --async-workers 64
 ```
@@ -770,7 +771,7 @@ python -m src.aeitron.learning.production_check \
   --sources config/data_sources.ultimate.json \
   --frontier-backend postgres \
   --postgres-dsn "$AEITRON_DATABASE_URL" \
-  --object-store-uri s3://aeitron-datasets/pretraining \
+  --object-store-uri s3://craftly-datasets/pretraining \
   --production \
   --worker-replicas 8 \
   --async-workers 64
@@ -781,11 +782,11 @@ Prepare the first serious 100k-1M data run:
 ```bash
 python -m src.aeitron.learning.run_plan \
   --sources config/data_sources.ultimate.json \
-  --output-dir artifacts/aeitron/data-runs/first-serious-run \
+  --output-dir artifacts/craftly/data-runs/first-serious-run \
   --target-documents 1000000 \
   --target-days 7 \
   --postgres-dsn "$AEITRON_DATABASE_URL" \
-  --object-store-uri s3://aeitron-datasets/pretraining \
+  --object-store-uri s3://craftly-datasets/pretraining \
   --worker-replicas 8 \
   --async-workers 64
 ```
@@ -795,28 +796,28 @@ building a production dataset:
 
 ```bash
 python -m src.aeitron.learning.dataset_authority review-report \
-  --output artifacts/aeitron/review/review_evidence_report.json
+  --output artifacts/craftly/review/review_evidence_report.json
 ```
 
 Promote a governed 100k-1M production dataset pack into `data/production`:
 
 ```bash
 python -m src.aeitron.learning.production_dataset \
-  --input artifacts/aeitron/data-runs/first-serious-run/clean/*.jsonl \
-  --output-dir data/production/aeitron-corpus-v1 \
-  --dataset-id aeitron-corpus-v1 \
-  --advancement-decision artifacts/aeitron/calibration-5k-v1/calibration_decision.json \
+  --input artifacts/craftly/data-runs/first-serious-run/clean/*.jsonl \
+  --output-dir data/production/craftly-corpus-v1 \
+  --dataset-id craftly-corpus-v1 \
+  --advancement-decision artifacts/craftly/calibration-5k-v1/calibration_decision.json \
   --source-registry config/data_sources.governed.json \
   --trust-policy config/dataset_trust_policy.json \
   --legal-evidence-dir governance/source-approvals \
   --reviewer-roster config/data_reviewers.json \
   --protected-config config/protected_benchmarks.json \
   --protected-manifest data/eval/protected/protected_benchmark_manifest.json \
-  --source-review-report artifacts/aeitron/review/review_evidence_report.json \
+  --source-review-report artifacts/craftly/review/review_evidence_report.json \
   --benchmark-holdout data/eval/humaneval.jsonl \
   --benchmark-holdout data/eval/mbpp.jsonl \
-  --verified-patch artifacts/aeitron/verified-patches/verified_patch_tasks.jsonl \
-  --human-review-approved artifacts/aeitron/review/approved_high_value.jsonl \
+  --verified-patch artifacts/craftly/verified-patches/verified_patch_tasks.jsonl \
+  --human-review-approved artifacts/craftly/review/approved_high_value.jsonl \
   --min-promoted-records 100000 \
   --min-verified-patch-records 100 \
   --min-human-review-approved-records 100 \
@@ -839,7 +840,7 @@ One-million-record bounded-memory dedup proof:
 ```bash
 python -m src.aeitron.learning.near_dedup \
   --scale-dry-records 1000000 \
-  --scale-output-dir artifacts/aeitron/dedup-scale
+  --scale-output-dir artifacts/craftly/dedup-scale
 ```
 
 Training resource priority catalog:
@@ -847,7 +848,7 @@ Training resource priority catalog:
 ```bash
 python -m src.aeitron.learning.resource_catalog \
   --catalog config/data_sources.ultimate.json \
-  --output artifacts/aeitron/resource_catalog_report.json
+  --output artifacts/craftly/resource_catalog_report.json
 ```
 
 The catalog keeps all 45 external cybersecurity/agentic-coding resources in one
@@ -890,15 +891,15 @@ Pipeline outputs include:
 - tokenizer and token-shard manifest
 - dataset version manifest
 - append-only dataset ledger
-- local HTML dashboard at `artifacts/aeitron/data-pipeline/dashboard.html`
+- local HTML dashboard at `artifacts/craftly/data-pipeline/dashboard.html`
 - optional S3/MinIO uploads
 
 Manual/automated review and feedback:
 
 ```bash
-python -m src.aeitron.learning.governance --store artifacts/aeitron/governance report
+python -m src.aeitron.learning.governance --store artifacts/craftly/governance report
 
-python -m src.aeitron.learning.governance --store artifacts/aeitron/governance submit-source \
+python -m src.aeitron.learning.governance --store artifacts/craftly/governance submit-source \
   --source-name portswigger-web-security-academy \
   --category authorized_security_testing_labs \
   --url https://portswigger.net/web-security \
@@ -908,15 +909,15 @@ python -m src.aeitron.learning.governance --store artifacts/aeitron/governance s
   --justification "High-value authorized web security education source"
 
 python -m src.aeitron.learning.review \
-  --input artifacts/aeitron/data-pipeline/tasks/tasks.jsonl \
-  --decisions-out artifacts/aeitron/data-pipeline/reports/task_review_decisions.jsonl \
-  --automated-pass-out artifacts/aeitron/data-pipeline/tasks/automated_pass_tasks.jsonl \
-  --report-out artifacts/aeitron/data-pipeline/reports/task_review_report.json
+  --input artifacts/craftly/data-pipeline/tasks/tasks.jsonl \
+  --decisions-out artifacts/craftly/data-pipeline/reports/task_review_decisions.jsonl \
+  --automated-pass-out artifacts/craftly/data-pipeline/tasks/automated_pass_tasks.jsonl \
+  --report-out artifacts/craftly/data-pipeline/reports/task_review_report.json
 
 python -m src.aeitron.learning.feedback \
-  --output artifacts/aeitron/data-pipeline/reports/feedback_report.json \
-  --quality-report artifacts/aeitron/data-pipeline/reports/quality_report.json \
-  --review-report artifacts/aeitron/data-pipeline/reports/task_review_report.json
+  --output artifacts/craftly/data-pipeline/reports/feedback_report.json \
+  --quality-report artifacts/craftly/data-pipeline/reports/quality_report.json \
+  --review-report artifacts/craftly/data-pipeline/reports/task_review_report.json
 ```
 
 Automated task screening is not human approval and cannot promote data. A
@@ -930,12 +931,12 @@ mirrors; it does not perform exploit execution or unauthorized collection.
 
 ## Scratch Learning Validation
 
-After a real-data run, Aeitron must prove that the model can learn before larger
+After a real-data run, Craftly must prove that the model can learn before larger
 GPU time is spent. Run the controlled validation gate first:
 
 ```bash
 python -m src.aeitron.model_ops.learning_validation \
-  --output-dir artifacts/aeitron/learning-validation-v1 \
+  --output-dir artifacts/craftly/learning-validation-v1 \
   --instruction-count 200 \
   --overfit-steps 300 \
   --device cuda \
@@ -954,7 +955,7 @@ Fast local command without expensive training:
 
 ```bash
 python -m src.aeitron.model_ops.learning_validation \
-  --output-dir artifacts/aeitron/learning-validation-smoke \
+  --output-dir artifacts/craftly/learning-validation-smoke \
   --instruction-count 50 \
   --skip-overfit \
   --device cpu
@@ -964,9 +965,9 @@ Use the expanded suite for checkpoint comparison:
 
 ```bash
 python deploy/gpu/run_checkpoint_comparison.py \
-  --training-report artifacts/aeitron/real-data-validation-v1/reports/real_data_training_report.json \
-  --prompt-suite artifacts/aeitron/learning-validation-v1/expanded_eval_suite.jsonl \
-  --output-dir artifacts/aeitron/real-data-validation-v1/reports/checkpoint_compare_expanded \
+  --training-report artifacts/craftly/real-data-validation-v1/reports/real_data_training_report.json \
+  --prompt-suite artifacts/craftly/learning-validation-v1/expanded_eval_suite.jsonl \
+  --output-dir artifacts/craftly/real-data-validation-v1/reports/checkpoint_compare_expanded \
   --device cuda \
   --repetition-penalty 1.18 \
   --no-repeat-ngram-size 4 \
@@ -982,7 +983,7 @@ Curriculum-first scratch training:
 
 ```bash
 python -m src.aeitron.model_ops.learning_validation \
-  --output-dir artifacts/aeitron/defensive-learning-validation-v1 \
+  --output-dir artifacts/craftly/defensive-learning-validation-v1 \
   --instruction-count 100 \
   --curriculum-mode defensive_security_only \
   --overfit-steps 300 \
@@ -1011,11 +1012,11 @@ Kaggle 1k defensive validation:
 ```bash
 PYTHONUNBUFFERED=1 python -u deploy/gpu/run_real_data_training_pipeline.py \
   --sources config/data_sources.ultimate.json \
-  --work-dir artifacts/aeitron/defensive-validation-1k-v1 \
+  --work-dir artifacts/craftly/defensive-validation-1k-v1 \
   --kaggle-validation \
   --curriculum-mode defensive_security_only \
   --model-profile t4_validation \
-  --checkpoint-compare-prompt-suite artifacts/aeitron/defensive-learning-validation-v1/expanded_eval_suite.jsonl \
+  --checkpoint-compare-prompt-suite artifacts/craftly/defensive-learning-validation-v1/expanded_eval_suite.jsonl \
   --checkpoint-compare-repetition-penalty 1.18 \
   --checkpoint-compare-no-repeat-ngram-size 4 \
   --checkpoint-compare-max-repetition-ratio 0.72 \
@@ -1031,7 +1032,7 @@ PYTHONUNBUFFERED=1 python -u deploy/gpu/run_real_data_training_pipeline.py \
 ```
 
 After the overfit sanity and 1k validation pass, use the same command with
-`--work-dir artifacts/aeitron/defensive-validation-10k-v1`, `--steps 10000`,
+`--work-dir artifacts/craftly/defensive-validation-10k-v1`, `--steps 10000`,
 `--sequence-length 256`, `--validation-interval 250`, and
 `--early-stopping-patience 12`.
 
@@ -1112,7 +1113,7 @@ Direct-kernel Kaggle/Colab validation with immediate output:
 SDK and CLI:
 
 ```python
-from aeitron_client import Workspace
+from craftly_client import Workspace
 
 workspace = Workspace.from_environment()
 run = await workspace.train(profile="defensive-1k", follow=True)
@@ -1120,11 +1121,11 @@ run = await workspace.train(profile="defensive-1k", follow=True)
 
 ```bash
 python -m pip install -e . --no-deps
-aeitron train --profile defensive-1k --follow
-aeitron jobs list
-aeitron jobs inspect JOB_ID
-aeitron jobs cancel JOB_ID
-aeitron jobs resume JOB_ID
+craftly train --profile defensive-1k --follow
+craftly jobs list
+craftly jobs inspect JOB_ID
+craftly jobs cancel JOB_ID
+craftly jobs resume JOB_ID
 ```
 
 If a local Python installation does not add its Scripts directory to `PATH`,
@@ -1140,9 +1141,9 @@ Immutable qualification campaign and measured infrastructure proofs:
 
 ```powershell
 python -m src.aeitron.training_workspace campaigns
-docker compose -p aeitron-proof -f deploy\proof\docker-compose.yml up -d
+docker compose -p craftly-proof -f deploy\proof\docker-compose.yml up -d
 python -m src.aeitron.training_proofs `
-  --output-dir artifacts\aeitron\production-proofs\local-docker
+  --output-dir artifacts\craftly\production-proofs\local-docker
 ```
 
 The `defensive-staircase-v1` campaign contains 37 ordered milestones: 1k
@@ -1157,9 +1158,9 @@ The full event and soak proofs are explicit long-running operations:
 
 ```powershell
 python -m src.aeitron.training_proofs --event-count 1000000 `
-  --skip-disaster-recovery --output-dir artifacts\aeitron\production-proofs\million-events
+  --skip-disaster-recovery --output-dir artifacts\craftly\production-proofs\million-events
 python -m src.aeitron.training_proofs --soak-seconds 86400 `
-  --output-dir artifacts\aeitron\production-proofs\24-hour-soak
+  --output-dir artifacts\craftly\production-proofs\24-hour-soak
 ```
 
 The measured local run accepted and sequence-verified 1,000,000 events at
@@ -1183,9 +1184,9 @@ $common = @(
   "--container-digest", $env:AEITRON_TRAINING_IMAGE_DIGEST,
   "--inject-worker-loss"
 )
-python -m src.aeitron.training_proofs --live-profile aeitron-7b-fsdp @common
-python -m src.aeitron.training_proofs --live-profile aeitron-32b-zero3 @common
-python -m src.aeitron.training_proofs --live-profile aeitron-60b-hybrid @common
+python -m src.aeitron.training_proofs --live-profile craftly-7b-fsdp @common
+python -m src.aeitron.training_proofs --live-profile craftly-32b-zero3 @common
+python -m src.aeitron.training_proofs --live-profile craftly-60b-hybrid @common
 ```
 
 The disruptive self-hosted Kubernetes recovery drill is opt-in. It writes
@@ -1224,10 +1225,10 @@ crawler:
 ```powershell
 python -m src.aeitron.learning.calibration_gate prepare `
   --sources config\data_sources.governed.staging.json `
-  --reviewer-roster C:\AeitronGovernance\data_reviewers.json `
-  --reviewer-qualification-report C:\AeitronGovernance\reviewer-qualification-report.json `
-  --legal-evidence-dir C:\AeitronGovernance\source-approvals `
-  --output-dir artifacts\aeitron\calibration-preflight
+  --reviewer-roster C:\CraftlyGovernance\data_reviewers.json `
+  --reviewer-qualification-report C:\CraftlyGovernance\reviewer-qualification-report.json `
+  --legal-evidence-dir C:\CraftlyGovernance\source-approvals `
+  --output-dir artifacts\craftly\calibration-preflight
 ```
 
 The eight-source staging registry is the authoritative input for the first
@@ -1246,7 +1247,7 @@ the NIST policy snapshot, enforces HTTPS host/path/size limits, and writes only
 python -m src.aeitron.learning.source_registry `
   --sources config\data_sources.governed.staging.json `
   --evidence-origins config\governed_source_evidence_origins.json `
-  --materialize-evidence-candidates C:\AeitronGovernance\source-evidence-candidates-v1
+  --materialize-evidence-candidates C:\CraftlyGovernance\source-evidence-candidates-v1
 ```
 
 After reviewer qualification, legal approval, calibration, dataset promotion,
@@ -1256,16 +1257,16 @@ advancement chain with one command:
 ```powershell
 python -m src.aeitron.deployment.production_qualification `
   --scratch-chain-only `
-  --calibration-preflight-report artifacts\aeitron\calibration-preflight\calibration_preflight_report.json `
-  --calibration-200-decision artifacts\aeitron\calibration-200\calibration_decision.json `
-  --calibration-5k-decision artifacts\aeitron\calibration-5k\calibration_decision.json `
-  --production-dataset-manifest data\production\aeitron-foundation-v1\dataset_version_manifest.json `
-  --tokenizer-selection-promotion artifacts\aeitron\experiments\tokenizer-selection-v1\promotion_decision.json `
-  --tokenizer-audit-report artifacts\aeitron\tokenizer-selected\tokenizer_audit_report.json `
-  --overfit-sanity-report artifacts\aeitron\t4-overfit\overfit_sanity_report.json `
-  --t4-1k-training-report artifacts\aeitron\t4-1k\training_report.json `
-  --t4-10k-training-report artifacts\aeitron\t4-10k\training_report.json `
-  --output-dir artifacts\aeitron\scratch-advancement
+  --calibration-preflight-report artifacts\craftly\calibration-preflight\calibration_preflight_report.json `
+  --calibration-200-decision artifacts\craftly\calibration-200\calibration_decision.json `
+  --calibration-5k-decision artifacts\craftly\calibration-5k\calibration_decision.json `
+  --production-dataset-manifest data\production\craftly-foundation-v1\dataset_version_manifest.json `
+  --tokenizer-selection-promotion artifacts\craftly\experiments\tokenizer-selection-v1\promotion_decision.json `
+  --tokenizer-audit-report artifacts\craftly\tokenizer-selected\tokenizer_audit_report.json `
+  --overfit-sanity-report artifacts\craftly\t4-overfit\overfit_sanity_report.json `
+  --t4-1k-training-report artifacts\craftly\t4-1k\training_report.json `
+  --t4-10k-training-report artifacts\craftly\t4-10k\training_report.json `
+  --output-dir artifacts\craftly\scratch-advancement
 ```
 
 Missing evidence produces a hash-bound blocked report with the first exact next
@@ -1288,9 +1289,9 @@ python -m src.aeitron.learning.source_registry `
   --select-source docker-production-builds `
   --select-source kubernetes-production-security `
   --expect-source-count 8 `
-  --selection-manifest artifacts\aeitron\governance\day-1-3-balanced-foundation-8\source_selection_manifest.json `
-  --prepare-approval-dir artifacts\aeitron\governance\day-1-3-balanced-foundation-8\approval-requests `
-  --output artifacts\aeitron\governance\day-1-3-balanced-foundation-8\sources.pending.json
+  --selection-manifest artifacts\craftly\governance\day-1-3-balanced-foundation-8\source_selection_manifest.json `
+  --prepare-approval-dir artifacts\craftly\governance\day-1-3-balanced-foundation-8\approval-requests `
+  --output artifacts\craftly\governance\day-1-3-balanced-foundation-8\sources.pending.json
 ```
 
 The pending artifact is not a governed registry and cannot start production
@@ -1308,10 +1309,10 @@ the generated request hashes. Only a `ready` preflight permits:
 python -m src.aeitron.learning.calibration_gate run `
   --stage calibration_200 `
   --sources config\data_sources.governed.json `
-  --reviewer-roster C:\AeitronGovernance\data_reviewers.json `
-  --reviewer-qualification-report C:\AeitronGovernance\qualification-result\reviewer_qualification_report.json `
-  --legal-evidence-dir C:\AeitronGovernance\source-approvals `
-  --work-dir artifacts\aeitron\calibration-200-v1
+  --reviewer-roster C:\CraftlyGovernance\data_reviewers.json `
+  --reviewer-qualification-report C:\CraftlyGovernance\qualification-result\reviewer_qualification_report.json `
+  --legal-evidence-dir C:\CraftlyGovernance\source-approvals `
+  --work-dir artifacts\craftly\calibration-200-v1
 ```
 
 The run binds its deterministic human-review sample to the Dataset Authority.
@@ -1323,12 +1324,12 @@ zero. Run 5k only with the passed 200 decision:
 ```powershell
 python -m src.aeitron.learning.calibration_gate run `
   --stage calibration_5k `
-  --prior-decision artifacts\aeitron\calibration-200-v1\calibration_decision.json `
+  --prior-decision artifacts\craftly\calibration-200-v1\calibration_decision.json `
   --sources config\data_sources.governed.json `
-  --reviewer-roster C:\AeitronGovernance\data_reviewers.json `
-  --reviewer-qualification-report C:\AeitronGovernance\qualification-result\reviewer_qualification_report.json `
-  --legal-evidence-dir C:\AeitronGovernance\source-approvals `
-  --work-dir artifacts\aeitron\calibration-5k-v1
+  --reviewer-roster C:\CraftlyGovernance\data_reviewers.json `
+  --reviewer-qualification-report C:\CraftlyGovernance\qualification-result\reviewer_qualification_report.json `
+  --legal-evidence-dir C:\CraftlyGovernance\source-approvals `
+  --work-dir artifacts\craftly\calibration-5k-v1
 ```
 
 A passed 5k decision emits `100k_dataset_build_allowed`; production dataset
@@ -1350,10 +1351,10 @@ stage infers success from file presence alone.
 
 ```powershell
 python -m src.aeitron.learning.dataset_authority evaluate-reviewer-qualification `
-  --governance-dir C:\AeitronGovernance `
-  --response C:\AeitronGovernance\reviewer-1\reviewer-responses.jsonl `
-  --response C:\AeitronGovernance\reviewer-2\reviewer-responses.jsonl `
-  --output-dir C:\AeitronGovernance\qualification-result
+  --governance-dir C:\CraftlyGovernance `
+  --response C:\CraftlyGovernance\reviewer-1\reviewer-responses.jsonl `
+  --response C:\CraftlyGovernance\reviewer-2\reviewer-responses.jsonl `
+  --output-dir C:\CraftlyGovernance\qualification-result
 ```
 
 The report must pass minimum reviewer accuracy `0.95` and Cohen's kappa `0.80`.
@@ -1362,7 +1363,7 @@ OIDC subjects, and per-row correctness are not emitted.
 
 2. The tracked `config/data_sources.governed.staging.json` contains exactly
 eight selected sources in quarantine. Approval requests are generated under
-the ignored `artifacts/aeitron/source-approval-requests` directory. An
+the ignored `artifacts/craftly/source-approval-requests` directory. An
 authorized human must provide the official license text, immutable upstream
 revision, and signed decision for each source. Sequential approvals produce
 `config/data_sources.governed.json`; the CLI refuses missing, stale, rolling,
@@ -1378,9 +1379,9 @@ cannot authorize advancement.
 
 ```powershell
 python -m src.aeitron.model_ops.tokenizer_pipeline `
-  --input data\production\aeitron-foundation-v1\train.jsonl `
-  --output-dir artifacts\aeitron\tokenizer-candidate `
-  --dataset-id aeitron-foundation-v1 `
+  --input data\production\craftly-foundation-v1\train.jsonl `
+  --output-dir artifacts\craftly\tokenizer-candidate `
+  --dataset-id craftly-foundation-v1 `
   --vocab-size 128000 `
   --real-corpus-audit
 ```
@@ -1402,10 +1403,10 @@ python -m src.aeitron.evaluation.benchmark_suites `
   --tokenizer-path TOKENIZER.json `
   --candidates-per-task 10 `
   --pass-k 1,5,10 `
-  --output-dir artifacts\aeitron\executable-eval
+  --output-dir artifacts\craftly\executable-eval
 ```
 
-Candidates are generated by the selected Aeitron checkpoint and executed in
+Candidates are generated by the selected Craftly checkpoint and executed in
 the hardened Docker sandbox. The older static adapter is explicitly labeled
 `dataset_validation`; it is not a model capability score.
 
@@ -1417,11 +1418,11 @@ profile:
 python -m src.aeitron.model_ops.backends promote-checkpoint `
   --checkpoint-manifest CHECKPOINT_MANIFEST.json `
   --tokenizer-path TOKENIZER.json `
-  --evaluation-report artifacts\aeitron\executable-eval\benchmark_suites_report.json `
-  --scorecard-report artifacts\aeitron\agent-scorecard\agent_scorecard.json `
+  --evaluation-report artifacts\craftly\executable-eval\benchmark_suites_report.json `
+  --scorecard-report artifacts\craftly\agent-scorecard\agent_scorecard.json `
   --promotion-mode production `
   --endpoint https://serving.internal.example/v1 `
-  --output C:\AeitronGovernance\active-model-profile.json
+  --output C:\CraftlyGovernance\active-model-profile.json
 ```
 
 Set `AEITRON_ACTIVE_MODEL_PROFILE_PATH` to that external immutable profile.
@@ -1451,7 +1452,7 @@ refuses to instantiate the 4T profile. Megatron-Core owns the production
 TP/PP/DP/CP/EP runtime, and remains `built_not_cluster_proven` until real
 cluster checkpoint/recovery and load evidence exists.
 
-The immutable `aeitron-4t-moe` workspace profile binds TP8/PP12/DP16/CP4/EP16,
+The immutable `craftly-4t-moe` workspace profile binds TP8/PP12/DP16/CP4/EP16,
 6,144 GPUs, and a 30T governed-token exposure target. Training-token accounting
 uses only data-parallel replicas; model-parallel ranks do not multiply the
 global batch. Dense HF export deliberately rejects MLA/MoE checkpoints, so
@@ -1468,7 +1469,7 @@ python -m src.aeitron.evaluation.benchmark_suites `
   --suite repoqa repoqa_style data\eval\protected\repoqa.jsonl `
   --checkpoint-manifest CHECKPOINT_MANIFEST.json `
   --tokenizer-path TOKENIZER.json `
-  --output-dir artifacts\aeitron\long-context-eval
+  --output-dir artifacts\craftly\long-context-eval
 ```
 
 This measures evidence recall, order sensitivity and unsupported claims. A 5M
@@ -1522,17 +1523,17 @@ The scratch embedding lifecycle is executable and hash-bound:
 
 ```powershell
 python -m src.aeitron.indexing.vector_index build-pairs `
-  --sqlite-path data\aeitron.sqlite3 --project-id PROJECT_ID `
+  --sqlite-path data\craftly.sqlite3 --project-id PROJECT_ID `
   --output data\rag\embedding-pairs.jsonl --minimum-pairs 500
 
 python -m src.aeitron.indexing.vector_index train `
   --pairs data\rag\embedding-pairs.jsonl `
-  --tokenizer artifacts\aeitron\tokenizer\tokenizer.json `
+  --tokenizer artifacts\craftly\tokenizer\tokenizer.json `
   --config config\rag_embedding_training.json `
-  --output-dir artifacts\aeitron\rag-embedding
+  --output-dir artifacts\craftly\rag-embedding
 ```
 
-This trains `Aeitron-Code-Embed-v1` from random initialization with symmetric
+This trains `Craftly-Code-Embed-v1` from random initialization with symmetric
 InfoNCE, in-batch and explicit hard negatives, family-safe validation split,
 mixed precision, gradient accumulation/clipping, warmup/cosine decay, finite
 loss guards, best-checkpoint selection, early stopping, collapse detection,
@@ -1542,9 +1543,9 @@ The governed evaluation and scale interfaces are:
 
 ```powershell
 python -m src.aeitron.indexing.context_builder build-candidates --organization-id ORG_UUID --project-id PROJECT_UUID --output data\eval\rag-candidates.jsonl --target-tasks 500
-python -m src.aeitron.indexing.context_builder evaluate --tasks GOVERNED_TASKS.jsonl --governance GOVERNANCE.json --database-url $env:AEITRON_DATABASE_URL --organization-id ORG_UUID --production --output-dir artifacts\aeitron\rag-eval
-python -m src.aeitron.indexing.context_builder scale-plan --target-chunks 100000000 --output-dir artifacts\aeitron\rag-scale
-python -m src.aeitron.indexing.context_builder load-test --endpoint https://gateway.example.com --organization-id ORG_UUID --project-id PROJECT_UUID --queries GOVERNED_QUERIES.jsonl --target-chunks 100000000 --output-dir artifacts\aeitron\rag-load
+python -m src.aeitron.indexing.context_builder evaluate --tasks GOVERNED_TASKS.jsonl --governance GOVERNANCE.json --database-url $env:AEITRON_DATABASE_URL --organization-id ORG_UUID --production --output-dir artifacts\craftly\rag-eval
+python -m src.aeitron.indexing.context_builder scale-plan --target-chunks 100000000 --output-dir artifacts\craftly\rag-scale
+python -m src.aeitron.indexing.context_builder load-test --endpoint https://gateway.example.com --organization-id ORG_UUID --project-id PROJECT_UUID --queries GOVERNED_QUERIES.jsonl --target-chunks 100000000 --output-dir artifacts\craftly\rag-load
 ```
 
 Candidate generation never self-approves tasks. Strict evaluation requires at
@@ -1562,7 +1563,7 @@ POST /v1/context/vector-sync
 
 Production Qdrant requires both `AEITRON_QDRANT_URL` and a real
 `AEITRON_EMBEDDING_URL`, plus an `AEITRON_EMBEDDING_MANIFEST` proving an
-Aeitron-owned scratch checkpoint, tokenizer hash, dataset hash, dimensions and
+Craftly-owned scratch checkpoint, tokenizer hash, dataset hash, dimensions and
 checkpoint hash. Local hashing is a development fallback and never qualifies
 as production semantic retrieval.
 
@@ -1578,7 +1579,7 @@ The disposable real-dependency proof has passed Postgres migrations, Redis,
 MinIO checksum lifecycle, Qdrant tenant isolation, durable index idempotency,
 global job dispatch, Tree-sitter persistence, injected vector-outbox failure,
 attempt-two replay, and cleanup. The subsystem remains
-`built_not_production_proven` until an Aeitron scratch embedding checkpoint,
+`built_not_production_proven` until a Craftly scratch embedding checkpoint,
 governed 500-task report, 100M-chunk/1,000-concurrent load report, native model
 serving, chaos, and soak evidence meet the release thresholds.
 

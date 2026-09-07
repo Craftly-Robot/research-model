@@ -1,4 +1,4 @@
-﻿"""Production readiness contract for Aeitron.
+"""Production readiness contract for Aeitron.
 
 This module is the single source of truth for honest deployment status. It does
 not fake external infrastructure: services that require Redis, Postgres, object
@@ -153,11 +153,11 @@ def _check_model_backend(mode: str) -> ReadinessCheck:
     missing = []
     if backend == "mock":
         missing.append("non-mock AEITRON_MODEL_BACKEND")
-    if backend in {"aeitron_serving", "aeitron_serving", "active"} and not active.get("endpoint"):
+    if backend in {"craftly_serving", "aeitron_serving", "active"} and not active.get("endpoint"):
         missing.append("AEITRON_MODEL_ENDPOINT")
-    checkpoint_manifest = os.environ.get("AEITRON_CHECKPOINT_MANIFEST", "")
-    tokenizer_path = os.environ.get("AEITRON_TOKENIZER_PATH", "")
-    if backend in {"aeitron_serving", "aeitron_serving", "active"}:
+    checkpoint_manifest = os.environ.get("CRAFTLY_CHECKPOINT_MANIFEST") or os.environ.get("AEITRON_CHECKPOINT_MANIFEST", "")
+    tokenizer_path = os.environ.get("CRAFTLY_TOKENIZER_PATH") or os.environ.get("AEITRON_TOKENIZER_PATH", "")
+    if backend in {"craftly_serving", "aeitron_serving", "active"}:
         if not checkpoint_manifest or not Path(checkpoint_manifest).exists():
             missing.append("AEITRON_CHECKPOINT_MANIFEST existing file")
         if not tokenizer_path or not Path(tokenizer_path).exists():
@@ -165,7 +165,7 @@ def _check_model_backend(mode: str) -> ReadinessCheck:
     return ReadinessCheck(
         subsystem="serving",
         status="production_ready" if not missing else "blocked_missing_dependency",
-        summary="Native Aeitron serving backend is selected." if not missing else "Serving is still using mock/test-double configuration.",
+        summary="Native Craftly serving backend is selected." if not missing else "Serving is still using mock/test-double configuration.",
         required_dependencies=["AEITRON_MODEL_BACKEND", "AEITRON_MODEL_ENDPOINT", "AEITRON_CHECKPOINT_MANIFEST", "AEITRON_TOKENIZER_PATH"],
         missing_dependencies=missing,
         evidence={

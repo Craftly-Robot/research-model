@@ -1,4 +1,4 @@
-﻿"""Serving adapters for Aeitron-owned model checkpoints.
+"""Serving adapters for Aeitron-owned model checkpoints.
 
 Aeitron is scratch-first. The only production serving backend here targets a
 Aeitron checkpoint served locally/privately. The mock backend is a test double
@@ -95,6 +95,9 @@ class AeitronServingBackend(ModelBackend):
         await self.client.aclose()
 
 
+CraftlyServingBackend = AeitronServingBackend
+
+
 def _profile_payload() -> dict[str, Any]:
     payload = load_active_profile()
     profile = payload.get("profile") if isinstance(payload.get("profile"), dict) else {}
@@ -104,43 +107,76 @@ def _profile_payload() -> dict[str, Any]:
 
 def build_active_backend() -> ModelBackend:
     profile = _profile_payload()
-    backend = str(profile.get("backend") or os.environ.get("AEITRON_MODEL_BACKEND") or "mock")
-    if backend in {"aeitron_serving", "active"}:
+    backend = str(
+        profile.get("backend")
+        or os.environ.get("CRAFTLY_MODEL_BACKEND")
+        or os.environ.get("AEITRON_MODEL_BACKEND")
+        or "mock"
+    )
+    if backend in {"craftly_serving", "aeitron_serving", "active"}:
         return AeitronServingBackend(
-            endpoint=str(profile.get("endpoint") or os.environ.get("AEITRON_MODEL_ENDPOINT") or "http://127.0.0.1:8000/v1"),
-            model_name=str(profile.get("model_name") or os.environ.get("AEITRON_MODEL_NAME") or "aeitron-scratch"),
-            api_key=os.environ.get("AEITRON_MODEL_API_KEY"),
+            endpoint=str(
+                profile.get("endpoint")
+                or os.environ.get("CRAFTLY_MODEL_ENDPOINT")
+                or os.environ.get("AEITRON_MODEL_ENDPOINT")
+                or "http://127.0.0.1:8000/v1"
+            ),
+            model_name=str(
+                profile.get("model_name")
+                or os.environ.get("CRAFTLY_MODEL_NAME")
+                or os.environ.get("AEITRON_MODEL_NAME")
+                or "craftly-scratch"
+            ),
+            api_key=os.environ.get("CRAFTLY_MODEL_API_KEY") or os.environ.get("AEITRON_MODEL_API_KEY"),
         )
     return MockModelBackend()
 
 
 def list_model_profiles() -> dict[str, Any]:
+    endpoint = os.environ.get("CRAFTLY_MODEL_ENDPOINT") or os.environ.get("AEITRON_MODEL_ENDPOINT", "http://127.0.0.1:8000/v1")
+    model_name = os.environ.get("CRAFTLY_MODEL_NAME") or os.environ.get("AEITRON_MODEL_NAME", "craftly-scratch")
     return {
         "mock": {"backend": "mock", "quality": "test double only, not a real model"},
         "aeitron-scratch-local": {
             "backend": "aeitron_serving",
-            "endpoint": os.environ.get("AEITRON_MODEL_ENDPOINT", "http://127.0.0.1:8000/v1"),
-            "model_name": os.environ.get("AEITRON_MODEL_NAME", "aeitron-scratch"),
-            "checkpoint_policy": "Aeitron-owned scratch checkpoint only",
+            "endpoint": endpoint,
+            "model_name": model_name,
+            "checkpoint_policy": "Craftly-owned scratch checkpoint only",
         },
     }
 
 
-def activate_model_profile(name: str, *, run_id: str = "aeitron-profile") -> dict[str, Any]:
+def activate_model_profile(name: str, *, run_id: str = "craftly-profile") -> dict[str, Any]:
     profiles = list_model_profiles()
-    if name not in profiles:
+    key = "aeitron-scratch-local" if name in {"aeitron-scratch-local", "craftly-scratch-local"} else name
+    if key not in profiles:
         raise ValueError(f"unknown model profile: {name}")
-    return {"run_id": run_id, "activated": name, "profile": profiles[name]}
+    return {"run_id": run_id, "activated": name, "profile": profiles[key]}
 
 
 def active_model_health() -> dict[str, Any]:
     profile = _profile_payload()
-    backend = str(profile.get("backend") or os.environ.get("AEITRON_MODEL_BACKEND") or "mock")
+    backend = str(
+        profile.get("backend")
+        or os.environ.get("CRAFTLY_MODEL_BACKEND")
+        or os.environ.get("AEITRON_MODEL_BACKEND")
+        or "mock"
+    )
     return {
         "ok": True,
         "backend": backend,
-        "endpoint": str(profile.get("endpoint") or os.environ.get("AEITRON_MODEL_ENDPOINT") or ""),
-        "model_name": str(profile.get("model_name") or os.environ.get("AEITRON_MODEL_NAME") or "mock"),
+        "endpoint": str(
+            profile.get("endpoint")
+            or os.environ.get("CRAFTLY_MODEL_ENDPOINT")
+            or os.environ.get("AEITRON_MODEL_ENDPOINT")
+            or ""
+        ),
+        "model_name": str(
+            profile.get("model_name")
+            or os.environ.get("CRAFTLY_MODEL_NAME")
+            or os.environ.get("AEITRON_MODEL_NAME")
+            or "mock"
+        ),
     }
 
 

@@ -1,4 +1,4 @@
-﻿"""Runtime configuration helpers for consolidated Aeitron modules."""
+"""Runtime configuration helpers for consolidated Aeitron modules."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[3]
 
 
 def active_profile_path() -> Path:
-    override = os.environ.get("AEITRON_ACTIVE_MODEL_PROFILE_PATH")
+    override = os.environ.get("CRAFTLY_ACTIVE_MODEL_PROFILE_PATH") or os.environ.get("AEITRON_ACTIVE_MODEL_PROFILE_PATH")
     return Path(override).expanduser().resolve() if override else ROOT / "config" / "active_model_profile.json"
 
 
