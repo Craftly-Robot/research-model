@@ -1,16 +1,17 @@
-﻿# Aeitron Agentic AI
+# Craftly Agentic AI (Research Model)
 
-Aeitron is an AI coding-agent backend for repository understanding, code editing,
-patch verification, and model-agnostic serving.
+Craftly is an AI coding-agent backend and defensive cybersecurity architecture for repository understanding, code editing,
+patch verification, continuous learning, and model-agnostic serving.
 
-The final architecture lives under `src/aeitron`. The old numbered
-architecture has been removed.
+Developed by the **Craftly Robot Research Team** ([Craftly-Robot/research-model](https://github.com/Craftly-Robot/research-model)).
+
+The core production engine lives under `src/aeitron` with full public Craftly interfaces.
 
 ## Operating Roadmap
 
-Aeitron follows this roadmap for every future change:
+Craftly follows this roadmap for every future change:
 
-- Scratch-origin model development. External weights and adapter training are prohibited; evidence-gated full-parameter continuation is allowed only for qualified Aeitron-owned weights.
+- Scratch-origin model development. External weights and adapter training are prohibited; evidence-gated full-parameter continuation is allowed only for qualified Craftly-owned weights.
 - Production-grade code only: explicit validation, fail-fast dependency checks, secure defaults, no placeholder success paths, and no fake readiness claims.
 - Coding-agent performance first: repository indexing, context packing, TaskGraph execution, patch generation, verification, and benchmark feedback get priority over impressive but unused abstractions.
 - Cybersecurity scope stays governed: approved sources, defensive analysis, authorized labs/CTFs/eval material, security patch generation, and verification. No autonomous live-target attack workflow.

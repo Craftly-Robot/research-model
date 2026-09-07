@@ -1,9 +1,9 @@
-# Aeitron Repository Instructions
+# Craftly Repository Instructions
 
 ## Scope And Authority
 
 This file applies to the entire repository. `src/aeitron` is the authoritative
-application source root. Use Aeitron as the product and model name in all new
+application source root. Use Craftly as the primary product and model name in all new
 code, configuration, documentation, artifacts, and user-facing text.
 
 Treat this file as the operational policy for coding agents. Use `README.md`

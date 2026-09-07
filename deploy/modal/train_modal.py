@@ -1,7 +1,7 @@
-"""Modal.com 2-Hour Continuous Scratch Training Entrypoint for Aeitron.
+"""Modal.com 2-Hour Continuous Scratch Training Entrypoint for Craftly.
 
-This script runs a continuous scratch pretraining job for the Aeitron cybersecurity
-AI architecture on high-end NVIDIA GPUs (A100-80GB / H100) via Modal.com.
+This script runs a continuous scratch pretraining job for the Craftly cybersecurity
+AI architecture on high-end NVIDIA GPUs (A100-80GB / H100 / H200) via Modal.com.
 
 Features:
 - Modal Volume persistence (/vol) for checkpoints, datasets, tokenizers, and logs.
@@ -34,12 +34,16 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # Modal App & Infrastructure Definition
 # ---------------------------------------------------------------------------
-APP_NAME = "aeitron-cybersecurity-training"
-VOLUME_NAME = "aeitron-training-volume"
+APP_NAME = "craftly-cybersecurity-training"
+VOLUME_NAME = "craftly-training-volume"
 
 if modal is not None:
     app = modal.App(APP_NAME)
-    training_volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
+    # Support both craftly volume and fallback to aeitron volume if user has existing volume
+    try:
+        training_volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
+    except Exception:
+        training_volume = modal.Volume.from_name("aeitron-training-volume", create_if_missing=True)
 
     training_image = (
         modal.Image.debian_slim(python_version="3.11")
@@ -252,20 +256,20 @@ async def prepare_defensive_training_corpus(corpus_path: Path, max_records: int 
     # Add SFT Chat Instruction Pairs for conversational maturity
     chat_instruction_pairs = [
         (
-            "<|im_start|>system\nYou are Aeitron, a production-grade defensive cybersecurity AI engineering assistant.<|im_end|>\n"
+            "<|im_start|>system\nYou are Craftly, a production-grade defensive cybersecurity AI engineering assistant.<|im_end|>\n"
             "<|im_start|>user\nHow do I secure an endpoint vulnerable to SQL injection?<|im_end|>\n"
             "<|im_start|>assistant\nTo remediate SQL injection (CWE-89), always replace string interpolation with parameterized queries or prepared statements:\n\n"
             "```python\n# Secure Remediation\ncursor.execute('SELECT * FROM users WHERE username = %s', (username,))\n```\n"
             "This guarantees user inputs are handled strictly as literal values rather than executable SQL commands.<|im_end|>\n"
         ),
         (
-            "<|im_start|>system\nYou are Aeitron, a production-grade defensive cybersecurity AI engineering assistant.<|im_end|>\n"
+            "<|im_start|>system\nYou are Craftly, a production-grade defensive cybersecurity AI engineering assistant.<|im_end|>\n"
             "<|im_start|>user\nHow can I prevent path traversal when reading user-specified files in Python?<|im_end|>\n"
             "<|im_start|>assistant\nTo prevent path traversal (CWE-22), canonicalize the path with `resolve()` and verify containment within the intended base directory:\n\n"
             "```python\nfrom pathlib import Path\n\nbase = Path('/safe/dir').resolve()\ntarget = (base / user_filename).resolve()\nif not target.is_relative_to(base):\n    raise PermissionError('Path traversal detected outside base directory')\ncontent = target.read_text(encoding='utf-8')\n```<|im_end|>\n"
         ),
         (
-            "<|im_start|>system\nYou are Aeitron, a production-grade defensive cybersecurity AI engineering assistant.<|im_end|>\n"
+            "<|im_start|>system\nYou are Craftly, a production-grade defensive cybersecurity AI engineering assistant.<|im_end|>\n"
             "<|im_start|>user\nWhat is the recommended defense against Server-Side Request Forgery (SSRF)?<|im_end|>\n"
             "<|im_start|>assistant\nDefending against SSRF (CWE-918) requires:\n"
             "1. Validating the URL scheme against an allowlist (e.g. HTTPS only).\n"
@@ -273,7 +277,7 @@ async def prepare_defensive_training_corpus(corpus_path: Path, max_records: int 
             "3. Disabling HTTP redirects or re-validating the destination after every redirect.<|im_end|>\n"
         ),
         (
-            "<|im_start|>system\nYou are Aeitron, a production-grade defensive cybersecurity AI engineering assistant.<|im_end|>\n"
+            "<|im_start|>system\nYou are Craftly, a production-grade defensive cybersecurity AI engineering assistant.<|im_end|>\n"
             "<|im_start|>user\nHow should authentication tokens be compared in Python?<|im_end|>\n"
             "<|im_start|>assistant\nAlways use constant-time comparison to prevent side-channel timing attacks (CWE-208):\n\n"
             "```python\nimport hmac\n\nif not hmac.compare_digest(user_token, secret_token):\n    raise PermissionError('Invalid credentials')\n```<|im_end|>\n"
@@ -377,7 +381,7 @@ def run_training_workstation(
 
     # 1. Inspect Hardware
     print("=" * 70)
-    print("AEITRON DEFENSIVE AI - 2-HOUR SCRATCH TRAINING")
+    print("CRAFTLY DEFENSIVE AI - 2-HOUR SCRATCH TRAINING")
     print("=" * 70)
     print(f"PyTorch Version: {torch.__version__}")
     print(f"CUDA Available:  {torch.cuda.is_available()}")
@@ -413,7 +417,7 @@ def run_training_workstation(
 
     # 4. Tokenizer Training (if not already trained in volume)
     if not tokenizer_file.exists():
-        print("[Pipeline] Training Aeitron 128k BPE Tokenizer...")
+        print("[Pipeline] Training Craftly 128k BPE Tokenizer...")
         train_bpe_tokenizer(
             [corpus_file],
             tokenizer_file,
@@ -512,7 +516,7 @@ def run_training_workstation(
     # 9. Automatically create clean lightweight inference bundle (~150MB) for ultra-fast download
     try:
         import shutil
-        clean_dir = volume_root.parent / f"aeitron_{profile_name}_clean_inference"
+        clean_dir = volume_root.parent / f"craftly_{profile_name}_clean_inference"
         shutil.rmtree(clean_dir, ignore_errors=True)
         clean_dir.mkdir(parents=True, exist_ok=True)
 
@@ -541,9 +545,11 @@ def run_training_workstation(
                     }
                     torch.save(clean_payload, dest_ckpt / "model.pt")
 
-            fast_zip = Path(f"/root/aeitron_{profile_name}_fast_model")
+            fast_zip = Path(f"/root/craftly_{profile_name}_fast_model")
             shutil.make_archive(str(fast_zip), "zip", clean_dir)
-            # Also keep legacy 150mb alias if 300m profile for compatibility
+            # Also keep legacy/compat alias if needed
+            compat_zip = Path(f"/root/aeitron_{profile_name}_fast_model")
+            shutil.copy(f"{fast_zip}.zip", f"{compat_zip}.zip")
             if profile_name == "300m":
                 legacy_zip = Path("/root/aeitron_300m_fast_model_150mb")
                 shutil.copy(f"{fast_zip}.zip", f"{legacy_zip}.zip")
@@ -573,12 +579,12 @@ def safe_volume_commit() -> None:
 # ---------------------------------------------------------------------------
 if app is not None:
     @app.function(
-        gpu="A100-80GB",  # High-memory A100 (or "H100" if available)
+        gpu="A100-80GB",  # High-memory A100 (or "H100" / "H200" if available)
         timeout=7200,      # 2 hours continuous execution
         volumes={"/vol": training_volume},
         image=training_image,
     )
-    def train_aeitron_modal(
+    def train_craftly_modal(
         profile: str = "300m",
         steps: int = 15000,
         batch_size: int = 4,
@@ -600,6 +606,9 @@ if app is not None:
             resume=resume,
         )
 
+    # Backward compatibility alias
+    train_aeitron_modal = train_craftly_modal
+
 
 # ---------------------------------------------------------------------------
 # CLI Entrypoint for Direct Execution
@@ -607,7 +616,7 @@ if app is not None:
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Aeitron Continuous Scratch Pretraining.")
+    parser = argparse.ArgumentParser(description="Craftly Continuous Scratch Pretraining.")
     default_out = "/vol/train_run" if Path("/vol").exists() else "artifacts/aeitron/train_run"
     parser.add_argument("--output-dir", default=default_out)
     parser.add_argument(

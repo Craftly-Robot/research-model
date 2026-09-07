@@ -1,4 +1,4 @@
-﻿"""Scratch-model foundation contracts for Aeitron.
+"""Scratch-model foundation contracts for Aeitron.
 
 This module is intentionally not a fine-tuning wrapper. It defines the stable
 contracts Aeitron will use for tokenizer assets, decoder-only architecture
@@ -849,19 +849,27 @@ def model_profiles() -> dict[str, ScratchDecoderConfig]:
 
 
 def model_profile(name: str) -> ScratchDecoderConfig:
-    key = name.lower()
+    normalized = name.lower()
+    key = normalized.removeprefix("craftly-").removeprefix("aeitron-").replace("-", "_")
     profiles = model_profiles()
-    if key not in profiles:
-        raise ValueError(f"unknown model profile: {name}")
-    return profiles[key]
+    if key in profiles:
+        return profiles[key]
+    if normalized in profiles:
+        return profiles[normalized]
+    raise ValueError(f"unknown model profile: {name}")
 
 
 def architecture_presets() -> dict[str, ScratchDecoderConfig]:
     """Public compatibility view backed by the canonical model contracts."""
-    return {
-        f"aeitron-{key.replace('_', '-')}": model_profile(key)
+    presets = {
+        f"craftly-{key.replace('_', '-')}": model_profile(key)
         for key in ("7b", "7b_moe", "32b", "62b", "4t_moe")
     }
+    presets.update({
+        f"aeitron-{key.replace('_', '-')}": model_profile(key)
+        for key in ("7b", "7b_moe", "32b", "62b", "4t_moe")
+    })
+    return presets
 
 
 def foundation_status() -> dict[str, Any]:
