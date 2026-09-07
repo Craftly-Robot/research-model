@@ -1,21 +1,28 @@
-# Security Policy
+# Craftly Security Policy
+
+## Defensive Scope & Governance
+
+Craftly is a defensive cybersecurity and continuous learning AI research architecture maintained by the **Craftly Robot Research Team**.
+
+Functionality is strictly limited to:
+- Defensive vulnerability identification and root-cause analysis (CWE classifications).
+- Deterministic, regression-tested patch synthesis.
+- Governed education and explicitly authorized security evaluations.
+- No autonomous live-target attack workflows, credential theft, or unbounded malware execution.
 
 ## Supported Versions
 
-Use this section to tell people about which versions of your project are
-Currently being supported with security updates.
-
 | Version | Supported          |
 | ------- | ------------------ |
-| 5.1.x   | :white_check_mark: |
-| 5.0.x   | :x:                |
-| 4.0.x   | :white_check_mark: |
-| < 4.0   | :x:                |
+| 1.0.x (Master) | :white_check_mark: |
 
 ## Reporting a Vulnerability
 
-Use this section to tell people how to report a vulnerability.
+We take the security and integrity of our codebase, model architectures, and data pipelines seriously.
 
-Tell them where to go, how often they can expect to get an update on a
-reported vulnerability, what to expect if the vulnerability is accepted or
-declined, etc.
+If you identify a security vulnerability, private data leak, or safety concern:
+1. **Do not** create a public GitHub issue.
+2. Please privately report the issue to the Craftly Robot Research Team via GitHub Private Vulnerability Reporting at:
+   `https://github.com/Craftly-Robot/research-model/security/advisories/new`
+3. Provide a detailed summary, steps to reproduce, and affected files.
+4. The team will acknowledge receipt within 48 hours and work with you on a responsible remediation patch.
