@@ -13,8 +13,7 @@ dependencies = [
 
 [project.scripts]
 craftly = "src.craftly.training_client:main"
-craftly = "src.craftly.training_client:main"
 
 [tool.setuptools]
 packages = ["src", "src.craftly"]
-py-modules = ["craftly_client", "craftly_client"]
+py-modules = ["craftly_client"]
