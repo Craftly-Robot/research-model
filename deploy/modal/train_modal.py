@@ -468,6 +468,7 @@ if app is not None:
 if __name__ == "__main__":
     import argparse
 
+    parser = argparse.ArgumentParser(description="Aeitron Continuous Scratch Pretraining.")
     default_out = "/vol/train_run" if Path("/vol").exists() else "artifacts/aeitron/train_run"
     parser.add_argument("--output-dir", default=default_out)
     parser.add_argument(
