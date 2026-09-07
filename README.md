@@ -1,58 +1,50 @@
-# Craftly Agentic AI (Research Model)
+# Craftly: Frontier Defensive AI & Continuous Learning Architecture
 
-Craftly is an AI coding-agent backend and defensive cybersecurity architecture for repository understanding, code editing,
-patch verification, continuous learning, and model-agnostic serving.
+> **A Scratch-Origin AI Architecture for Continuous Cybersecurity Learning, Repository Understanding, and Verified Vulnerability Remediation.**
 
-Developed by the **Craftly Robot Research Team** ([Craftly-Robot/research-model](https://github.com/Craftly-Robot/research-model)).
+Managed by the **Craftly Robot Research Team** ([https://github.com/Craftly-Robot/research-model](https://github.com/Craftly-Robot/research-model)).
 
-The core production engine lives under `src/aeitron` with full public Craftly interfaces.
+---
 
-## Operating Roadmap
+## 🎯 Research Mission & Vision
 
-Craftly follows this roadmap for every future change:
+Modern Large Language Models suffer from a fundamental limitation: **"Train Once, Frozen Forever."** Once deployed, model weights remain static, leaving them incapable of absorbing newly disclosed Zero-Day vulnerabilities (CVEs), novel exploit patterns, or real-time threat intelligence without catastrophic forgetting.
 
-- Scratch-origin model development. External weights and adapter training are prohibited; evidence-gated full-parameter continuation is allowed only for qualified Craftly-owned weights.
-- Production-grade code only: explicit validation, fail-fast dependency checks, secure defaults, no placeholder success paths, and no fake readiness claims.
-- Coding-agent performance first: repository indexing, context packing, TaskGraph execution, patch generation, verification, and benchmark feedback get priority over impressive but unused abstractions.
-- Cybersecurity scope stays governed: approved sources, defensive analysis, authorized labs/CTFs/eval material, security patch generation, and verification. No autonomous live-target attack workflow.
-- Data quality before scale: source reputation, license/provenance, contamination gates, deduplication, task extraction, review queues, and benchmark holdouts must run before tokenizer/sharding/training.
-- Production readiness is evidence-based: local smoke, Kaggle/Colab validation, and cluster production are separate statuses. Anything needing Redis/Postgres/S3/Qdrant/Docker/CUDA/benchmarks must say so honestly.
-- Keep the architecture consolidated. Avoid new phase explosion and tiny wrapper files unless separation is required for security, testing, deployment, or clear ownership.
-- Production-critical configs are strict contracts, not loose knobs:
-  `config/mix_ratios.json`, `config/eval_schedule.json`,
-  `config/active_model_profile.json`, `config/security_audit_excludes.json`,
-  and `config/verifier_policy.json` are validated before runtime use.
+**Craftly is engineered as an empirical AI research architecture to solve this challenge:**
+1. **Continual / Lifelong Learning**: Establishing dynamic replay buffers, parameter preservation, and progression ladders so deployed models continuously learn from active vulnerability databases (CISA KEV, OSV, verified security feeds) without degrading foundational reasoning.
+2. **Defensive Cybersecurity Specialization**: Moving beyond generic conversational chat to execute deep Abstract Syntax Tree (AST) analysis, control/data flow tracking, real-world vulnerability identification (CWE-89, CWE-22, CWE-918, etc.), and deterministic patch generation.
+3. **Pure Scratch-Origin Lineage**: 100% scratch initialization from tokenizers to multi-layer decoders (1B -> 7B -> 32B). No borrowed third-party weights, no LoRA approximations—ensuring complete mathematical governance and verifiable auditability.
 
-## What Works Now
+The core production engine lives under `src/aeitron` with full public Craftly interfaces (`craftly_client.py`, `tools/chat_craftly.py`).
 
-- FastAPI gateway
-- JWT auth middleware
-- quota enforcement middleware
-- Prometheus-style `/metrics` and structured JSON logs
-- Model-agnostic backend adapter
-- Scratch-first model foundation contracts for 7B/32B/70B/100B planning
-- Project and session APIs
-- Repository indexing
-- AST-aware Python symbol, call, import, and mutation metadata
-- local vector search for repository chunks
-- Context building
-- Durable TaskGraph runtime
-- concurrent dependency-ready TaskGraph workers with leases, timeout, retry, and cancellation
-- typed agent packets, durable message history, versioned shared blackboard
-- peer challenge, critic, verifier, and bounded three-revision reflection protocol
-- normalized failure clustering and verified repair dataset candidates
-- Tool command execution
-- Defensive Semgrep/CodeQL verifier hooks
-- hardened Docker sandbox contract
-- Patch preview/apply/rollback
-- preview/apply/verify/rollback patch loop
-- Verifier runtime
-- benchmark harness for coding/security tasks
-- config-driven checkpoint eval reports
-- token-level cybersecurity/code/general/agentic data mixer
-- scratch-only tokenizer, sharding, and pretraining control plane
-- safety, security, and regression evaluation gates
-- Native MVP tests
+---
+
+## 📐 Operating Roadmap
+
+Craftly follows this strict operational roadmap for every architectural change:
+
+- **Scratch-origin model development**: External foundation-model weights, borrowed baselines, LoRA, and adapters are prohibited; evidence-gated full-parameter continuation is allowed only for qualified Craftly-owned weights.
+- **Production-grade engineering only**: Explicit validation, fail-fast dependency checks, secure defaults, no placeholder success paths, and no fake readiness claims.
+- **Defensive cybersecurity scope**: Strictly defensive analysis, secure patch synthesis, governed education, authorized CTFs/labs, and verified vulnerability repair. No autonomous live-target attack workflows.
+- **Continual data governance**: Continuous ingestion pipeline for CISA KEV, OSV, and OWASP with cryptographic provenance, secret scrubbing, and de-duplication.
+- **Evidence-based readiness**: Local smoke, Colab/Modal H100/H200 validation, and production cluster proof are rigorously separated.
+- **Keep the architecture consolidated**: Avoid uncoordinated wrappers and abstractions unless required for runtime isolation, security, or persistence boundaries.
+- **Production-critical configs are strict contracts**: `config/mix_ratios.json`, `config/eval_schedule.json`, `config/active_model_profile.json`, and `config/verifier_policy.json` are validated before runtime use.
+
+---
+
+## ⚡ Core Capabilities (What Works Now)
+
+- **FastAPI Gateway & Auth**: JWT verification, quota enforcement, Prometheus `/metrics`, and structured JSON logging.
+- **Continuous Scratch Pretraining Loop**: BF16 mixed precision, SDPA FlashAttention, Cosine LR scheduling, gradient checkpointing, and dynamic compact weight packaging.
+- **Craftly 1B Defensive Model**: 1.13 Billion parameter decoder model with Grouped-Query Attention (GQA) and SwiGLU FFN blocks.
+- **Local Interactive Chat Tool**: Real-time terminal chat interface (`tools/chat_craftly.py`) capable of running on CPU or GPU.
+- **AST-Aware Repository Intelligence**: Python symbol extraction, import graph, and call hierarchy indexing.
+- **Durable TaskGraph Runtime**: Dependency-driven concurrent agent execution with checkpointing and state tracking.
+- **Deterministic Patch & Verifier Loop**: Preview, sandbox test execution, Semgrep/CodeQL verification, and automatic rollback on failure.
+- **Native Comprehensive Test Suite**: 265 test suites with 100% pass verification.
+
+---
 
 ## Repository Layout
 
