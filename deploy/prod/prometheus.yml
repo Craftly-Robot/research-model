@@ -11,7 +11,7 @@ alerting:
         - targets: ["alertmanager:9093"]
 
 scrape_configs:
-  - job_name: aeitron-api
+  - job_name: craftly-api
     metrics_path: /metrics
     static_configs:
       - targets:

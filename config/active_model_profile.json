@@ -16,16 +16,16 @@
     "notes": [
       "Stable local plumbing test double.",
       "Not a model strategy and never used for training quality.",
-      "Production must switch to a Aeitron-owned scratch checkpoint or serving endpoint."
+      "Production must switch to a Craftly-owned scratch checkpoint or serving endpoint."
     ]
   },
   "env": {
-    "AEITRON_ACTIVE_PROFILE": "mock-local",
-    "AEITRON_MODEL_BACKEND": "mock",
-    "AEITRON_MODEL_ENDPOINT": "",
-    "AEITRON_MODEL_NAME": "mock"
+    "CRAFTLY_ACTIVE_PROFILE": "mock-local",
+    "CRAFTLY_MODEL_BACKEND": "mock",
+    "CRAFTLY_MODEL_ENDPOINT": "",
+    "CRAFTLY_MODEL_NAME": "mock"
   },
-  "run_id": "aeitron-profile-local",
+  "run_id": "craftly-profile-local",
   "production_blockers": [
     "mock backend is dev-only",
     "no scratch checkpoint_manifest configured",

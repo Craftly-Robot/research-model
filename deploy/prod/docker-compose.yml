@@ -3,9 +3,9 @@
     build:
       context: ../..
       dockerfile: Dockerfile
-    command: ["python", "-m", "src.aeitron.db.migration_runner"]
+    command: ["python", "-m", "src.craftly.db.migration_runner"]
     environment:
-      AEITRON_DATABASE_URL: "postgresql://aeitron:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/aeitron"
+      CRAFTLY_DATABASE_URL: "postgresql://craftly:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/craftly"
     depends_on:
       postgres:
         condition: service_healthy
@@ -16,24 +16,24 @@
     ports:
       - "8090:8090"
     environment:
-      AEITRON_ENV: "production"
-      AEITRON_AUTH_ENABLED: "1"
-      AEITRON_QUOTA_ENABLED: "1"
-      AEITRON_JWT_SECRET: "${AEITRON_JWT_SECRET:?set AEITRON_JWT_SECRET}"
-      AEITRON_WORKSPACE_BOOTSTRAP_TOKEN: "${AEITRON_WORKSPACE_BOOTSTRAP_TOKEN:?set AEITRON_WORKSPACE_BOOTSTRAP_TOKEN}"
-      AEITRON_ALLOW_TOKEN_ISSUE: "0"
-      AEITRON_DATABASE_URL: "postgresql://aeitron:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/aeitron"
-      AEITRON_REDIS_URL: "redis://redis:6379/0"
-      AEITRON_QDRANT_URL: "http://qdrant:6333"
-      AEITRON_EMBEDDING_URL: "${AEITRON_EMBEDDING_URL:?set AEITRON_EMBEDDING_URL}"
-      AEITRON_OBJECT_STORE_URI: "s3://aeitron-datasets/training-workspace"
-      AEITRON_OBJECT_STORE_ENDPOINT_URL: "http://minio:9000"
-      AEITRON_OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318/v1/traces"
+      CRAFTLY_ENV: "production"
+      CRAFTLY_AUTH_ENABLED: "1"
+      CRAFTLY_QUOTA_ENABLED: "1"
+      CRAFTLY_JWT_SECRET: "${CRAFTLY_JWT_SECRET:?set CRAFTLY_JWT_SECRET}"
+      CRAFTLY_WORKSPACE_BOOTSTRAP_TOKEN: "${CRAFTLY_WORKSPACE_BOOTSTRAP_TOKEN:?set CRAFTLY_WORKSPACE_BOOTSTRAP_TOKEN}"
+      CRAFTLY_ALLOW_TOKEN_ISSUE: "0"
+      CRAFTLY_DATABASE_URL: "postgresql://craftly:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/craftly"
+      CRAFTLY_REDIS_URL: "redis://redis:6379/0"
+      CRAFTLY_QDRANT_URL: "http://qdrant:6333"
+      CRAFTLY_EMBEDDING_URL: "${CRAFTLY_EMBEDDING_URL:?set CRAFTLY_EMBEDDING_URL}"
+      CRAFTLY_OBJECT_STORE_URI: "s3://craftly-datasets/training-workspace"
+      CRAFTLY_OBJECT_STORE_ENDPOINT_URL: "http://minio:9000"
+      CRAFTLY_OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector:4318/v1/traces"
       AWS_ACCESS_KEY_ID: "${MINIO_ROOT_USER:?set MINIO_ROOT_USER}"
       AWS_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}"
       AWS_EC2_METADATA_DISABLED: "true"
-      AEITRON_TRAINING_GIT_COMMIT: "${AEITRON_TRAINING_GIT_COMMIT:?set AEITRON_TRAINING_GIT_COMMIT}"
-      AEITRON_TRAINING_IMAGE_DIGEST: "${AEITRON_TRAINING_IMAGE_DIGEST:?set AEITRON_TRAINING_IMAGE_DIGEST}"
+      CRAFTLY_TRAINING_GIT_COMMIT: "${CRAFTLY_TRAINING_GIT_COMMIT:?set CRAFTLY_TRAINING_GIT_COMMIT}"
+      CRAFTLY_TRAINING_IMAGE_DIGEST: "${CRAFTLY_TRAINING_IMAGE_DIGEST:?set CRAFTLY_TRAINING_IMAGE_DIGEST}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -53,7 +53,7 @@
       start_period: 30s
     networks:
       default:
-        aliases: ["aeitron-api"]
+        aliases: ["craftly-api"]
   training-workspace-ui:
     build:
       context: ../..
@@ -70,20 +70,20 @@
       context: ../..
       dockerfile: Dockerfile
     profiles: ["training"]
-    command: ["python", "-u", "-m", "src.aeitron.training_workspace", "controller", "--poll-seconds", "5"]
+    command: ["python", "-u", "-m", "src.craftly.training_workspace", "controller", "--poll-seconds", "5"]
     restart: unless-stopped
     environment:
-      AEITRON_ENV: "production"
-      AEITRON_JWT_SECRET: "${AEITRON_JWT_SECRET:?set AEITRON_JWT_SECRET}"
-      AEITRON_DATABASE_URL: "postgresql://aeitron:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/aeitron"
-      AEITRON_REDIS_URL: "redis://redis:6379/0"
-      AEITRON_OBJECT_STORE_URI: "s3://aeitron-datasets/training-workspace"
-      AEITRON_OBJECT_STORE_ENDPOINT_URL: "http://minio:9000"
+      CRAFTLY_ENV: "production"
+      CRAFTLY_JWT_SECRET: "${CRAFTLY_JWT_SECRET:?set CRAFTLY_JWT_SECRET}"
+      CRAFTLY_DATABASE_URL: "postgresql://craftly:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/craftly"
+      CRAFTLY_REDIS_URL: "redis://redis:6379/0"
+      CRAFTLY_OBJECT_STORE_URI: "s3://craftly-datasets/training-workspace"
+      CRAFTLY_OBJECT_STORE_ENDPOINT_URL: "http://minio:9000"
       AWS_ACCESS_KEY_ID: "${MINIO_ROOT_USER:?set MINIO_ROOT_USER}"
       AWS_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}"
       AWS_EC2_METADATA_DISABLED: "true"
-      AEITRON_TRAINING_GIT_COMMIT: "${AEITRON_TRAINING_GIT_COMMIT:?set AEITRON_TRAINING_GIT_COMMIT}"
-      AEITRON_TRAINING_IMAGE_DIGEST: "${AEITRON_TRAINING_IMAGE_DIGEST:?set AEITRON_TRAINING_IMAGE_DIGEST}"
+      CRAFTLY_TRAINING_GIT_COMMIT: "${CRAFTLY_TRAINING_GIT_COMMIT:?set CRAFTLY_TRAINING_GIT_COMMIT}"
+      CRAFTLY_TRAINING_IMAGE_DIGEST: "${CRAFTLY_TRAINING_IMAGE_DIGEST:?set CRAFTLY_TRAINING_IMAGE_DIGEST}"
     volumes:
       - training-runtime:/app/artifacts
     depends_on:
@@ -100,15 +100,15 @@
       context: ../..
       dockerfile: Dockerfile
     profiles: ["data"]
-    command: ["python", "-m", "src.aeitron.learning.worker"]
+    command: ["python", "-m", "src.craftly.learning.worker"]
     environment:
-      AEITRON_DATABASE_URL: "postgresql://aeitron:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/aeitron"
-      AEITRON_DATA_SOURCES: "config/data_sources.ultimate.json"
-      AEITRON_RAW_OUTPUT_DIR: "/data/raw"
-      AEITRON_CLEAN_OUTPUT_DIR: "/data/clean"
-      AEITRON_ASYNC_WORKERS: "32"
-      AEITRON_BATCH_DOCS: "10000"
-      AEITRON_WORKER_LOOPS: "100"
+      CRAFTLY_DATABASE_URL: "postgresql://craftly:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/craftly"
+      CRAFTLY_DATA_SOURCES: "config/data_sources.ultimate.json"
+      CRAFTLY_RAW_OUTPUT_DIR: "/data/raw"
+      CRAFTLY_CLEAN_OUTPUT_DIR: "/data/clean"
+      CRAFTLY_ASYNC_WORKERS: "32"
+      CRAFTLY_BATCH_DOCS: "10000"
+      CRAFTLY_WORKER_LOOPS: "100"
     volumes:
       - data-artifacts:/data
     depends_on:
@@ -123,16 +123,16 @@
       context: ../..
       dockerfile: Dockerfile
     profiles: ["data"]
-    command: ["python", "-m", "src.aeitron.learning.supervisor"]
+    command: ["python", "-m", "src.craftly.learning.supervisor"]
     environment:
-      AEITRON_DATABASE_URL: "postgresql://aeitron:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/aeitron"
-      AEITRON_DATA_SOURCES: "config/data_sources.ultimate.json"
-      AEITRON_RAW_OUTPUT_DIR: "/data/raw"
-      AEITRON_CLEAN_OUTPUT_DIR: "/data/clean"
-      AEITRON_OBJECT_STORE_URI: "s3://aeitron-datasets/pretraining"
-      AEITRON_ASYNC_WORKERS: "32"
-      AEITRON_WORKER_REPLICAS: "4"
-      AEITRON_BATCH_DOCS: "10000"
+      CRAFTLY_DATABASE_URL: "postgresql://craftly:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/craftly"
+      CRAFTLY_DATA_SOURCES: "config/data_sources.ultimate.json"
+      CRAFTLY_RAW_OUTPUT_DIR: "/data/raw"
+      CRAFTLY_CLEAN_OUTPUT_DIR: "/data/clean"
+      CRAFTLY_OBJECT_STORE_URI: "s3://craftly-datasets/pretraining"
+      CRAFTLY_ASYNC_WORKERS: "32"
+      CRAFTLY_WORKER_REPLICAS: "4"
+      CRAFTLY_BATCH_DOCS: "10000"
       AWS_ACCESS_KEY_ID: "${MINIO_ROOT_USER:?set MINIO_ROOT_USER}"
       AWS_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}"
       AWS_EC2_METADATA_DISABLED: "true"
@@ -151,23 +151,23 @@
       dockerfile: Dockerfile
     profiles: ["rag"]
     command:
-      ["python", "-u", "-m", "src.aeitron.indexing.repository_indexer", "worker", "--production", "--poll-seconds", "1"]
+      ["python", "-u", "-m", "src.craftly.indexing.repository_indexer", "worker", "--production", "--poll-seconds", "1"]
     restart: unless-stopped
     environment:
-      AEITRON_ENV: "production"
-      AEITRON_DATABASE_URL: "postgresql://aeitron:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/aeitron"
-      AEITRON_REDIS_URL: "redis://redis:6379/0"
-      AEITRON_QDRANT_URL: "http://qdrant:6333"
-      AEITRON_EMBEDDING_URL: "${AEITRON_EMBEDDING_URL:?set AEITRON_EMBEDDING_URL}"
-      AEITRON_EMBEDDING_MANIFEST: "/run/aeitron/embedding_manifest.json"
-      AEITRON_EMBEDDING_DIMS: "768"
-      AEITRON_RAG_OBJECT_STORE_URI: "s3://aeitron-datasets/repository-snapshots"
-      AEITRON_OBJECT_STORE_ENDPOINT_URL: "http://minio:9000"
+      CRAFTLY_ENV: "production"
+      CRAFTLY_DATABASE_URL: "postgresql://craftly:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@postgres:5432/craftly"
+      CRAFTLY_REDIS_URL: "redis://redis:6379/0"
+      CRAFTLY_QDRANT_URL: "http://qdrant:6333"
+      CRAFTLY_EMBEDDING_URL: "${CRAFTLY_EMBEDDING_URL:?set CRAFTLY_EMBEDDING_URL}"
+      CRAFTLY_EMBEDDING_MANIFEST: "/run/craftly/embedding_manifest.json"
+      CRAFTLY_EMBEDDING_DIMS: "768"
+      CRAFTLY_RAG_OBJECT_STORE_URI: "s3://craftly-datasets/repository-snapshots"
+      CRAFTLY_OBJECT_STORE_ENDPOINT_URL: "http://minio:9000"
       AWS_ACCESS_KEY_ID: "${MINIO_ROOT_USER:?set MINIO_ROOT_USER}"
       AWS_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}"
       AWS_EC2_METADATA_DISABLED: "true"
     volumes:
-      - "${AEITRON_EMBEDDING_MANIFEST_HOST:?set AEITRON_EMBEDDING_MANIFEST_HOST}:/run/aeitron/embedding_manifest.json:ro"
+      - "${CRAFTLY_EMBEDDING_MANIFEST_HOST:?set CRAFTLY_EMBEDDING_MANIFEST_HOST}:/run/craftly/embedding_manifest.json:ro"
     depends_on:
       postgres:
         condition: service_healthy
@@ -213,7 +213,7 @@
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - grafana-data:/var/lib/grafana
-      - ./grafana-dashboard.json:/var/lib/grafana/dashboards/aeitron.json:ro
+      - ./grafana-dashboard.json:/var/lib/grafana/dashboards/craftly.json:ro
     depends_on:
       - prometheus
   otel-collector:
@@ -228,13 +228,13 @@
   postgres:
     image: postgres:16
     environment:
-      POSTGRES_USER: aeitron
+      POSTGRES_USER: craftly
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}"
-      POSTGRES_DB: aeitron
+      POSTGRES_DB: craftly
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U aeitron -d aeitron"]
+      test: ["CMD-SHELL", "pg_isready -U craftly -d craftly"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -278,9 +278,9 @@
     entrypoint: ["/bin/sh", "-lc"]
     command:
       - |
-        until mc alias set aeitron http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do sleep 2; done
-        mc mb --ignore-existing aeitron/aeitron-datasets
-        mc anonymous set none aeitron/aeitron-datasets
+        until mc alias set craftly http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do sleep 2; done
+        mc mb --ignore-existing craftly/craftly-datasets
+        mc anonymous set none craftly/craftly-datasets
     environment:
       MINIO_ROOT_USER: "${MINIO_ROOT_USER:?set MINIO_ROOT_USER}"
       MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}"

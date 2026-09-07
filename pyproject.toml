@@ -12,9 +12,9 @@ dependencies = [
 ]
 
 [project.scripts]
-craftly = "src.aeitron.training_client:main"
-aeitron = "src.aeitron.training_client:main"
+craftly = "src.craftly.training_client:main"
+craftly = "src.craftly.training_client:main"
 
 [tool.setuptools]
-packages = ["src", "src.aeitron"]
-py-modules = ["craftly_client", "aeitron_client"]
+packages = ["src", "src.craftly"]
+py-modules = ["craftly_client", "craftly_client"]

@@ -1,4 +1,4 @@
-"""Direct-kernel Kaggle/Colab validation launcher for Aeitron.
+"""Direct-kernel Kaggle/Colab validation launcher for Craftly.
 
 Recommended notebook invocation:
 
@@ -31,12 +31,12 @@ from deploy.gpu.run_real_data_training_pipeline import (  # noqa: E402
     parse_args as parse_pipeline_args,
     run as run_pipeline,
 )
-from src.aeitron.training_client import Workspace  # noqa: E402
-from src.aeitron.training_workspace import TrainingProfile, TrainingProfileRegistry  # noqa: E402
+from src.craftly.training_client import Workspace  # noqa: E402
+from src.craftly.training_workspace import TrainingProfile, TrainingProfileRegistry  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run an immutable Aeitron notebook validation profile in the active kernel.")
+    parser = argparse.ArgumentParser(description="Run an immutable Craftly notebook validation profile in the active kernel.")
     parser.add_argument("--profile", default="defensive-1k")
     parser.add_argument("--work-dir")
     parser.add_argument("--steps", type=int)
@@ -62,7 +62,7 @@ def _pipeline_namespace(profile: TrainingProfile, args: argparse.Namespace) -> a
         raise ValueError("direct notebook execution is restricted to dev-only notebook data-pipeline profiles")
     steps = _bounded_override(profile, "steps", args.steps) or profile.steps
     max_docs = _bounded_override(profile, "max_docs", args.max_docs)
-    output_dir = args.work_dir or f"artifacts/aeitron/workspace-validation/{profile.profile_id}-{int(time.time())}"
+    output_dir = args.work_dir or f"artifacts/craftly/workspace-validation/{profile.profile_id}-{int(time.time())}"
     argv = [
         "run_real_data_training_pipeline.py",
         "--sources",
@@ -117,12 +117,12 @@ async def _register_workspace_job(
     attempt_id = str(claim["attempt"]["attempt_id"])
     os.environ.update(
         {
-            "AEITRON_TRAINING_JOB_ID": run.job_id,
-            "AEITRON_TRAINING_ATTEMPT_ID": attempt_id,
-            "AEITRON_WORKSPACE_ACCESS_TOKEN": str(claim["worker_access_token"]),
+            "CRAFTLY_TRAINING_JOB_ID": run.job_id,
+            "CRAFTLY_TRAINING_ATTEMPT_ID": attempt_id,
+            "CRAFTLY_WORKSPACE_ACCESS_TOKEN": str(claim["worker_access_token"]),
         }
     )
-    print(f"[aeitron-workspace] claimed job={run.job_id} attempt={attempt_id}", flush=True)
+    print(f"[craftly-workspace] claimed job={run.job_id} attempt={attempt_id}", flush=True)
     return run.job_id, attempt_id
 
 
@@ -132,19 +132,19 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
     workspace: Workspace | None = None
     job_id = ""
     attempt_id = ""
-    workspace_configured = bool(os.environ.get("AEITRON_WORKSPACE_URL") and os.environ.get("AEITRON_BOOTSTRAP_TOKEN"))
+    workspace_configured = bool(os.environ.get("CRAFTLY_WORKSPACE_URL") and os.environ.get("CRAFTLY_BOOTSTRAP_TOKEN"))
     if workspace_configured and not args.standalone:
         workspace = Workspace.from_environment()
         job_id, attempt_id = await _register_workspace_job(workspace, profile, args)
     elif not args.standalone:
         print(
-            "[aeitron-workspace] remote tracking disabled: set AEITRON_WORKSPACE_URL and AEITRON_BOOTSTRAP_TOKEN; running standalone validation",
+            "[craftly-workspace] remote tracking disabled: set CRAFTLY_WORKSPACE_URL and CRAFTLY_BOOTSTRAP_TOKEN; running standalone validation",
             flush=True,
         )
     print(
         json.dumps(
             {
-                "event": "aeitron_notebook_validation_start",
+                "event": "craftly_notebook_validation_start",
                 "profile": profile.profile_id,
                 "profile_hash": profile.immutable_hash,
                 "work_dir": pipeline_args.output_dir,

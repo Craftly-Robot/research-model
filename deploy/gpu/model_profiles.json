@@ -1,8 +1,8 @@
 ﻿[
     {
-        "name":  "aeitron-t4-validation",
-        "family":  "aeitron_decoder",
-        "model_path":  "artifacts/aeitron/checkpoints/aeitron-t4-validation",
+        "name":  "craftly-t4-validation",
+        "family":  "craftly_decoder",
+        "model_path":  "artifacts/craftly/checkpoints/craftly-t4-validation",
         "size_class":  "T4-validation",
         "role":  "single-GPU learning validation after overfit sanity passes",
         "recommended_tp_size":  1,
@@ -13,9 +13,9 @@
         "training_policy":  "scratch pretraining validation only"
     },
     {
-        "name":  "aeitron-7b-scratch",
-        "family":  "aeitron_decoder",
-        "model_path":  "artifacts/aeitron/checkpoints/aeitron-7b",
+        "name":  "craftly-7b-scratch",
+        "family":  "craftly_decoder",
+        "model_path":  "artifacts/craftly/checkpoints/craftly-7b",
         "size_class":  "7B",
         "role":  "first scratch pretraining target",
         "recommended_tp_size":  1,
@@ -24,9 +24,9 @@
         "training_policy":  "scratch pretraining only"
     },
     {
-        "name":  "aeitron-32b-scratch",
-        "family":  "aeitron_decoder",
-        "model_path":  "artifacts/aeitron/checkpoints/aeitron-32b",
+        "name":  "craftly-32b-scratch",
+        "family":  "craftly_decoder",
+        "model_path":  "artifacts/craftly/checkpoints/craftly-32b",
         "size_class":  "32B",
         "role":  "serious coding/security target after 7B pipeline is stable",
         "recommended_tp_size":  2,
@@ -35,9 +35,9 @@
         "training_policy":  "scratch pretraining only"
     },
     {
-        "name":  "aeitron-62b-scratch",
-        "family":  "aeitron_decoder",
-        "model_path":  "artifacts/aeitron/checkpoints/aeitron-62b",
+        "name":  "craftly-62b-scratch",
+        "family":  "craftly_decoder",
+        "model_path":  "artifacts/craftly/checkpoints/craftly-62b",
         "size_class":  "62B",
         "role":  "long-context coding/security production target before 70B",
         "recommended_tp_size":  4,
@@ -50,9 +50,9 @@
         "requires_cluster_validation":  true
     },
     {
-        "name":  "aeitron-70b-scratch",
-        "family":  "aeitron_decoder",
-        "model_path":  "artifacts/aeitron/checkpoints/aeitron-70b",
+        "name":  "craftly-70b-scratch",
+        "family":  "craftly_decoder",
+        "model_path":  "artifacts/craftly/checkpoints/craftly-70b",
         "size_class":  "70B",
         "role":  "large-scale production quality target",
         "recommended_tp_size":  4,
@@ -61,9 +61,9 @@
         "training_policy":  "scratch pretraining only"
     },
     {
-        "name":  "aeitron-100b-scratch",
-        "family":  "aeitron_decoder",
-        "model_path":  "artifacts/aeitron/checkpoints/aeitron-100b",
+        "name":  "craftly-100b-scratch",
+        "family":  "craftly_decoder",
+        "model_path":  "artifacts/craftly/checkpoints/craftly-100b",
         "size_class":  "100B",
         "role":  "frontier-scale research target",
         "recommended_tp_size":  8,

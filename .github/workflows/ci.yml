@@ -25,49 +25,48 @@ jobs:
           pip install -e . --no-deps
       - name: Client package smoke
         run: |
-          aeitron --help
+          craftly --help
           python -c "from craftly_client import Workspace; assert Workspace.__name__ == 'Workspace'"
-          python -c "from aeitron_client import Workspace; assert Workspace.__name__ == 'Workspace'"
       - name: Compile
-        run: python -m compileall -q src/aeitron tests
+        run: python -m compileall -q src/craftly tests
       - name: Release gate
-        run: python -m src.aeitron.evaluation.release_gate
+        run: python -m src.craftly.evaluation.release_gate
       - name: Production hardening gates
         run: |
-          python -m src.aeitron.deployment.k8s_validate --output-dir artifacts/aeitron/ci-k8s-validation
-          python -m src.aeitron.learning.storage --uri local://artifacts/aeitron/ci-object-store --work-dir artifacts/aeitron/ci-storage-lifecycle
-          mkdir -p artifacts/aeitron/ci-dataset
-          cat > artifacts/aeitron/ci-dataset/clean.jsonl <<'JSONL'
-          {"text":"General architecture documentation for Aeitron production systems.","license":"mit","category":"general","quality":{"labels":["documentation"]}}
+          python -m src.craftly.deployment.k8s_validate --output-dir artifacts/craftly/ci-k8s-validation
+          python -m src.craftly.learning.storage --uri local://artifacts/craftly/ci-object-store --work-dir artifacts/craftly/ci-storage-lifecycle
+          mkdir -p artifacts/craftly/ci-dataset
+          cat > artifacts/craftly/ci-dataset/clean.jsonl <<'JSONL'
+          {"text":"General architecture documentation for Craftly production systems.","license":"mit","category":"general","quality":{"labels":["documentation"]}}
           {"text":"def secure_query(cursor, value): return cursor.execute('select * from users where id=?', [value])","license":"apache-2.0","category":"code","quality":{"labels":["code"]}}
           {"text":"Defensive security guidance: prevent SQL injection with parameterized queries and regression tests.","license":"cc-by-4.0","category":"cybersecurity","quality":{"labels":["defensive_security"]}}
           JSONL
-          python -m src.aeitron.learning.dataset_validation --inputs artifacts/aeitron/ci-dataset/clean.jsonl --output-dir artifacts/aeitron/ci-dataset-validation --min-records 3 --min-avg-chars 20
-          python -m src.aeitron.security.audit --strict-external-tools --no-codeql --output-dir artifacts/aeitron/ci-security-audit
+          python -m src.craftly.learning.dataset_validation --inputs artifacts/craftly/ci-dataset/clean.jsonl --output-dir artifacts/craftly/ci-dataset-validation --min-records 3 --min-avg-chars 20
+          python -m src.craftly.security.audit --strict-external-tools --no-codeql --output-dir artifacts/craftly/ci-security-audit
       - name: Data platform readiness contract
         run: |
-          python -m src.aeitron.learning.production_check \
+          python -m src.craftly.learning.production_check \
             --sources config/data_sources.ci.json \
             --frontier-backend postgres \
-            --postgres-dsn postgresql://user:pass@postgres:5432/aeitron \
-            --object-store-uri s3://aeitron-datasets/pretraining \
+            --postgres-dsn postgresql://user:pass@postgres:5432/craftly \
+            --object-store-uri s3://craftly-datasets/pretraining \
             --production \
             --worker-replicas 4 \
             --async-workers 32
-          python -m src.aeitron.learning.capacity --target-documents 1000000 --worker-replicas 4 --async-workers-per-replica 16
-          python -m src.aeitron.learning.run_plan \
+          python -m src.craftly.learning.capacity --target-documents 1000000 --worker-replicas 4 --async-workers-per-replica 16
+          python -m src.craftly.learning.run_plan \
             --sources config/data_sources.ci.json \
-            --output-dir artifacts/aeitron/ci-data-run \
+            --output-dir artifacts/craftly/ci-data-run \
             --target-documents 1000 \
             --target-days 1 \
-            --postgres-dsn postgresql://user:pass@postgres:5432/aeitron \
-            --object-store-uri s3://aeitron-datasets/pretraining \
+            --postgres-dsn postgresql://user:pass@postgres:5432/craftly \
+            --object-store-uri s3://craftly-datasets/pretraining \
             --worker-replicas 4 \
             --async-workers 32
-          python -m src.aeitron.learning.source_registry --sources config/data_sources.ultimate.json
-          python -m src.aeitron.learning.governance --store artifacts/aeitron/ci-governance report
+          python -m src.craftly.learning.source_registry --sources config/data_sources.ultimate.json
+          python -m src.craftly.learning.governance --store artifacts/craftly/ci-governance report
       - name: Scratch CPU smoke
-        run: python -m src.aeitron.model_ops.gpu_smoke --device cpu --steps 1 --sequence-length 16 --batch-size 1 --dtype fp32
+        run: python -m src.craftly.model_ops.gpu_smoke --device cpu --steps 1 --sequence-length 16 --batch-size 1 --dtype fp32
 
   workspace-ui:
     runs-on: ubuntu-latest

@@ -1,7 +1,7 @@
 ﻿apiVersion: batch/v1
 kind: Job
 metadata:
-  name: aeitron-data-pipeline
+  name: craftly-data-pipeline
 spec:
   backoffLimit: 1
   template:
@@ -9,27 +9,27 @@ spec:
       restartPolicy: Never
       containers:
         - name: pipeline
-          image: aeitron-api:latest
+          image: craftly-api:latest
           imagePullPolicy: IfNotPresent
           command:
             - python
             - -m
-            - src.aeitron.learning.data_pipeline
+            - src.craftly.learning.data_pipeline
           args:
             - --sources
             - config/data_sources.ultimate.json
             - --dataset-id
-            - aeitron-defensive-coding-corpus
+            - craftly-defensive-coding-corpus
             - --work-dir
             - /data/pipeline
             - --frontier-backend
             - postgres
             - --postgres-dsn
-            - "$(AEITRON_DATABASE_URL)"
+            - "$(CRAFTLY_DATABASE_URL)"
             - --object-store-uri
-            - s3://aeitron-datasets/pretraining
+            - s3://craftly-datasets/pretraining
             - --object-store-endpoint-url
-            - http://aeitron-minio:9000
+            - http://craftly-minio:9000
             - --max-docs
             - "1000000"
             - --workers
@@ -44,20 +44,20 @@ spec:
             - "1000000"
             - --skip-train
           env:
-            - name: AEITRON_DATABASE_URL
+            - name: CRAFTLY_DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: aeitron-secrets
+                  name: craftly-secrets
                   key: database-url
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
-                  name: aeitron-secrets
+                  name: craftly-secrets
                   key: minio-root-user
             - name: AWS_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: aeitron-secrets
+                  name: craftly-secrets
                   key: minio-root-password
             - name: AWS_EC2_METADATA_DISABLED
               value: "true"
@@ -74,5 +74,5 @@ spec:
       volumes:
         - name: data-artifacts
           persistentVolumeClaim:
-            claimName: aeitron-data-artifacts
+            claimName: craftly-data-artifacts
 

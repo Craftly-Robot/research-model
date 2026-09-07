@@ -4,7 +4,7 @@ Set-Location (Split-Path -Parent $PSScriptRoot)
 
 $root = Get-Location
 $toolsDir = Join-Path $root "tools"
-$artifactsDir = Join-Path $root "artifacts\aeitron\security-tools"
+$artifactsDir = Join-Path $root "artifacts\craftly\security-tools"
 New-Item -ItemType Directory -Force -Path $toolsDir | Out-Null
 New-Item -ItemType Directory -Force -Path $artifactsDir | Out-Null
 
@@ -28,7 +28,7 @@ if (Get-Command docker -ErrorAction SilentlyContinue) {
 
 $codeqlExe = Join-Path $toolsDir "codeql\codeql.exe"
 if (-not (Test-Path $codeqlExe)) {
-    $release = Invoke-RestMethod -Headers @{ "User-Agent" = "aeitron-security-tools" } -Uri "https://api.github.com/repos/github/codeql-cli-binaries/releases/latest"
+    $release = Invoke-RestMethod -Headers @{ "User-Agent" = "craftly-security-tools" } -Uri "https://api.github.com/repos/github/codeql-cli-binaries/releases/latest"
     $asset = $release.assets | Where-Object { $_.name -eq "codeql-win64.zip" } | Select-Object -First 1
     $checksumAsset = $release.assets | Where-Object { $_.name -eq "codeql-win64.zip.checksum.txt" } | Select-Object -First 1
     if (-not $asset) {

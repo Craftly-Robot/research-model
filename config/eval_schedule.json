@@ -40,10 +40,10 @@
       "protected_holdout": true
     },
     {
-      "name": "aeitron_security_holdout",
+      "name": "craftly_security_holdout",
       "kind": "static_jsonl",
       "required": false,
-      "path": "data/eval/aeitron_security.jsonl",
+      "path": "data/eval/craftly_security.jsonl",
       "category": "domain",
       "min_score": 0.75,
       "max_repetition_ratio": 0.85,

@@ -8,7 +8,7 @@
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
       "id": 1,
       "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}},
-      "targets": [{"expr": "sum by (status) (aeitron_http_requests_total)", "refId": "A"}],
+      "targets": [{"expr": "sum by (status) (craftly_http_requests_total)", "refId": "A"}],
       "title": "HTTP Requests By Status",
       "type": "timeseries"
     },
@@ -18,7 +18,7 @@
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
       "id": 2,
       "options": {"legend": {"displayMode": "list", "placement": "bottom"}, "tooltip": {"mode": "single"}},
-      "targets": [{"expr": "aeitron_http_request_duration_ms{quantile=\"avg\"}", "refId": "A"}],
+      "targets": [{"expr": "craftly_http_request_duration_ms{quantile=\"avg\"}", "refId": "A"}],
       "title": "Average HTTP Latency",
       "type": "timeseries"
     },
@@ -28,7 +28,7 @@
       "gridPos": {"h": 8, "w": 8, "x": 0, "y": 8},
       "id": 3,
       "options": {"legend": {"displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
-      "targets": [{"expr": "sum by (status, profile) (aeitron_training_jobs_total)", "refId": "A"}],
+      "targets": [{"expr": "sum by (status, profile) (craftly_training_jobs_total)", "refId": "A"}],
       "title": "Training Jobs",
       "type": "timeseries"
     },
@@ -39,8 +39,8 @@
       "id": 4,
       "options": {"legend": {"displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
       "targets": [
-        {"expr": "aeitron_training_loss{quantile=\"avg\"}", "legendFormat": "train {{profile}}", "refId": "A"},
-        {"expr": "aeitron_training_validation_loss{quantile=\"avg\"}", "legendFormat": "validation", "refId": "B"}
+        {"expr": "craftly_training_loss{quantile=\"avg\"}", "legendFormat": "train {{profile}}", "refId": "A"},
+        {"expr": "craftly_training_validation_loss{quantile=\"avg\"}", "legendFormat": "validation", "refId": "B"}
       ],
       "title": "Training and Validation Loss",
       "type": "timeseries"
@@ -52,7 +52,7 @@
       "id": 5,
       "options": {"legend": {"displayMode": "table", "placement": "bottom"}, "tooltip": {"mode": "multi"}},
       "targets": [
-        {"expr": "aeitron_training_tokens_per_second{quantile=\"avg\"}", "legendFormat": "tokens/sec", "refId": "A"},
+        {"expr": "craftly_training_tokens_per_second{quantile=\"avg\"}", "legendFormat": "tokens/sec", "refId": "A"},
         {"expr": "avg(DCGM_FI_DEV_GPU_UTIL)", "legendFormat": "GPU utilization", "refId": "B"}
       ],
       "title": "Data and GPU Throughput",
@@ -61,10 +61,10 @@
   ],
   "refresh": "10s",
   "schemaVersion": 39,
-  "tags": ["aeitron", "production"],
+  "tags": ["craftly", "production"],
   "templating": {"list": []},
   "time": {"from": "now-6h", "to": "now"},
-  "title": "Aeitron Production Overview",
+  "title": "Craftly Production Overview",
   "version": 1
 }
 

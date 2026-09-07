@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "campaign_id": "aeitron-defensive-checkpoint-qualification-v1",
+  "campaign_id": "craftly-defensive-checkpoint-qualification-v1",
   "curriculum_mode": "defensive_security_only",
   "scratch_only": true,
   "model_profile": "t4_validation",

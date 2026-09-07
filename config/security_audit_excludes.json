@@ -14,7 +14,7 @@
   },
   "excludes": [
     {
-      "path": "src/aeitron/evaluation/benchmarks.py",
+      "path": "src/craftly/evaluation/benchmarks.py",
       "reason": "Contains intentionally vulnerable benchmark fixture strings used by local defensive security evaluation adapters.",
       "risk_category": "benchmark_fixture",
       "owner": "security-eval",

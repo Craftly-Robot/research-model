@@ -23,8 +23,8 @@ except ImportError:
     modal = None  # type: ignore[assignment]
 
 if modal is not None:
-    app = modal.App("aeitron-jupyter-server")
-    volume = modal.Volume.from_name("aeitron-training-volume", create_if_missing=True)
+    app = modal.App("craftly-jupyter-server")
+    volume = modal.Volume.from_name("craftly-training-volume", create_if_missing=True)
 
     image = (
         modal.Image.debian_slim(python_version="3.11")

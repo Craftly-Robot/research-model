@@ -69,23 +69,23 @@
       "deterministic_shuffle": true,
       "seed": 1337,
       "local_cache_gib": 100,
-      "cache_path": "/cache/aeitron",
+      "cache_path": "/cache/craftly",
       "verify_shard_checksums": true
     },
     "runtime_image": {
-      "repository": "ghcr.io/mah5472651/aeitron-agentic-ai",
+      "repository": "ghcr.io/mah5472651/craftly-agentic-ai",
       "python_version": "3.12",
       "pytorch_version": "2.10",
       "cuda_version": "12.8",
       "require_digest_pin": true
     },
     "scheduler_policy": {
-      "namespace": "aeitron-training",
+      "namespace": "craftly-training",
       "queue": "gpu-training",
       "account": null,
-      "storage_class": "aeitron-checkpoints",
-      "shared_checkpoint_claim": "aeitron-training-checkpoints",
-      "priority_class": "aeitron-training-normal",
+      "storage_class": "craftly-checkpoints",
+      "shared_checkpoint_claim": "craftly-training-checkpoints",
+      "priority_class": "craftly-training-normal",
       "gang_scheduling": false,
       "topology_key": "kubernetes.io/hostname"
     },
@@ -154,7 +154,7 @@
       "cost_quota": {"maximum_gpu_hours": 12.0, "maximum_cost_usd": 100.0, "maximum_storage_gib": 100},
       "allowed_overrides": {"steps": {"minimum": 10000, "maximum": 30000}, "max_docs": {"minimum": 10000, "maximum": 100000}},
       "requirements": ["cuda", "promoted_dataset_gate", "tokenizer_audit", "checkpoint_evaluation"],
-      "secret_references": ["aeitron-training-runtime"]
+      "secret_references": ["craftly-training-runtime"]
     },
     {
       "profile_id": "fundamentals-validation",
@@ -182,7 +182,7 @@
       "requirements": ["cuda", "promoted_dataset_gate", "tokenizer_audit", "checkpoint_evaluation"]
     },
     {
-      "profile_id": "aeitron-1b-single-node",
+      "profile_id": "craftly-1b-single-node",
       "version": 4,
       "description": "Single-node 1B scratch pretraining qualification before distributed scaling.",
       "run_type": "pretrain",
@@ -207,7 +207,7 @@
       "cost_quota": {"maximum_gpu_hours": 192.0, "maximum_cost_usd": 5000.0, "maximum_storage_gib": 5000},
       "allowed_overrides": {"steps": {"minimum": 1000, "maximum": 100000}, "sequence_length": {"minimum": 512, "maximum": 8192}},
       "requirements": ["ampere_or_newer", "promoted_dataset_gate", "distributed_checkpoint", "checkpoint_evaluation"],
-      "secret_references": ["aeitron-training-runtime"]
+      "secret_references": ["craftly-training-runtime"]
     },
     {
       "profile_id": "defensive-staircase-notebook",
@@ -258,10 +258,10 @@
       "cost_quota": {"maximum_gpu_hours": 72.0, "maximum_cost_usd": 1000.0, "maximum_storage_gib": 1000},
       "allowed_overrides": {"steps": {"minimum": 11000, "maximum": 1000000}},
       "requirements": ["cuda", "promoted_dataset_gate", "tokenizer_audit", "checkpoint_evaluation"],
-      "secret_references": ["aeitron-training-runtime"]
+      "secret_references": ["craftly-training-runtime"]
     },
     {
-      "profile_id": "aeitron-7b-fsdp",
+      "profile_id": "craftly-7b-fsdp",
       "version": 4,
       "description": "Trusted multi-node 7B scratch pretraining with native PyTorch FSDP.",
       "run_type": "pretrain",
@@ -282,14 +282,14 @@
       "evaluation": {"interval_steps": 1000, "validation_batches": 64},
       "runtime_limits": {"maximum_wall_time_seconds": 259200},
       "dataloader": {"workers_per_rank": 8, "prefetch_batches": 8, "local_cache_gib": 2000},
-      "scheduler_policy": {"priority_class": "aeitron-training-high", "gang_scheduling": true},
+      "scheduler_policy": {"priority_class": "craftly-training-high", "gang_scheduling": true},
       "cost_quota": {"maximum_gpu_hours": 4096.0, "maximum_cost_usd": 100000.0, "maximum_storage_gib": 20000},
       "allowed_overrides": {"steps": {"minimum": 10000, "maximum": 1000000}, "sequence_length": {"minimum": 1024, "maximum": 16384}, "nodes": {"minimum": 1, "maximum": 16}},
       "requirements": ["ampere_or_newer", "nvlink", "rdma", "promoted_dataset_gate", "distributed_checkpoint", "checkpoint_evaluation", "model_progression_decision"],
-      "secret_references": ["aeitron-training-runtime"]
+      "secret_references": ["craftly-training-runtime"]
     },
     {
-      "profile_id": "aeitron-7b-moe-megatron",
+      "profile_id": "craftly-7b-moe-megatron",
       "version": 1,
       "description": "Evidence-selected 7B-active MLA/MoE scratch experiment; unavailable until the composite scientific progression decision selects 1b_moe.",
       "run_type": "pretrain",
@@ -312,14 +312,14 @@
       "evaluation": {"interval_steps": 1000, "validation_batches": 64},
       "runtime_limits": {"maximum_wall_time_seconds": 2592000},
       "dataloader": {"workers_per_rank": 8, "prefetch_batches": 8, "local_cache_gib": 2000},
-      "scheduler_policy": {"priority_class": "aeitron-training-high", "gang_scheduling": true},
+      "scheduler_policy": {"priority_class": "craftly-training-high", "gang_scheduling": true},
       "cost_quota": {"maximum_gpu_hours": 12000.0, "maximum_cost_usd": 300000.0, "maximum_storage_gib": 40000},
       "allowed_overrides": {},
       "requirements": ["hopper_or_newer", "nvlink_or_nvswitch", "rdma", "megatron_core", "grouped_gemm", "all_to_all_moe", "expert_parallel", "promoted_dataset_gate", "distributed_checkpoint", "checkpoint_evaluation", "model_progression_decision"],
-      "secret_references": ["aeitron-training-runtime"]
+      "secret_references": ["craftly-training-runtime"]
     },
     {
-      "profile_id": "aeitron-32b-zero3",
+      "profile_id": "craftly-32b-zero3",
       "version": 4,
       "description": "Trusted 32B scratch pretraining using DeepSpeed ZeRO-3.",
       "run_type": "pretrain",
@@ -341,14 +341,14 @@
       "evaluation": {"interval_steps": 2000, "validation_batches": 128},
       "runtime_limits": {"maximum_wall_time_seconds": 604800},
       "dataloader": {"workers_per_rank": 12, "prefetch_batches": 12, "local_cache_gib": 4000},
-      "scheduler_policy": {"priority_class": "aeitron-training-critical", "gang_scheduling": true},
+      "scheduler_policy": {"priority_class": "craftly-training-critical", "gang_scheduling": true},
       "cost_quota": {"maximum_gpu_hours": 50000.0, "maximum_cost_usd": 1000000.0, "maximum_storage_gib": 100000},
       "allowed_overrides": {"steps": {"minimum": 10000, "maximum": 2000000}, "sequence_length": {"minimum": 2048, "maximum": 32768}, "nodes": {"minimum": 4, "maximum": 64}},
       "requirements": ["ampere_or_newer", "nvlink", "rdma", "deepspeed", "promoted_dataset_gate", "distributed_checkpoint", "checkpoint_evaluation"],
-      "secret_references": ["aeitron-training-runtime"]
+      "secret_references": ["craftly-training-runtime"]
     },
     {
-      "profile_id": "aeitron-60b-hybrid",
+      "profile_id": "craftly-60b-hybrid",
       "version": 4,
       "description": "Target 60B-class trusted-cluster scratch pretraining profile; blocked until real topology proof passes.",
       "run_type": "pretrain",
@@ -371,14 +371,14 @@
       "evaluation": {"interval_steps": 2000, "validation_batches": 256},
       "runtime_limits": {"maximum_wall_time_seconds": 1209600, "heartbeat_timeout_seconds": 90, "graceful_shutdown_seconds": 300},
       "dataloader": {"workers_per_rank": 16, "prefetch_batches": 16, "local_cache_gib": 8000},
-      "scheduler_policy": {"namespace": "aeitron-training", "queue": "gpu-h100", "account": "aeitron-pretraining", "priority_class": "aeitron-training-critical", "gang_scheduling": true},
+      "scheduler_policy": {"namespace": "craftly-training", "queue": "gpu-h100", "account": "craftly-pretraining", "priority_class": "craftly-training-critical", "gang_scheduling": true},
       "immutable_inputs": {"allowed_uri_schemes": ["file"]},
       "cost_quota": {"maximum_gpu_hours": 1000000.0, "maximum_cost_usd": 100000000.0, "maximum_storage_gib": 1000000},
       "allowed_overrides": {"steps": {"minimum": 10000, "maximum": 5000000}, "sequence_length": {"minimum": 2048, "maximum": 131072}, "nodes": {"minimum": 16, "maximum": 256}},
       "requirements": ["hopper_or_newer_recommended", "nvlink_or_nvswitch", "rdma", "megatron", "gang_scheduling", "promoted_dataset_gate", "distributed_checkpoint", "checkpoint_evaluation"]
     },
     {
-      "profile_id": "aeitron-4t-moe",
+      "profile_id": "craftly-4t-moe",
       "version": 2,
       "description": "Final 4T-total, approximately 128B-active MLA/MoE scratch pretraining contract; blocked until all scaling and cluster evidence gates pass.",
       "run_type": "pretrain",
@@ -403,11 +403,11 @@
       "retry": {"maximum_attempts": 8, "initial_backoff_seconds": 60, "maximum_backoff_seconds": 3600},
       "runtime_limits": {"maximum_wall_time_seconds": 7776000, "heartbeat_interval_seconds": 5, "heartbeat_timeout_seconds": 90, "graceful_shutdown_seconds": 600},
       "dataloader": {"workers_per_rank": 16, "prefetch_batches": 32, "local_cache_gib": 16000, "verify_shard_checksums": true},
-      "scheduler_policy": {"namespace": "aeitron-training", "queue": "gpu-h100", "account": "aeitron-pretraining", "priority_class": "aeitron-training-critical", "gang_scheduling": true, "topology_key": "topology.kubernetes.io/zone"},
+      "scheduler_policy": {"namespace": "craftly-training", "queue": "gpu-h100", "account": "craftly-pretraining", "priority_class": "craftly-training-critical", "gang_scheduling": true, "topology_key": "topology.kubernetes.io/zone"},
       "cost_quota": {"maximum_gpu_hours": 100000000.0, "maximum_cost_usd": 1000000000.0, "maximum_storage_gib": 100000000, "maximum_egress_gib": 1000000},
       "allowed_overrides": {},
       "requirements": ["hopper_or_newer", "nvlink_or_nvswitch", "rdma", "megatron_core", "grouped_gemm", "all_to_all_moe", "context_parallel", "expert_parallel", "gang_scheduling", "promoted_30t_dataset", "128k_tokenizer", "distributed_checkpoint", "checkpoint_evaluation", "node_loss_recovery", "serving_parity"],
-      "secret_references": ["aeitron-training-runtime"]
+      "secret_references": ["craftly-training-runtime"]
     }
   ]
 }

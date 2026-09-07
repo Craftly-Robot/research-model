@@ -1,49 +1,49 @@
 ﻿apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: aeitron-data-supervisor
+  name: craftly-data-supervisor
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: aeitron-data-supervisor
+      app: craftly-data-supervisor
   template:
     metadata:
       labels:
-        app: aeitron-data-supervisor
+        app: craftly-data-supervisor
     spec:
       containers:
         - name: supervisor
-          image: aeitron-api:latest
+          image: craftly-api:latest
           imagePullPolicy: IfNotPresent
-          command: ["python", "-m", "src.aeitron.learning.supervisor"]
+          command: ["python", "-m", "src.craftly.learning.supervisor"]
           env:
-            - name: AEITRON_DATABASE_URL
+            - name: CRAFTLY_DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: aeitron-secrets
+                  name: craftly-secrets
                   key: database-url
-            - name: AEITRON_DATA_SOURCES
+            - name: CRAFTLY_DATA_SOURCES
               value: config/data_sources.ultimate.json
-            - name: AEITRON_RAW_OUTPUT_DIR
+            - name: CRAFTLY_RAW_OUTPUT_DIR
               value: /data/raw
-            - name: AEITRON_CLEAN_OUTPUT_DIR
+            - name: CRAFTLY_CLEAN_OUTPUT_DIR
               value: /data/clean
-            - name: AEITRON_OBJECT_STORE_URI
-              value: s3://aeitron-datasets/pretraining
-            - name: AEITRON_WORKER_REPLICAS
+            - name: CRAFTLY_OBJECT_STORE_URI
+              value: s3://craftly-datasets/pretraining
+            - name: CRAFTLY_WORKER_REPLICAS
               value: "4"
-            - name: AEITRON_ASYNC_WORKERS
+            - name: CRAFTLY_ASYNC_WORKERS
               value: "32"
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
-                  name: aeitron-secrets
+                  name: craftly-secrets
                   key: minio-root-user
             - name: AWS_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: aeitron-secrets
+                  name: craftly-secrets
                   key: minio-root-password
             - name: AWS_EC2_METADATA_DISABLED
               value: "true"
@@ -60,5 +60,5 @@ spec:
       volumes:
         - name: data-artifacts
           persistentVolumeClaim:
-            claimName: aeitron-data-artifacts
+            claimName: craftly-data-artifacts
 

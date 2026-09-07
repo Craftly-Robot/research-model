@@ -1,20 +1,20 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: aeitron-training
+  name: craftly-training
   labels:
-    app.kubernetes.io/part-of: aeitron
+    app.kubernetes.io/part-of: craftly
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: aeitron-training-checkpoints
-  namespace: aeitron-training
+  name: craftly-training-checkpoints
+  namespace: craftly-training
   labels:
-    app.kubernetes.io/part-of: aeitron
+    app.kubernetes.io/part-of: craftly
 spec:
   accessModes: ["ReadWriteMany"]
-  storageClassName: aeitron-checkpoints
+  storageClassName: craftly-checkpoints
   resources:
     requests:
       storage: 10Ti
@@ -22,22 +22,22 @@ spec:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: aeitron-training-controller
-  namespace: aeitron-training
+  name: craftly-training-controller
+  namespace: craftly-training
 automountServiceAccountToken: true
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: aeitron-training-worker
-  namespace: aeitron-training
+  name: craftly-training-worker
+  namespace: craftly-training
 automountServiceAccountToken: true
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: aeitron-training-controller
-  namespace: aeitron-training
+  name: craftly-training-controller
+  namespace: craftly-training
 rules:
   - apiGroups: [""]
     resources: ["secrets", "pods", "pods/log"]
@@ -52,48 +52,48 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: aeitron-training-controller
-  namespace: aeitron-training
+  name: craftly-training-controller
+  namespace: craftly-training
 subjects:
   - kind: ServiceAccount
-    name: aeitron-training-controller
-    namespace: aeitron-training
+    name: craftly-training-controller
+    namespace: craftly-training
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: aeitron-training-controller
+  name: craftly-training-controller
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: aeitron-training-config
-  namespace: aeitron-training
+  name: craftly-training-config
+  namespace: craftly-training
 data:
-  workspace-url: "http://aeitron-api.default.svc.cluster.local"
+  workspace-url: "http://craftly-api.default.svc.cluster.local"
   training-git-commit: "replace-with-immutable-git-commit"
   training-image-digest: "replace-with-sha256-image-digest"
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: aeitron-training-controller
-  namespace: aeitron-training
+  name: craftly-training-controller
+  namespace: craftly-training
   labels:
-    app: aeitron-training-controller
+    app: craftly-training-controller
 spec:
   replicas: 1
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      app: aeitron-training-controller
+      app: craftly-training-controller
   template:
     metadata:
       labels:
-        app: aeitron-training-controller
-        app.kubernetes.io/part-of: aeitron
+        app: craftly-training-controller
+        app.kubernetes.io/part-of: craftly
     spec:
-      serviceAccountName: aeitron-training-controller
+      serviceAccountName: craftly-training-controller
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
@@ -103,53 +103,53 @@ spec:
           type: RuntimeDefault
       containers:
         - name: controller
-          image: aeitron-api:latest
+          image: craftly-api:latest
           imagePullPolicy: IfNotPresent
-          command: ["python", "-u", "-m", "src.aeitron.training_workspace", "controller", "--poll-seconds", "5"]
+          command: ["python", "-u", "-m", "src.craftly.training_workspace", "controller", "--poll-seconds", "5"]
           env:
-            - name: AEITRON_ENV
+            - name: CRAFTLY_ENV
               value: production
-            - name: AEITRON_JWT_SECRET
+            - name: CRAFTLY_JWT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: aeitron-training-secrets
+                  name: craftly-training-secrets
                   key: jwt-secret
-            - name: AEITRON_DATABASE_URL
+            - name: CRAFTLY_DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: aeitron-training-secrets
+                  name: craftly-training-secrets
                   key: database-url
-            - name: AEITRON_REDIS_URL
+            - name: CRAFTLY_REDIS_URL
               valueFrom:
                 secretKeyRef:
-                  name: aeitron-training-secrets
+                  name: craftly-training-secrets
                   key: redis-url
-            - name: AEITRON_OBJECT_STORE_URI
-              value: s3://aeitron-datasets/training-workspace
-            - name: AEITRON_OBJECT_STORE_ENDPOINT_URL
+            - name: CRAFTLY_OBJECT_STORE_URI
+              value: s3://craftly-datasets/training-workspace
+            - name: CRAFTLY_OBJECT_STORE_ENDPOINT_URL
               valueFrom:
                 secretKeyRef:
-                  name: aeitron-training-secrets
+                  name: craftly-training-secrets
                   key: object-store-endpoint
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
-                  name: aeitron-training-secrets
+                  name: craftly-training-secrets
                   key: object-store-access-key
             - name: AWS_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: aeitron-training-secrets
+                  name: craftly-training-secrets
                   key: object-store-secret-key
-            - name: AEITRON_TRAINING_GIT_COMMIT
+            - name: CRAFTLY_TRAINING_GIT_COMMIT
               valueFrom:
                 configMapKeyRef:
-                  name: aeitron-training-config
+                  name: craftly-training-config
                   key: training-git-commit
-            - name: AEITRON_TRAINING_IMAGE_DIGEST
+            - name: CRAFTLY_TRAINING_IMAGE_DIGEST
               valueFrom:
                 configMapKeyRef:
-                  name: aeitron-training-config
+                  name: craftly-training-config
                   key: training-image-digest
           resources:
             requests:
@@ -180,14 +180,14 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: aeitron-training-control-plane
-  namespace: aeitron-training
+  name: craftly-training-control-plane
+  namespace: craftly-training
 spec:
   podSelector:
     matchExpressions:
       - key: app
         operator: In
-        values: ["aeitron-training-controller", "aeitron-training"]
+        values: ["craftly-training-controller", "craftly-training"]
   policyTypes: ["Ingress", "Egress"]
   ingress: []
   egress:

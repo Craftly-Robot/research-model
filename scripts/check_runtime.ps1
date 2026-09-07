@@ -18,6 +18,6 @@ if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
     Write-Warning "nvidia-smi not found. Local orchestration can run, but real scratch-training/serving GPU workloads need a CUDA Linux/GPU machine."
 }
 
-Write-Host "`n=== Aeitron MVP Foundation Smoke ==="
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run_aeitron_mvp_foundation.ps1
+Write-Host "`n=== Craftly MVP Foundation Smoke ==="
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\run_craftly_mvp_foundation.ps1
 

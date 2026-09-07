@@ -1,4 +1,4 @@
-﻿"""Kaggle/Colab entrypoint for Aeitron scratch tokenizer->shards->pretrain pipeline."""
+﻿"""Kaggle/Colab entrypoint for Craftly scratch tokenizer->shards->pretrain pipeline."""
 
 from __future__ import annotations
 
@@ -11,15 +11,15 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.aeitron.model_ops.pretrain_loop import run_pretraining_loop  # noqa: E402
-from src.aeitron.model_ops.tokenizer_pipeline import ShardBuildConfig, TokenizerTrainConfig, build_token_shards, train_bpe_tokenizer  # noqa: E402
-from src.aeitron.shared.progress import ProgressReporter  # noqa: E402
+from src.craftly.model_ops.pretrain_loop import run_pretraining_loop  # noqa: E402
+from src.craftly.model_ops.tokenizer_pipeline import ShardBuildConfig, TokenizerTrainConfig, build_token_shards, train_bpe_tokenizer  # noqa: E402
+from src.craftly.shared.progress import ProgressReporter  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run Aeitron scratch tokenizer, shard builder, and pretraining loop.")
+    parser = argparse.ArgumentParser(description="Run Craftly scratch tokenizer, shard builder, and pretraining loop.")
     parser.add_argument("--input", required=True, help="Clean JSONL/text corpus path.")
-    parser.add_argument("--output-dir", default="artifacts/aeitron/pretraining-pipeline")
+    parser.add_argument("--output-dir", default="artifacts/craftly/pretraining-pipeline")
     parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
     parser.add_argument("--vocab-size", type=int, default=128_000)
     parser.add_argument("--shard-token-count", type=int, default=1_000_000)

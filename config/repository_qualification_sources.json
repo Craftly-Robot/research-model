@@ -17,7 +17,7 @@
       "allowed_repository_hosts": [
         "github.com"
       ],
-      "notes": "318 historical repository-level secure completion tasks. Aeitron does not redistribute or train on this benchmark. A local legal/license approval record is mandatory before pack generation."
+      "notes": "318 historical repository-level secure completion tasks. Craftly does not redistribute or train on this benchmark. A local legal/license approval record is mandatory before pack generation."
     }
   ]
 }

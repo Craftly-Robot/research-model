@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "policy_id": "aeitron-dataset-trust-v1",
+  "policy_id": "craftly-dataset-trust-v1",
   "scratch_only": true,
   "source_limits": {
     "new_source_max_token_fraction": 0.01,
@@ -30,7 +30,7 @@
     "required_verified_patch_evidence_coverage": 1.0
   },
   "protected_holdout_names": [
-    "aeitron-repository-qualification",
+    "craftly-repository-qualification",
     "cyberseceval",
     "humaneval",
     "livecodebench",

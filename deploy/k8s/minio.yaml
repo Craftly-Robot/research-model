@@ -1,17 +1,17 @@
 ﻿apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: aeitron-minio
+  name: craftly-minio
 spec:
-  serviceName: aeitron-minio
+  serviceName: craftly-minio
   replicas: 1
   selector:
     matchLabels:
-      app: aeitron-minio
+      app: craftly-minio
   template:
     metadata:
       labels:
-        app: aeitron-minio
+        app: craftly-minio
     spec:
       containers:
         - name: minio
@@ -21,12 +21,12 @@ spec:
             - name: MINIO_ROOT_USER
               valueFrom:
                 secretKeyRef:
-                  name: aeitron-secrets
+                  name: craftly-secrets
                   key: minio-root-user
             - name: MINIO_ROOT_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: aeitron-secrets
+                  name: craftly-secrets
                   key: minio-root-password
           ports:
             - containerPort: 9000
@@ -53,10 +53,10 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: aeitron-minio
+  name: craftly-minio
 spec:
   selector:
-    app: aeitron-minio
+    app: craftly-minio
   ports:
     - name: api
       port: 9000
@@ -68,7 +68,7 @@ spec:
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: aeitron-minio-bootstrap
+  name: craftly-minio-bootstrap
 spec:
   template:
     spec:
@@ -80,20 +80,20 @@ spec:
             - name: MINIO_ROOT_USER
               valueFrom:
                 secretKeyRef:
-                  name: aeitron-secrets
+                  name: craftly-secrets
                   key: minio-root-user
             - name: MINIO_ROOT_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: aeitron-secrets
+                  name: craftly-secrets
                   key: minio-root-password
           command:
             - /bin/sh
             - -lc
             - |
-              mc alias set aeitron http://aeitron-minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
-              mc mb --ignore-existing aeitron/aeitron-datasets
-              mc anonymous set none aeitron/aeitron-datasets
+              mc alias set craftly http://craftly-minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+              mc mb --ignore-existing craftly/craftly-datasets
+              mc anonymous set none craftly/craftly-datasets
           resources:
             requests:
               cpu: "100m"

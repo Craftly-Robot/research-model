@@ -1,5 +1,5 @@
-﻿$env:AEITRON_ACTIVE_PROFILE = 'mock-local'
-$env:AEITRON_MODEL_BACKEND = 'mock'
-$env:AEITRON_MODEL_ENDPOINT = ''
-$env:AEITRON_MODEL_NAME = 'mock'
+﻿$env:CRAFTLY_ACTIVE_PROFILE = 'mock-local'
+$env:CRAFTLY_MODEL_BACKEND = 'mock'
+$env:CRAFTLY_MODEL_ENDPOINT = ''
+$env:CRAFTLY_MODEL_NAME = 'mock'
 

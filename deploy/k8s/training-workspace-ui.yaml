@@ -1,11 +1,11 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: aeitron-training-workspace
+  name: craftly-training-workspace
   namespace: default
   labels:
-    app: aeitron-training-workspace
-    app.kubernetes.io/part-of: aeitron
+    app: craftly-training-workspace
+    app.kubernetes.io/part-of: craftly
 spec:
   replicas: 2
   strategy:
@@ -15,12 +15,12 @@ spec:
       maxSurge: 1
   selector:
     matchLabels:
-      app: aeitron-training-workspace
+      app: craftly-training-workspace
   template:
     metadata:
       labels:
-        app: aeitron-training-workspace
-        app.kubernetes.io/part-of: aeitron
+        app: craftly-training-workspace
+        app.kubernetes.io/part-of: craftly
     spec:
       securityContext:
         runAsNonRoot: true
@@ -30,7 +30,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: workspace
-          image: aeitron-training-workspace:latest
+          image: craftly-training-workspace:latest
           imagePullPolicy: IfNotPresent
           ports:
             - {name: http, containerPort: 8080}
@@ -62,12 +62,12 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: aeitron-training-workspace
+  name: craftly-training-workspace
   namespace: default
   labels:
-    app: aeitron-training-workspace
+    app: craftly-training-workspace
 spec:
   selector:
-    app: aeitron-training-workspace
+    app: craftly-training-workspace
   ports:
     - {name: http, port: 80, targetPort: http}

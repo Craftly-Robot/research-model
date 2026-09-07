@@ -1,4 +1,4 @@
-﻿"""Kaggle/Colab entrypoint for Aeitron scratch checkpoint comparison."""
+﻿"""Kaggle/Colab entrypoint for Craftly scratch checkpoint comparison."""
 
 from __future__ import annotations
 
@@ -11,17 +11,17 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.aeitron.model_ops.checkpoint_compare import GenerationConfig, compare_checkpoints  # noqa: E402
+from src.craftly.model_ops.checkpoint_compare import GenerationConfig, compare_checkpoints  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Compare Aeitron scratch checkpoints on a fixed coding/security prompt suite.")
+    parser = argparse.ArgumentParser(description="Compare Craftly scratch checkpoints on a fixed coding/security prompt suite.")
     parser.add_argument("--training-report", help="pretrain_report.json or real_data_training_report.json")
     parser.add_argument("--baseline-manifest")
     parser.add_argument("--candidate-manifest")
     parser.add_argument("--tokenizer")
     parser.add_argument("--prompt-suite")
-    parser.add_argument("--output-dir", default="artifacts/aeitron/checkpoint-compare")
+    parser.add_argument("--output-dir", default="artifacts/craftly/checkpoint-compare")
     parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="cuda")
     parser.add_argument("--max-new-tokens", type=int, default=96)
     parser.add_argument("--temperature", type=float, default=0.0)

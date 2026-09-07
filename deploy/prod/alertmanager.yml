@@ -10,7 +10,7 @@ route:
   routes:
     - receiver: qualification-null
       matchers:
-        - aeitron_qualification_proof="true"
+        - craftly_qualification_proof="true"
       group_wait: 0s
       group_interval: 1m
       repeat_interval: 1h

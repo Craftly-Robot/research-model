@@ -1,18 +1,18 @@
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: aeitron-dcgm-exporter
-  namespace: aeitron-training
+  name: craftly-dcgm-exporter
+  namespace: craftly-training
   labels:
-    app: aeitron-dcgm-exporter
+    app: craftly-dcgm-exporter
 spec:
   selector:
     matchLabels:
-      app: aeitron-dcgm-exporter
+      app: craftly-dcgm-exporter
   template:
     metadata:
       labels:
-        app: aeitron-dcgm-exporter
+        app: craftly-dcgm-exporter
     spec:
       nodeSelector:
         nvidia.com/gpu.present: "true"
@@ -52,18 +52,18 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: aeitron-dcgm-exporter
-  namespace: aeitron-training
+  name: craftly-dcgm-exporter
+  namespace: craftly-training
   annotations:
     prometheus.io/scrape: "true"
     prometheus.io/port: "9400"
     prometheus.io/path: "/metrics"
   labels:
-    app: aeitron-dcgm-exporter
+    app: craftly-dcgm-exporter
 spec:
   clusterIP: None
   selector:
-    app: aeitron-dcgm-exporter
+    app: craftly-dcgm-exporter
   ports:
     - name: metrics
       port: 9400

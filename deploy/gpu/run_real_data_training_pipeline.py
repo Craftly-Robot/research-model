@@ -1,4 +1,4 @@
-﻿"""Run a real approved-source Aeitron data -> GPU training -> eval job.
+﻿"""Run a real approved-source Craftly data -> GPU training -> eval job.
 
 This entrypoint is intended for Kaggle/Colab smoke runs and single-node GPU
 jobs. For production-scale collection, use the same pipeline with Postgres
@@ -19,7 +19,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from src.aeitron.learning.data_pipeline import DataPipelineConfig, run_data_pipeline  # noqa: E402
+from src.craftly.learning.data_pipeline import DataPipelineConfig, run_data_pipeline  # noqa: E402
 
 
 def _read_json(path: Path) -> dict[str, object]:
@@ -146,10 +146,10 @@ def apply_kaggle_validation_profile(args: argparse.Namespace) -> argparse.Namesp
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run real approved-source crawl, shard, scratch training, and checkpoint eval.")
     parser.add_argument("--sources", default="config/data_sources.ultimate.json")
-    parser.add_argument("--dataset-id", default="aeitron-real-approved-corpus")
-    parser.add_argument("--output-dir", "--work-dir", dest="output_dir", default="artifacts/aeitron/real-data-training")
+    parser.add_argument("--dataset-id", default="craftly-real-approved-corpus")
+    parser.add_argument("--output-dir", "--work-dir", dest="output_dir", default="artifacts/craftly/real-data-training")
     parser.add_argument("--frontier-backend", choices=["sqlite", "postgres"], default="sqlite")
-    parser.add_argument("--postgres-dsn", default=os.environ.get("AEITRON_DATABASE_URL"))
+    parser.add_argument("--postgres-dsn", default=os.environ.get("CRAFTLY_DATABASE_URL"))
     parser.add_argument("--max-docs", type=int, default=10_000)
     parser.add_argument(
         "--max-bytes-per-doc",
@@ -207,8 +207,8 @@ def parse_args() -> argparse.Namespace:
         choices=["balanced", "fundamentals_only", "defensive_security_only", "debug_patch_only", "agentic_coding_only"],
     )
     parser.add_argument("--allow-offensive-misuse-rows", action="store_true")
-    parser.add_argument("--object-store-uri", default=os.environ.get("AEITRON_OBJECT_STORE_URI", "local://artifacts/aeitron/object-store"))
-    parser.add_argument("--object-store-endpoint-url", default=os.environ.get("AEITRON_OBJECT_STORE_ENDPOINT_URL"))
+    parser.add_argument("--object-store-uri", default=os.environ.get("CRAFTLY_OBJECT_STORE_URI", "local://artifacts/craftly/object-store"))
+    parser.add_argument("--object-store-endpoint-url", default=os.environ.get("CRAFTLY_OBJECT_STORE_ENDPOINT_URL"))
     parser.add_argument("--checkpoint-compare-prompt-suite")
     parser.add_argument("--checkpoint-compare-min-score", type=float, default=0.0)
     parser.add_argument("--checkpoint-compare-max-new-tokens", type=int, default=96)
@@ -358,7 +358,7 @@ def main() -> None:
     print(
         json.dumps(
             {
-                "event": "aeitron_real_data_training_start",
+                "event": "craftly_real_data_training_start",
                 "work_dir": args.output_dir,
                 "progress_path": args.progress_path or str(Path(args.output_dir) / "progress.jsonl"),
                 "progress_stdout": not args.no_progress_stdout,

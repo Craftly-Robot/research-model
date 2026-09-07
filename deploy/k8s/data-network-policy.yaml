@@ -1,16 +1,16 @@
 ﻿apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: aeitron-data-platform-network
+  name: craftly-data-platform-network
 spec:
   podSelector:
     matchExpressions:
       - key: app
         operator: In
         values:
-          - aeitron-data-worker
-          - aeitron-postgres
-          - aeitron-minio
+          - craftly-data-worker
+          - craftly-postgres
+          - craftly-minio
   policyTypes:
     - Ingress
     - Egress
@@ -18,13 +18,13 @@ spec:
     - from:
         - podSelector:
             matchLabels:
-              app: aeitron-data-worker
+              app: craftly-data-worker
         - podSelector:
             matchLabels:
-              app: aeitron-api
+              app: craftly-api
         - podSelector:
             matchLabels:
-              app: aeitron-minio
+              app: craftly-minio
       ports:
         - protocol: TCP
           port: 5432
@@ -36,14 +36,14 @@ spec:
     - to:
         - podSelector:
             matchLabels:
-              app: aeitron-postgres
+              app: craftly-postgres
       ports:
         - protocol: TCP
           port: 5432
     - to:
         - podSelector:
             matchLabels:
-              app: aeitron-minio
+              app: craftly-minio
       ports:
         - protocol: TCP
           port: 9000

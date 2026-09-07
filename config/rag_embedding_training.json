@@ -1,6 +1,6 @@
 {
   "model": {
-    "model_name": "Aeitron-Code-Embed-v1",
+    "model_name": "Craftly-Code-Embed-v1",
     "vocab_size": 128000,
     "hidden_size": 768,
     "num_layers": 12,

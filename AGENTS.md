@@ -2,7 +2,7 @@
 
 ## Scope And Authority
 
-This file applies to the entire repository. `src/aeitron` is the authoritative
+This file applies to the entire repository. `src/craftly` is the authoritative
 application source root. The official brand and product name is **Craftly**
 (managed by the Craftly Robot Research Team at https://github.com/Craftly-Robot/research-model).
 Use **Craftly** as the primary brand, product, and model name in all new code,
@@ -10,7 +10,7 @@ configuration, documentation, artifacts, and user-facing text.
 
 Treat this file as the operational policy for coding agents. Use `README.md`
 for entry-point documentation and
-`docs/aeitron_complete_architecture_manual.md` as the single detailed
+`docs/craftly_complete_architecture_manual.md` as the single detailed
 architecture manual. Do not create nested `AGENTS.md` files, alternate agent
 instruction files, additional architecture manuals, or numbered phase systems.
 
@@ -44,7 +44,7 @@ instruction files, additional architecture manuals, or numbered phase systems.
   security, runtime isolation, persistence, deployment, or testing. Do not use
   one-line wrappers to simulate modularity.
 - Preserve the ownership declarations enforced by
-  `src/aeitron/architecture_integrity.py`, including canonical integrity,
+  `src/craftly/architecture_integrity.py`, including canonical integrity,
   configuration contracts, model architecture, independent review, production
   qualification, and hardened tool execution.
 - Do not introduce duplicate function bodies, import cycles, hidden control
@@ -61,7 +61,7 @@ instruction files, additional architecture manuals, or numbered phase systems.
 - Do not bypass authentication, quota enforcement, authorization scopes,
   organization/project ownership checks, tenant filters, or audit logging.
 - Do not add direct arbitrary command execution. Route tool execution through
-  `src/aeitron/tools/policy.py` and preserve executable allowlists, resolved
+  `src/craftly/tools/policy.py` and preserve executable allowlists, resolved
   paths, bounded arguments, project-root containment, sanitized environments,
   output limits, timeouts, and cancellation.
 - Validate paths after resolution and reject traversal outside the intended
@@ -91,7 +91,7 @@ instruction files, additional architecture manuals, or numbered phase systems.
 - Keep protected evaluation data out of training. Use repository/family/lineage
   safe splits and bind datasets, tokenizers, checkpoints, configs, source
   snapshots, and reports with cryptographic hashes.
-- Every model size starts from Aeitron scratch initialization. Smaller models
+- Every model size starts from Craftly scratch initialization. Smaller models
   validate the architecture and scaling assumptions; their weights do not seed
   a larger model.
 - Tokenizer size, dense versus sparse architecture, and scale targets are
@@ -126,11 +126,11 @@ configuration, test, deployment, or documentation change, run from the
 repository root:
 
 ```powershell
-python -m compileall -q src\aeitron tests deploy\gpu
+python -m compileall -q src\craftly tests deploy\gpu
 python -m unittest
-python -m src.aeitron.evaluation.release_gate
-python -m src.aeitron.security.audit --strict-external-tools --output-dir artifacts\aeitron\security-audit
-python -m src.aeitron.deployment.k8s_validate --output-dir artifacts\aeitron\k8s-validation
+python -m src.craftly.evaluation.release_gate
+python -m src.craftly.security.audit --strict-external-tools --output-dir artifacts\craftly\security-audit
+python -m src.craftly.deployment.k8s_validate --output-dir artifacts\craftly\k8s-validation
 git diff --check
 ```
 

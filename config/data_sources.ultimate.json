@@ -1,5 +1,5 @@
 ﻿{
-  "description": "Canonical Aeitron data source registry. The `sources` list is crawl-ready and license-gated. Other sections are advisory/API metadata and review queues; they are not crawled by SourceRegistry until promoted into `sources` after legal/source approval.",
+  "description": "Canonical Craftly data source registry. The `sources` list is crawl-ready and license-gated. Other sections are advisory/API metadata and review queues; they are not crawled by SourceRegistry until promoted into `sources` after legal/source approval.",
   "sources": [
     {
       "allowed_domains": [
@@ -592,7 +592,7 @@
       "ingestion_mode": "model_reference",
       "license_status": "not_training_data",
       "name": "Llama-Primus-Merged 8B",
-      "notes": "Model reference only; Aeitron remains scratch-training oriented.",
+      "notes": "Model reference only; Craftly remains scratch-training oriented.",
       "priority_rank": 6,
       "resource_id": 6,
       "resource_type": "model_reference",

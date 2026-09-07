@@ -51,7 +51,7 @@
       "candidate_vocab_sizes": [32000, 64000, 128000],
       "tokenizer_seeds": [1337, 2027, 4099],
       "token_budget": 2048000,
-      "required_evaluation_suites": ["HumanEval", "MBPP", "AeitronDefensiveSecurity", "AeitronRepositoryScorecard"],
+      "required_evaluation_suites": ["HumanEval", "MBPP", "CraftlyDefensiveSecurity", "CraftlyRepositoryScorecard"],
       "gate": {
         "maximum_tokenizer_noninferiority_gap": 0.01,
         "require_executable_evaluation": true,
@@ -65,7 +65,7 @@
       "experiment_type": "architecture_ab",
       "description": "Iso-active-parameter and iso-training-FLOP dense versus MLA/MoE comparison through a preregistered 1B confirmation.",
       "hypothesis": "MLA/MoE should advance only if it produces at least two percent relative validation-loss or benchmark improvement without security, foundation, or routing regressions.",
-      "training_profile_id": "aeitron-1b-single-node",
+      "training_profile_id": "craftly-1b-single-node",
       "profile_seeds": {
         "100m": [1337, 2027, 4099],
         "100m_moe": [1337, 2027, 4099],
@@ -75,7 +75,7 @@
         "1b_moe": [7331]
       },
       "token_budget": 29999759360,
-      "required_evaluation_suites": ["HumanEval", "MBPP", "AeitronDefensiveSecurity", "AeitronRepositoryScorecard"],
+      "required_evaluation_suites": ["HumanEval", "MBPP", "CraftlyDefensiveSecurity", "CraftlyRepositoryScorecard"],
       "gate": {
         "minimum_relative_validation_improvement": 0.02,
         "minimum_benchmark_point_improvement": 0.02,
@@ -93,7 +93,7 @@
       "experiment_type": "scaling_law",
       "description": "Dense scratch-model scaling study used to estimate whether a 7B experiment is scientifically justified.",
       "hypothesis": "Four distinct parameter and token scales can predict held-out validation loss within five percent before committing to the 7B run.",
-      "training_profile_id": "aeitron-1b-single-node",
+      "training_profile_id": "craftly-1b-single-node",
       "profile_seeds": {
         "50m": [1337, 2027, 4099],
         "100m": [1337, 2027, 4099],
@@ -107,7 +107,7 @@
         "1b": [2999975936, 9999745024, 29999759360]
       },
       "token_budget": 29999759360,
-      "required_evaluation_suites": ["HumanEval", "MBPP", "AeitronDefensiveSecurity", "AeitronRepositoryScorecard"],
+      "required_evaluation_suites": ["HumanEval", "MBPP", "CraftlyDefensiveSecurity", "CraftlyRepositoryScorecard"],
       "gate": {
         "maximum_scaling_holdout_mape": 0.05,
         "require_executable_evaluation": true,

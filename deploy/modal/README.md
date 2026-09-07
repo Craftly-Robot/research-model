@@ -1,6 +1,6 @@
-# Aeitron 2-Hour Continuous Scratch Training on Modal.com
+# Craftly 2-Hour Continuous Scratch Training on Modal.com
 
-This directory contains the production-ready infrastructure to train the **Aeitron Defensive Cybersecurity AI Model** from scratch for **2 continuous hours** on high-performance GPUs (NVIDIA A100-80GB / H100) using **Modal.com**.
+This directory contains the production-ready infrastructure to train the **Craftly Defensive Cybersecurity AI Model** from scratch for **2 continuous hours** on high-performance GPUs (NVIDIA A100-80GB / H100) using **Modal.com**.
 
 ---
 
@@ -25,12 +25,12 @@ modal run deploy/modal/train_modal.py --profile 300m --steps 15000 --batch-size 
 ```
 
 ### 3. Automatic Checkpoint Persistence (`modal.Volume`)
-All checkpoints, BPE tokenizer, binary token shards, and progress logs are saved automatically to the persistent volume `aeitron-training-volume`.
+All checkpoints, BPE tokenizer, binary token shards, and progress logs are saved automatically to the persistent volume `craftly-training-volume`.
 
 To list or download saved checkpoints:
 ```bash
-modal volume ls aeitron-training-volume
-modal volume get aeitron-training-volume train_output/checkpoints ./local_checkpoints
+modal volume ls craftly-training-volume
+modal volume get craftly-training-volume train_output/checkpoints ./local_checkpoints
 ```
 
 ---
@@ -39,7 +39,7 @@ modal volume get aeitron-training-volume train_output/checkpoints ./local_checkp
 
 If you prefer an interactive notebook interface:
 
-1. Launch a Jupyter notebook session on Modal or open [Aeitron_Modal_Training.ipynb](file:///c:/Users/mah54/Desktop/Cyber_Security_AI_Architecture_Build/deploy/modal/Aeitron_Modal_Training.ipynb) in your cloud environment.
+1. Launch a Jupyter notebook session on Modal or open [Craftly_Modal_Training.ipynb](file:///c:/Users/mah54/Desktop/Cyber_Security_AI_Architecture_Build/deploy/modal/Craftly_Modal_Training.ipynb) in your cloud environment.
 2. Run **Cell 1** to inspect GPU and CUDA VRAM.
 3. Run **Cell 2 & 3** to ingest CISA KEV defensive advisories and build binary token shards.
 4. Run **Cell 5** to execute the continuous 2-hour pretraining loop.
@@ -69,7 +69,7 @@ During long training runs, hardware or environment issues can occur. Here is how
 ### 3. Loss Instability / Spikes
 * **Symptom**: Loss suddenly spikes or returns NaN.
 * **Fix**:
-  * Aeitron employs RMSNorm, AdamW, and gradient clipping norm `1.0`.
+  * Craftly employs RMSNorm, AdamW, and gradient clipping norm `1.0`.
   * If needed, lower the learning rate (`--learning-rate 1e-4`) or increase `--warmup-steps`.
 
 ### 4. Inspecting Logs in Real-Time

@@ -79,7 +79,7 @@ type Evaluation = { evaluation_id: string; decision: string; status: string; cre
 type Session = { access_token: string; refresh_token: string; session_id: string; expires_in: number };
 
 const terminalStates = new Set(["succeeded", "failed", "blocked", "cancelled"]);
-const apiBase = (import.meta.env.VITE_AEITRON_API_URL || "").replace(/\/$/, "");
+const apiBase = (import.meta.env.VITE_CRAFTLY_API_URL || "").replace(/\/$/, "");
 const logoPath = "/WhatsApp%20Image%202026-06-10%20at%208.29.10%20PM.jpeg";
 
 function formatNumber(value?: number, digits = 2) {
@@ -358,8 +358,8 @@ export default function App() {
     return (
       <main className="auth-shell">
         <section className="auth-panel">
-          <img src={logoPath} alt="Aeitron" className="brand-logo" onError={(event) => { event.currentTarget.style.display = "none"; }} />
-          <div><p className="eyebrow">TRAINING CONTROL PLANE</p><h1>Aeitron Workspace</h1></div>
+          <img src={logoPath} alt="Craftly" className="brand-logo" onError={(event) => { event.currentTarget.style.display = "none"; }} />
+          <div><p className="eyebrow">TRAINING CONTROL PLANE</p><h1>Craftly Workspace</h1></div>
           <label>Bootstrap credential<input type="password" autoComplete="off" value={bootstrapToken} onChange={(event) => setBootstrapToken(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void login(); }} /></label>
           {error && <p className="error"><CircleAlert size={16} />{error}</p>}
           <button className="primary" disabled={busy || bootstrapToken.length < 32} onClick={() => void login()}><KeyRound size={17} />Authenticate</button>
@@ -371,7 +371,7 @@ export default function App() {
   return (
     <main className="workspace">
       <header className="topbar">
-        <div className="brand"><img src={logoPath} alt="" onError={(event) => { event.currentTarget.style.display = "none"; }} /><div><strong>Aeitron</strong><span>Training Workspace</span></div></div>
+        <div className="brand"><img src={logoPath} alt="" onError={(event) => { event.currentTarget.style.display = "none"; }} /><div><strong>Craftly</strong><span>Training Workspace</span></div></div>
         <div className="top-actions"><span className="connection"><span />CONTROL PLANE</span><button className="icon-button" title="Refresh workspace" onClick={() => void loadWorkspace()}><RefreshCw size={17} /></button><button className="icon-button" title="End session" onClick={() => void logout()}><LogOut size={17} /></button></div>
       </header>
 

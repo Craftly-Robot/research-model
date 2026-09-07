@@ -1,31 +1,31 @@
 ﻿apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: aeitron-postgres
+  name: craftly-postgres
 spec:
-  serviceName: aeitron-postgres
+  serviceName: craftly-postgres
   replicas: 1
   selector:
     matchLabels:
-      app: aeitron-postgres
+      app: craftly-postgres
   template:
     metadata:
       labels:
-        app: aeitron-postgres
+        app: craftly-postgres
     spec:
       containers:
         - name: postgres
           image: postgres:16
           env:
             - name: POSTGRES_USER
-              value: aeitron
+              value: craftly
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: aeitron-secrets
+                  name: craftly-secrets
                   key: postgres-password
             - name: POSTGRES_DB
-              value: aeitron
+              value: craftly
           ports:
             - containerPort: 5432
           resources:
@@ -50,10 +50,10 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: aeitron-postgres
+  name: craftly-postgres
 spec:
   selector:
-    app: aeitron-postgres
+    app: craftly-postgres
   ports:
     - port: 5432
       targetPort: 5432
@@ -61,17 +61,17 @@ spec:
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: aeitron-redis
+  name: craftly-redis
 spec:
-  serviceName: aeitron-redis
+  serviceName: craftly-redis
   replicas: 1
   selector:
     matchLabels:
-      app: aeitron-redis
+      app: craftly-redis
   template:
     metadata:
       labels:
-        app: aeitron-redis
+        app: craftly-redis
     spec:
       containers:
         - name: redis
@@ -84,7 +84,7 @@ spec:
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: aeitron-secrets
+                  name: craftly-secrets
                   key: redis-password
           ports:
             - containerPort: 6379
@@ -120,10 +120,10 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: aeitron-redis
+  name: craftly-redis
 spec:
   selector:
-    app: aeitron-redis
+    app: craftly-redis
   ports:
     - port: 6379
       targetPort: 6379

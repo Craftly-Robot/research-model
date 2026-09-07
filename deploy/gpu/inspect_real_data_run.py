@@ -1,4 +1,4 @@
-"""Inspect an Aeitron real-data training run and recommend the next action.
+"""Inspect an Craftly real-data training run and recommend the next action.
 
 This script is intentionally stdlib-only so it can run inside Kaggle/Colab even
 when the training dependencies failed to install. It reads the structured report
@@ -181,8 +181,8 @@ def inspect_run(*, work_dir: Path, report_path: Path | None = None, progress_pat
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Inspect an Aeitron Kaggle/Colab real-data training run.")
-    parser.add_argument("--work-dir", default="artifacts/aeitron/real-data-validation-v1")
+    parser = argparse.ArgumentParser(description="Inspect an Craftly Kaggle/Colab real-data training run.")
+    parser.add_argument("--work-dir", default="artifacts/craftly/real-data-validation-v1")
     parser.add_argument("--report")
     parser.add_argument("--progress")
     parser.add_argument("--fail-on-blocked", action="store_true")

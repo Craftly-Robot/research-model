@@ -1,16 +1,16 @@
 ﻿apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: aeitron-api
+  name: craftly-api
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: aeitron-api
+      app: craftly-api
   template:
     metadata:
       labels:
-        app: aeitron-api
+        app: craftly-api
     spec:
       securityContext:
         runAsNonRoot: true
@@ -21,73 +21,73 @@ spec:
           type: RuntimeDefault
       containers:
         - name: api
-          image: aeitron-api:latest
+          image: craftly-api:latest
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8090
           env:
-            - name: AEITRON_ENV
+            - name: CRAFTLY_ENV
               value: production
-            - name: AEITRON_AUTH_ENABLED
+            - name: CRAFTLY_AUTH_ENABLED
               value: "1"
-            - name: AEITRON_QUOTA_ENABLED
+            - name: CRAFTLY_QUOTA_ENABLED
               value: "1"
-            - name: AEITRON_JWT_SECRET
+            - name: CRAFTLY_JWT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: aeitron-secrets
+                  name: craftly-secrets
                   key: jwt-secret
-            - name: AEITRON_WORKSPACE_BOOTSTRAP_TOKEN
+            - name: CRAFTLY_WORKSPACE_BOOTSTRAP_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: aeitron-secrets
+                  name: craftly-secrets
                   key: workspace-bootstrap-token
-            - name: AEITRON_ALLOW_TOKEN_ISSUE
+            - name: CRAFTLY_ALLOW_TOKEN_ISSUE
               value: "0"
-            - name: AEITRON_PROJECT_ROOTS
+            - name: CRAFTLY_PROJECT_ROOTS
               value: /workspace/projects
-            - name: AEITRON_DATABASE_URL
+            - name: CRAFTLY_DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: aeitron-secrets
+                  name: craftly-secrets
                   key: database-url
-            - name: AEITRON_REDIS_URL
+            - name: CRAFTLY_REDIS_URL
               valueFrom:
                 secretKeyRef:
-                  name: aeitron-secrets
+                  name: craftly-secrets
                   key: redis-url
-            - name: AEITRON_QDRANT_URL
-              value: http://aeitron-qdrant:6333
-            - name: AEITRON_EMBEDDING_URL
+            - name: CRAFTLY_QDRANT_URL
+              value: http://craftly-qdrant:6333
+            - name: CRAFTLY_EMBEDDING_URL
               valueFrom:
                 secretKeyRef:
-                  name: aeitron-secrets
+                  name: craftly-secrets
                   key: embedding-url
-            - name: AEITRON_OBJECT_STORE_URI
-              value: s3://aeitron-datasets/training-workspace
-            - name: AEITRON_OBJECT_STORE_ENDPOINT_URL
-              value: http://aeitron-minio:9000
+            - name: CRAFTLY_OBJECT_STORE_URI
+              value: s3://craftly-datasets/training-workspace
+            - name: CRAFTLY_OBJECT_STORE_ENDPOINT_URL
+              value: http://craftly-minio:9000
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
-                  name: aeitron-secrets
+                  name: craftly-secrets
                   key: minio-root-user
             - name: AWS_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: aeitron-secrets
+                  name: craftly-secrets
                   key: minio-root-password
             - name: AWS_EC2_METADATA_DISABLED
               value: "true"
-            - name: AEITRON_TRAINING_GIT_COMMIT
+            - name: CRAFTLY_TRAINING_GIT_COMMIT
               valueFrom:
                 configMapKeyRef:
-                  name: aeitron-training-build
+                  name: craftly-training-build
                   key: git-commit
-            - name: AEITRON_TRAINING_IMAGE_DIGEST
+            - name: CRAFTLY_TRAINING_IMAGE_DIGEST
               valueFrom:
                 configMapKeyRef:
-                  name: aeitron-training-build
+                  name: craftly-training-build
                   key: image-digest
           securityContext:
             allowPrivilegeEscalation: false
@@ -130,15 +130,15 @@ spec:
             sizeLimit: 128Mi
         - name: project-workspaces
           persistentVolumeClaim:
-            claimName: aeitron-project-workspaces
+            claimName: craftly-project-workspaces
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: aeitron-api
+  name: craftly-api
 spec:
   selector:
-    app: aeitron-api
+    app: craftly-api
   ports:
     - port: 80
       targetPort: 8090
@@ -146,7 +146,7 @@ spec:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: aeitron-training-build
+  name: craftly-training-build
 data:
   git-commit: "replace-with-immutable-git-commit"
   image-digest: "replace-with-sha256-image-digest"
@@ -154,10 +154,10 @@ data:
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: aeitron-project-workspaces
+  name: craftly-project-workspaces
 spec:
   accessModes: ["ReadWriteMany"]
-  storageClassName: aeitron-workspaces
+  storageClassName: craftly-workspaces
   resources:
     requests:
       storage: 1Ti

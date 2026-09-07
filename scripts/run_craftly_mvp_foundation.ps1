@@ -1,5 +1,5 @@
 param(
-    [string]$Pattern = "tests.test_aeitron_mvp_foundation"
+    [string]$Pattern = "tests.test_craftly_mvp_foundation"
 )
 
 $ErrorActionPreference = "Stop"
@@ -9,7 +9,7 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-python -m compileall -q src\aeitron
+python -m compileall -q src\craftly
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }

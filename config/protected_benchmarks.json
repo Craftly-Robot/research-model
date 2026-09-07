@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "pack_id": "aeitron-protected-evaluation-v1",
+  "pack_id": "craftly-protected-evaluation-v1",
   "sources": [
     {
       "name": "humaneval",
@@ -58,11 +58,11 @@
       "train_policy": "eval_holdout"
     },
     {
-      "name": "aeitron_security",
-      "kind": "builtin_aeitron",
+      "name": "craftly_security",
+      "kind": "builtin_craftly",
       "revision": "builtin-task-contract-v1",
       "license": "Proprietary-Evaluation",
-      "output_file": "aeitron_security.jsonl",
+      "output_file": "craftly_security.jsonl",
       "minimum_rows": 25,
       "maximum_bytes": 10000000,
       "train_policy": "eval_holdout"

@@ -39,11 +39,11 @@ VOLUME_NAME = "craftly-training-volume"
 
 if modal is not None:
     app = modal.App(APP_NAME)
-    # Support both craftly volume and fallback to aeitron volume if user has existing volume
+    # Support both craftly volume and fallback to craftly volume if user has existing volume
     try:
         training_volume = modal.Volume.from_name(VOLUME_NAME, create_if_missing=True)
     except Exception:
-        training_volume = modal.Volume.from_name("aeitron-training-volume", create_if_missing=True)
+        training_volume = modal.Volume.from_name("craftly-training-volume", create_if_missing=True)
 
     training_image = (
         modal.Image.debian_slim(python_version="3.11")
@@ -71,7 +71,7 @@ else:
 async def prepare_defensive_training_corpus(corpus_path: Path, max_records: int = 10_000) -> int:
     """Fetch official defensive cybersecurity records (CISA KEV, OSV, OWASP, patches)."""
     import httpx
-    from src.aeitron.learning.vulnerability_adapters import CisaKevAdapter, VulnerabilityFetchConfig
+    from src.craftly.learning.vulnerability_adapters import CisaKevAdapter, VulnerabilityFetchConfig
 
     corpus_path.parent.mkdir(parents=True, exist_ok=True)
     if corpus_path.exists() and corpus_path.stat().st_size > 10_000:
@@ -224,9 +224,9 @@ async def prepare_defensive_training_corpus(corpus_path: Path, max_records: int 
             "Fetch secrets from environment variables or a dedicated secrets manager at runtime.\n"
             "<|patch_start|>\n"
             "import os\n"
-            "auth_secret = os.environ.get('AEITRON_AUTH_SECRET')\n"
+            "auth_secret = os.environ.get('CRAFTLY_AUTH_SECRET')\n"
             "if not auth_secret:\n"
-            "    raise RuntimeError('Missing required secret in environment: AEITRON_AUTH_SECRET')\n"
+            "    raise RuntimeError('Missing required secret in environment: CRAFTLY_AUTH_SECRET')\n"
             "<|patch_end|>\n"
             "<|document_end|>\n"
         ),
@@ -299,7 +299,7 @@ async def prepare_defensive_training_corpus(corpus_path: Path, max_records: int 
 # ---------------------------------------------------------------------------
 # Live Progress Reporter for Real-Time Terminal & Jupyter Output
 # ---------------------------------------------------------------------------
-from src.aeitron.shared.progress import ProgressReporter
+from src.craftly.shared.progress import ProgressReporter
 
 class LiveJupyterProgressReporter(ProgressReporter):
     """Clean, real-time live progress reporter designed for Jupyter Notebooks and CLI."""
@@ -369,15 +369,15 @@ def run_training_workstation(
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(line_buffering=True)
     import torch
-    from src.aeitron.model_ops.foundation import model_profiles
-    from src.aeitron.model_ops.pretrain_loop import run_pretraining_loop
-    from src.aeitron.model_ops.tokenizer_pipeline import (
+    from src.craftly.model_ops.foundation import model_profiles
+    from src.craftly.model_ops.pretrain_loop import run_pretraining_loop
+    from src.craftly.model_ops.tokenizer_pipeline import (
         ShardBuildConfig,
         TokenizerTrainConfig,
         build_token_shards,
         train_bpe_tokenizer,
     )
-    from src.aeitron.shared.progress import ProgressReporter
+    from src.craftly.shared.progress import ProgressReporter
 
     # 1. Inspect Hardware
     print("=" * 70)
@@ -548,10 +548,10 @@ def run_training_workstation(
             fast_zip = Path(f"/root/craftly_{profile_name}_fast_model")
             shutil.make_archive(str(fast_zip), "zip", clean_dir)
             # Also keep legacy/compat alias if needed
-            compat_zip = Path(f"/root/aeitron_{profile_name}_fast_model")
+            compat_zip = Path(f"/root/craftly_{profile_name}_fast_model")
             shutil.copy(f"{fast_zip}.zip", f"{compat_zip}.zip")
             if profile_name == "300m":
-                legacy_zip = Path("/root/aeitron_300m_fast_model_150mb")
+                legacy_zip = Path("/root/craftly_300m_fast_model_150mb")
                 shutil.copy(f"{fast_zip}.zip", f"{legacy_zip}.zip")
             zip_size_mb = Path(f"{fast_zip}.zip").stat().st_size / (1024 * 1024)
             print("\n" + "=" * 70)
@@ -607,7 +607,7 @@ if app is not None:
         )
 
     # Backward compatibility alias
-    train_aeitron_modal = train_craftly_modal
+    train_craftly_modal = train_craftly_modal
 
 
 # ---------------------------------------------------------------------------
@@ -617,7 +617,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Craftly Continuous Scratch Pretraining.")
-    default_out = "/vol/train_run" if Path("/vol").exists() else "artifacts/aeitron/train_run"
+    default_out = "/vol/train_run" if Path("/vol").exists() else "artifacts/craftly/train_run"
     parser.add_argument("--output-dir", default=default_out)
     parser.add_argument(
         "--profile",

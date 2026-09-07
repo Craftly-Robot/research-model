@@ -1,2 +1,2 @@
-﻿"""Aeitron test package."""
+﻿"""Craftly test package."""
 

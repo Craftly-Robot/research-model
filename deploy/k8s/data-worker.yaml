@@ -1,39 +1,39 @@
 ﻿apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: aeitron-data-worker
+  name: craftly-data-worker
 spec:
   replicas: 4
   selector:
     matchLabels:
-      app: aeitron-data-worker
+      app: craftly-data-worker
   template:
     metadata:
       labels:
-        app: aeitron-data-worker
+        app: craftly-data-worker
     spec:
       containers:
         - name: crawler
-          image: aeitron-api:latest
+          image: craftly-api:latest
           imagePullPolicy: IfNotPresent
-          command: ["python", "-m", "src.aeitron.learning.worker"]
+          command: ["python", "-m", "src.craftly.learning.worker"]
           env:
-            - name: AEITRON_DATABASE_URL
+            - name: CRAFTLY_DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: aeitron-secrets
+                  name: craftly-secrets
                   key: database-url
-            - name: AEITRON_DATA_SOURCES
+            - name: CRAFTLY_DATA_SOURCES
               value: config/data_sources.ultimate.json
-            - name: AEITRON_RAW_OUTPUT_DIR
+            - name: CRAFTLY_RAW_OUTPUT_DIR
               value: /data/raw
-            - name: AEITRON_CLEAN_OUTPUT_DIR
+            - name: CRAFTLY_CLEAN_OUTPUT_DIR
               value: /data/clean
-            - name: AEITRON_ASYNC_WORKERS
+            - name: CRAFTLY_ASYNC_WORKERS
               value: "32"
-            - name: AEITRON_BATCH_DOCS
+            - name: CRAFTLY_BATCH_DOCS
               value: "10000"
-            - name: AEITRON_WORKER_LOOPS
+            - name: CRAFTLY_WORKER_LOOPS
               value: "100"
           volumeMounts:
             - name: data-artifacts
@@ -48,12 +48,12 @@ spec:
       volumes:
         - name: data-artifacts
           persistentVolumeClaim:
-            claimName: aeitron-data-artifacts
+            claimName: craftly-data-artifacts
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: aeitron-data-artifacts
+  name: craftly-data-artifacts
 spec:
   accessModes: ["ReadWriteMany"]
   resources:

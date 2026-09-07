@@ -1,12 +1,12 @@
 ﻿apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: aeitron-data-worker-hpa
+  name: craftly-data-worker-hpa
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: aeitron-data-worker
+    name: craftly-data-worker
   minReplicas: 4
   maxReplicas: 64
   metrics:
