@@ -381,8 +381,7 @@ def run_training_workstation(
     except Exception as exc:
         print(f"\n[FATAL RUNTIME ERROR]: {exc}")
         print("[Recovery] Emergency flush to persistent volume...")
-        if modal is not None and training_volume is not None:
-            training_volume.commit()
+        safe_volume_commit()
         raise
 
     elapsed_mins = (time.time() - start_time) / 60.0
@@ -395,12 +394,20 @@ def run_training_workstation(
     print(f"Latest Checkpoint: {report.get('checkpoint_manifest')}")
     print("=" * 70)
 
-    # 8. Commit Volume
-    if modal is not None and training_volume is not None:
-        training_volume.commit()
-        print("[Volume] All checkpoints and logs successfully committed to Modal Volume.")
+    # 8. Commit Volume (safely if mounted)
+    safe_volume_commit()
 
     return report
+
+
+def safe_volume_commit() -> None:
+    """Commit volume if running inside a mounted Modal container; ignore if standalone."""
+    if modal is not None and training_volume is not None:
+        try:
+            training_volume.commit()
+            print("[Volume] All checkpoints and logs successfully committed to Modal Volume.")
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -437,25 +444,40 @@ if app is not None:
 
 
 # ---------------------------------------------------------------------------
-# Local Entrypoint for CLI Execution
+# CLI Entrypoint for Direct Execution
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "--local":
-        # Local test mode without Modal cloud
-        output_dir = Path("artifacts/aeitron/modal_local_test")
-        report = run_training_workstation(
-            volume_root=output_dir,
-            profile_name="t4_validation",
-            train_steps=10,
-            batch_size=2,
-            gradient_accumulation_steps=1,
-            sequence_length=64,
-            learning_rate=1e-3,
-            resume=True,
-        )
-        print(json.dumps(report, indent=2, sort_keys=True))
-    else:
-        print("To launch 2-hour training on Modal.com GPU:")
-        print("    modal run deploy/modal/train_modal.py")
-        print("To test locally (CPU/GPU dry run):")
-        print("    python deploy/modal/train_modal.py --local")
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Aeitron Continuous Scratch Pretraining.")
+    parser.add_argument("--output-dir", default="artifacts/aeitron/train_run")
+    parser.add_argument(
+        "--profile",
+        default="300m",
+        choices=["tiny", "t4_validation", "50m", "100m", "300m", "1b", "7b"],
+        help="Model architecture profile (default: 300m)",
+    )
+    parser.add_argument("--steps", type=int, default=15000, help="Total optimizer steps (~2 hours on GPU)")
+    parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument("--gradient-accumulation-steps", type=int, default=8)
+    parser.add_argument("--sequence-length", type=int, default=1024)
+    parser.add_argument("--learning-rate", type=float, default=3e-4)
+    parser.add_argument("--no-resume", action="store_true", help="Disable automatic checkpoint resumption")
+    parser.add_argument("--smoke", action="store_true", help="Run a quick 10-step smoke test")
+    parser.add_argument("--local", action="store_true", help="Alias for local execution")
+    args = parser.parse_args()
+
+    target_steps = 10 if args.smoke else args.steps
+    target_profile = "t4_validation" if args.smoke else args.profile
+
+    report = run_training_workstation(
+        volume_root=Path(args.output_dir),
+        profile_name=target_profile,
+        train_steps=target_steps,
+        batch_size=args.batch_size if not args.smoke else 2,
+        gradient_accumulation_steps=args.gradient_accumulation_steps if not args.smoke else 1,
+        sequence_length=args.sequence_length if not args.smoke else 64,
+        learning_rate=args.learning_rate if not args.smoke else 1e-3,
+        resume=not args.no_resume,
+    )
+    print(json.dumps(report, indent=2, sort_keys=True))
