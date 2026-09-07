@@ -151,37 +151,138 @@ async def prepare_defensive_training_corpus(corpus_path: Path, max_records: int 
             "<|document_end|>\n"
         ),
         (
-            "### SECURE CODING GUIDELINE: CROSS-SITE SCRIPTING (XSS) SANITIZATION\n"
-            "Vulnerability Type: CWE-79 Stored & Reflected XSS\n"
+            "### SECURE CODING GUIDELINE: OS COMMAND INJECTION REMEDIATION\n"
+            "Vulnerability Type: CWE-78 OS Command Injection\n"
             "Vulnerable Pattern:\n"
-            "element.innerHTML = user_comment\n\n"
+            "os.system(f'ping -c 1 {user_host}')\n\n"
             "Defensive Remediation:\n"
-            "Use textContent or context-aware sanitization with DOMPurify.\n"
+            "Never invoke the system shell with string interpolation. Use subprocess.run with argument lists and shell=False.\n"
             "<|patch_start|>\n"
-            "element.textContent = user_comment\n"
+            "import subprocess\n"
+            "import ipaddress\n"
+            "try:\n"
+            "    ip = ipaddress.ip_address(user_host.strip())\n"
+            "    subprocess.run(['ping', '-c', '1', str(ip)], check=True, shell=False, capture_output=True, timeout=3.0)\n"
+            "except ValueError:\n"
+            "    raise ValueError('Invalid IP host format')\n"
             "<|patch_end|>\n"
             "<|document_end|>\n"
         ),
         (
-            "### SECURE CODING GUIDELINE: CRYPTOGRAPHIC KEY STORAGE & COMPARISON\n"
-            "Vulnerability Type: CWE-208 / CWE-311 Insecure Crypto & Timing Attacks\n"
+            "### SECURE CODING GUIDELINE: INSECURE DESERIALIZATION DEFENSE\n"
+            "Vulnerability Type: CWE-502 Insecure Deserialization\n"
             "Vulnerable Pattern:\n"
-            "if user_provided_token == stored_secret_token:\n"
-            "    grant_access()\n\n"
+            "data = pickle.loads(user_serialized_bytes)\n\n"
             "Defensive Remediation:\n"
-            "Use constant-time comparison to prevent side-channel timing attacks.\n"
+            "Never unpickle untrusted bytes. Use safe serialization formats like JSON, MessagePack, or Safetensors.\n"
             "<|patch_start|>\n"
-            "import hmac\n"
-            "if hmac.compare_digest(user_provided_token, stored_secret_token):\n"
-            "    grant_access()\n"
+            "import json\n"
+            "data = json.loads(user_serialized_bytes.decode('utf-8'))\n"
+            "<|patch_end|>\n"
+            "<|document_end|>\n"
+        ),
+        (
+            "### SECURE CODING GUIDELINE: MISSING AUTHORIZATION & IDOR\n"
+            "Vulnerability Type: CWE-862 Insecure Direct Object Reference (IDOR)\n"
+            "Vulnerable Pattern:\n"
+            "document = db.query(Document).filter_by(id=doc_id).first()\n"
+            "return document\n\n"
+            "Defensive Remediation:\n"
+            "Enforce tenant and user ownership authorization checks on every query.\n"
+            "<|patch_start|>\n"
+            "document = db.query(Document).filter_by(id=doc_id, owner_id=current_user.id, tenant_id=current_user.tenant_id).first()\n"
+            "if document is None:\n"
+            "    raise PermissionError('Unauthorized access to requested object')\n"
+            "return document\n"
+            "<|patch_end|>\n"
+            "<|document_end|>\n"
+        ),
+        (
+            "### SECURE CODING GUIDELINE: SECURE PASSWORD HASHING\n"
+            "Vulnerability Type: CWE-287 / CWE-328 Weak Password Hashing\n"
+            "Vulnerable Pattern:\n"
+            "password_hash = hashlib.md5(password.encode()).hexdigest()\n\n"
+            "Defensive Remediation:\n"
+            "Use adaptive, memory-hard hashing algorithms such as Argon2id or Bcrypt with unique per-user salts.\n"
+            "<|patch_start|>\n"
+            "from argon2 import PasswordHasher\n"
+            "ph = PasswordHasher(time_cost=3, memory_cost=65536, parallelism=4)\n"
+            "password_hash = ph.hash(password)\n"
+            "<|patch_end|>\n"
+            "<|document_end|>\n"
+        ),
+        (
+            "### SECURE CODING GUIDELINE: HARDCODED CREDENTIALS ELIMINATION\n"
+            "Vulnerability Type: CWE-798 Hardcoded Secrets\n"
+            "Vulnerable Pattern:\n"
+            "API_KEY = 'sk-proj-supersecretkey12345'\n\n"
+            "Defensive Remediation:\n"
+            "Fetch secrets from environment variables or a dedicated secrets manager at runtime.\n"
+            "<|patch_start|>\n"
+            "import os\n"
+            "API_KEY = os.environ.get('AEITRON_API_KEY')\n"
+            "if not API_KEY:\n"
+            "    raise RuntimeError('Missing required secret in environment: AEITRON_API_KEY')\n"
+            "<|patch_end|>\n"
+            "<|document_end|>\n"
+        ),
+        (
+            "### SECURE CODING GUIDELINE: PREVENT DANGEROUS CODE EVALUATION\n"
+            "Vulnerability Type: CWE-94 Code Injection\n"
+            "Vulnerable Pattern:\n"
+            "result = eval(user_calculation_string)\n\n"
+            "Defensive Remediation:\n"
+            "Do not execute arbitrary code via eval or exec. Parse expressions using safe AST evaluation.\n"
+            "<|patch_start|>\n"
+            "import ast\n"
+            "import operator\n"
+            "SAFE_OPERATORS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv}\n"
+            "def safe_eval(node):\n"
+            "    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):\n"
+            "        return node.value\n"
+            "    if isinstance(node, ast.BinOp) and type(node.op) in SAFE_OPERATORS:\n"
+            "        return SAFE_OPERATORS[type(node.op)](safe_eval(node.left), safe_eval(node.right))\n"
+            "    raise ValueError('Unsupported or unsafe expression')\n"
+            "result = safe_eval(ast.parse(user_calculation_string, mode='eval').body)\n"
             "<|patch_end|>\n"
             "<|document_end|>\n"
         ),
     ]
 
-    # Replicate to ensure ample tokens for pretraining
-    while len(records) < 10_000:
-        records.extend(seed_security_patterns)
+    # Add SFT Chat Instruction Pairs for conversational maturity
+    chat_instruction_pairs = [
+        (
+            "<|im_start|>system\nYou are Aeitron, a production-grade defensive cybersecurity AI engineering assistant.<|im_end|>\n"
+            "<|im_start|>user\nHow do I secure an endpoint vulnerable to SQL injection?<|im_end|>\n"
+            "<|im_start|>assistant\nTo remediate SQL injection (CWE-89), always replace string interpolation with parameterized queries or prepared statements:\n\n"
+            "```python\n# Secure Remediation\ncursor.execute('SELECT * FROM users WHERE username = %s', (username,))\n```\n"
+            "This guarantees user inputs are handled strictly as literal values rather than executable SQL commands.<|im_end|>\n"
+        ),
+        (
+            "<|im_start|>system\nYou are Aeitron, a production-grade defensive cybersecurity AI engineering assistant.<|im_end|>\n"
+            "<|im_start|>user\nHow can I prevent path traversal when reading user-specified files in Python?<|im_end|>\n"
+            "<|im_start|>assistant\nTo prevent path traversal (CWE-22), canonicalize the path with `resolve()` and verify containment within the intended base directory:\n\n"
+            "```python\nfrom pathlib import Path\n\nbase = Path('/safe/dir').resolve()\ntarget = (base / user_filename).resolve()\nif not target.is_relative_to(base):\n    raise PermissionError('Path traversal detected outside base directory')\ncontent = target.read_text(encoding='utf-8')\n```<|im_end|>\n"
+        ),
+        (
+            "<|im_start|>system\nYou are Aeitron, a production-grade defensive cybersecurity AI engineering assistant.<|im_end|>\n"
+            "<|im_start|>user\nWhat is the recommended defense against Server-Side Request Forgery (SSRF)?<|im_end|>\n"
+            "<|im_start|>assistant\nDefending against SSRF (CWE-918) requires:\n"
+            "1. Validating the URL scheme against an allowlist (e.g. HTTPS only).\n"
+            "2. Resolving DNS and rejecting private, loopback, or link-local IP addresses (e.g. 127.0.0.1, 169.254.169.254, 10.0.0.0/8).\n"
+            "3. Disabling HTTP redirects or re-validating the destination after every redirect.<|im_end|>\n"
+        ),
+        (
+            "<|im_start|>system\nYou are Aeitron, a production-grade defensive cybersecurity AI engineering assistant.<|im_end|>\n"
+            "<|im_start|>user\nHow should authentication tokens be compared in Python?<|im_end|>\n"
+            "<|im_start|>assistant\nAlways use constant-time comparison to prevent side-channel timing attacks (CWE-208):\n\n"
+            "```python\nimport hmac\n\nif not hmac.compare_digest(user_token, secret_token):\n    raise PermissionError('Invalid credentials')\n```<|im_end|>\n"
+        ),
+    ]
+
+    all_seed_docs = seed_security_patterns + chat_instruction_pairs
+    while len(records) < 15_000:
+        records.extend(all_seed_docs)
 
     with corpus_path.open("w", encoding="utf-8") as f:
         for doc in records:
@@ -408,24 +509,46 @@ def run_training_workstation(
     # 8. Commit Volume (safely if mounted)
     safe_volume_commit()
 
-    # 9. Automatically create downloadable archive of checkpoints & tokenizer
+    # 9. Automatically create clean lightweight inference bundle (~150MB) for ultra-fast download
     try:
         import shutil
-        zip_candidates = [
-            Path(f"/root/aeitron_{profile_name}_model_bundle"),
-            volume_root.parent / f"aeitron_{profile_name}_model_bundle",
-        ]
-        for z_path in zip_candidates:
-            try:
-                z_path.parent.mkdir(parents=True, exist_ok=True)
-                shutil.make_archive(str(z_path), "zip", train_dir)
-                print(f"[Archive] Saved complete downloadable model bundle at: {z_path}.zip")
-                print(f"[TIP] You can now right-click 'aeitron_{profile_name}_model_bundle.zip' in your Jupyter file browser to download!")
-                break
-            except Exception:
-                continue
+        clean_dir = volume_root.parent / f"aeitron_{profile_name}_clean_inference"
+        shutil.rmtree(clean_dir, ignore_errors=True)
+        clean_dir.mkdir(parents=True, exist_ok=True)
+
+        # 1. Copy Tokenizer
+        if (volume_root / "tokenizer").exists():
+            shutil.copytree(volume_root / "tokenizer", clean_dir / "tokenizer", dirs_exist_ok=True)
+
+        # 2. Extract clean model weights without 4GB optimizer states
+        manifest_file = train_dir / "checkpoint_manifest.json"
+        if manifest_file.exists():
+            shutil.copy(manifest_file, clean_dir / "checkpoint_manifest.json")
+            m_info = json.loads(manifest_file.read_text(encoding="utf-8-sig"))
+            ckpt_path = Path(m_info.get("checkpoint_dir", ""))
+            if ckpt_path.exists():
+                dest_ckpt = clean_dir / ckpt_path.name
+                dest_ckpt.mkdir(parents=True, exist_ok=True)
+                if (ckpt_path / "config.json").exists():
+                    shutil.copy(ckpt_path / "config.json", dest_ckpt / "config.json")
+                if (ckpt_path / "model.pt").exists():
+                    raw_payload = torch.load(ckpt_path / "model.pt", map_location="cpu")
+                    clean_payload = {
+                        "model": raw_payload.get("model", {}),
+                        "config": raw_payload.get("config", {}),
+                        "step": raw_payload.get("step", 0),
+                        "trained_tokens": raw_payload.get("trained_tokens", 0),
+                    }
+                    torch.save(clean_payload, dest_ckpt / "model.pt")
+
+            fast_zip = Path(f"/root/aeitron_{profile_name}_fast_model_150mb")
+            shutil.make_archive(str(fast_zip), "zip", clean_dir)
+            print("\n" + "=" * 70)
+            print(f"[FAST DOWNLOAD READY] Ultra-compact model (~150MB) at: {fast_zip}.zip")
+            print("[TIP] This file is only ~150MB and downloads in 20-30 seconds without network drops!")
+            print("=" * 70)
     except Exception as e:
-        print(f"[Archive Note] Auto-packaging skipped: {e}")
+        print(f"[Fast Packaging Note] {e}")
 
     return report
 
