@@ -296,8 +296,12 @@ def run_training_workstation(
     tokenizer_file = volume_root / "tokenizer" / "tokenizer.json"
     shards_dir = volume_root / "shards"
     manifest_file = shards_dir / "manifest.json"
-    train_dir = volume_root / "train_output"
-    progress_file = volume_root / "logs" / "progress.jsonl"
+    # Ensure separate output directories per model profile so checkpoints never collide
+    if profile_name == "300m" and (volume_root / "train_output").exists():
+        train_dir = volume_root / "train_output"
+    else:
+        train_dir = volume_root / f"train_output_{profile_name}"
+    progress_file = volume_root / "logs" / f"progress_{profile_name}.jsonl"
 
     train_dir.mkdir(parents=True, exist_ok=True)
     progress_file.parent.mkdir(parents=True, exist_ok=True)
@@ -340,17 +344,23 @@ def run_training_workstation(
     if manifest_ckpt.exists() and resume:
         try:
             ckpt_data = json.loads(manifest_ckpt.read_text(encoding="utf-8"))
-            current_step = int(ckpt_data.get("step", 0))
-            print(f"[Resume] Found previous checkpoint at step {current_step} ({ckpt_data.get('checkpoint_dir')}).")
-            if current_step >= effective_steps:
-                effective_steps = current_step + max(train_steps, 500)
-                print(f"[Resume] Target step already reached ({current_step}). Extending target to {effective_steps} steps.")
+            ckpt_profile = ckpt_data.get("model_profile_name", "")
+            if ckpt_profile and ckpt_profile != profile_name:
+                print(f"[Resume] Existing checkpoint is for profile '{ckpt_profile}', but current request is '{profile_name}'. Starting fresh scratch training.")
+                resume = False
             else:
-                print(f"[Resume] Resuming from step {current_step} towards target step {effective_steps}.")
+                current_step = int(ckpt_data.get("step", 0))
+                print(f"[Resume] Found previous checkpoint at step {current_step} ({ckpt_data.get('checkpoint_dir')}).")
+                if current_step >= effective_steps:
+                    effective_steps = current_step + max(train_steps, 500)
+                    print(f"[Resume] Target step already reached ({current_step}). Extending target to {effective_steps} steps.")
+                else:
+                    print(f"[Resume] Resuming from step {current_step} towards target step {effective_steps}.")
         except Exception as exc:
             print(f"[Resume] Warning: failed to parse checkpoint manifest: {exc}")
+            resume = False
     else:
-        print("[Scratch] Starting fresh scratch pretraining run (zero weights).")
+        print(f"[Scratch] Starting fresh scratch pretraining run for '{profile_name}' (zero weights).")
 
     progress = LiveJupyterProgressReporter(path=progress_file)
 
@@ -401,15 +411,15 @@ def run_training_workstation(
     try:
         import shutil
         zip_candidates = [
-            Path("/root/aeitron_300m_model_bundle"),
-            volume_root.parent / "aeitron_300m_model_bundle",
+            Path(f"/root/aeitron_{profile_name}_model_bundle"),
+            volume_root.parent / f"aeitron_{profile_name}_model_bundle",
         ]
         for z_path in zip_candidates:
             try:
                 z_path.parent.mkdir(parents=True, exist_ok=True)
-                shutil.make_archive(str(z_path), "zip", volume_root)
+                shutil.make_archive(str(z_path), "zip", train_dir)
                 print(f"[Archive] Saved complete downloadable model bundle at: {z_path}.zip")
-                print("[TIP] You can now right-click 'aeitron_300m_model_bundle.zip' in your Jupyter file browser to download!")
+                print(f"[TIP] You can now right-click 'aeitron_{profile_name}_model_bundle.zip' in your Jupyter file browser to download!")
                 break
             except Exception:
                 continue
