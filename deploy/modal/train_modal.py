@@ -541,11 +541,16 @@ def run_training_workstation(
                     }
                     torch.save(clean_payload, dest_ckpt / "model.pt")
 
-            fast_zip = Path(f"/root/aeitron_{profile_name}_fast_model_150mb")
+            fast_zip = Path(f"/root/aeitron_{profile_name}_fast_model")
             shutil.make_archive(str(fast_zip), "zip", clean_dir)
+            # Also keep legacy 150mb alias if 300m profile for compatibility
+            if profile_name == "300m":
+                legacy_zip = Path("/root/aeitron_300m_fast_model_150mb")
+                shutil.copy(f"{fast_zip}.zip", f"{legacy_zip}.zip")
+            zip_size_mb = Path(f"{fast_zip}.zip").stat().st_size / (1024 * 1024)
             print("\n" + "=" * 70)
-            print(f"[FAST DOWNLOAD READY] Ultra-compact model (~150MB) at: {fast_zip}.zip")
-            print("[TIP] This file is only ~150MB and downloads in 20-30 seconds without network drops!")
+            print(f"[FAST DOWNLOAD READY] Compact model ({zip_size_mb:.1f} MB) at: {fast_zip}.zip")
+            print(f"[TIP] Download {fast_zip}.zip directly from your Modal file explorer or notebook!")
             print("=" * 70)
     except Exception as e:
         print(f"[Fast Packaging Note] {e}")
