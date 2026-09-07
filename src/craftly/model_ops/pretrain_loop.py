@@ -1,4 +1,4 @@
-﻿"""Checkpoint-resumable scratch pretraining loop for Craftly decoder models."""
+"""Checkpoint-resumable scratch pretraining loop for Craftly decoder models."""
 
 from __future__ import annotations
 
@@ -802,6 +802,34 @@ def training_environment_report(*, device: "torch.device", dtype: str, distribut
     }
 
 
+def prune_old_checkpoints(
+    output_dir: Path,
+    keep_last_n: int = 3,
+    preserve_dirs: set[Path] | None = None,
+) -> list[Path]:
+    """Delete older step checkpoint directories to prevent disk overflow while preserving recent checkpoints."""
+    if keep_last_n <= 0:
+        return []
+    preserve = {p.resolve() for p in (preserve_dirs or set())}
+    checkpoint_dirs = sorted(
+        [d for d in output_dir.glob("checkpoint-step-*") if d.is_dir()],
+        key=lambda d: d.name,
+    )
+    if len(checkpoint_dirs) <= keep_last_n:
+        return []
+    to_delete = checkpoint_dirs[:-keep_last_n]
+    deleted = []
+    for d in to_delete:
+        if d.resolve() in preserve:
+            continue
+        try:
+            shutil.rmtree(d, ignore_errors=True)
+            deleted.append(d)
+        except Exception:
+            pass
+    return deleted
+
+
 def save_training_checkpoint(
     *,
     output_dir: Path,
@@ -818,6 +846,7 @@ def save_training_checkpoint(
     environment: dict[str, Any] | None = None,
     dataloader_state: dict[str, Any] | None = None,
     manifest_filename: str = "checkpoint_manifest.json",
+    keep_last_n_checkpoints: int = 3,
 ) -> Path:
     checkpoint_dir = output_dir / f"checkpoint-step-{step:08d}"
     manifest_path = output_dir / manifest_filename
@@ -863,15 +892,22 @@ def save_training_checkpoint(
     elif distributed_rank() == 0:
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
         model_state = checkpoint_model_state_dict(model)
-        save_trusted_checkpoint(
-            {
-                "model": model_state,
-                "optimizer": optimizer.state_dict(),
-                "scheduler": scheduler.state_dict() if scheduler is not None else {"type": "constant", "state": {}},
-                **trainer_state,
-            },
-            checkpoint_dir / "model.pt",
-        )
+        try:
+            save_trusted_checkpoint(
+                {
+                    "model": model_state,
+                    "optimizer": optimizer.state_dict(),
+                    "scheduler": scheduler.state_dict() if scheduler is not None else {"type": "constant", "state": {}},
+                    **trainer_state,
+                },
+                checkpoint_dir / "model.pt",
+            )
+        except Exception as err:
+            shutil.rmtree(checkpoint_dir, ignore_errors=True)
+            raise RuntimeError(
+                f"Failed writing checkpoint at step {step} to {checkpoint_dir / 'model.pt'}. "
+                f"Disk space exhaustion or I/O error: {err}"
+            ) from err
     if distributed_rank() == 0:
         (checkpoint_dir / "config.json").write_text(json.dumps(config.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
         manifest = CheckpointManifest.from_directory(
@@ -883,6 +919,7 @@ def save_training_checkpoint(
             metrics=metrics,
         )
         manifest.write_atomic(manifest_path)
+        prune_old_checkpoints(output_dir, keep_last_n=keep_last_n_checkpoints, preserve_dirs={checkpoint_dir})
     distributed_barrier()
     return manifest_path
 
@@ -1198,6 +1235,7 @@ def run_pretraining_loop(
     validate_every: int = 25,
     validation_batches: int = 4,
     checkpoint_every: int = 50,
+    keep_last_n_checkpoints: int = 3,
     early_stopping_patience: int = 0,
     early_stopping_min_delta: float = 0.0,
     resume: bool = True,
@@ -1748,6 +1786,7 @@ def run_pretraining_loop(
                     environment=checkpoint_environment,
                     dataloader_state=current_dataloader_state(current_step),
                     manifest_filename="best_checkpoint_manifest.json",
+                    keep_last_n_checkpoints=keep_last_n_checkpoints,
                 )
                 active_progress.emit(
                     "checkpoint",
@@ -1782,6 +1821,7 @@ def run_pretraining_loop(
                 tokenizer_path=active_manifest.tokenizer_path,
                 environment=checkpoint_environment,
                 dataloader_state=current_dataloader_state(current_step),
+                keep_last_n_checkpoints=keep_last_n_checkpoints,
             )
             active_progress.emit(
                 "checkpoint",

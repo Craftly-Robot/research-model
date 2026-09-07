@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -447,6 +448,7 @@ def run_training_workstation(
     # 6. Check Checkpoint Resume State
     manifest_ckpt = train_dir / "checkpoint_manifest.json"
     effective_steps = train_steps
+    active_ckpt_path: Path | None = None
     if manifest_ckpt.exists() and resume:
         try:
             ckpt_data = json.loads(manifest_ckpt.read_text(encoding="utf-8"))
@@ -456,7 +458,10 @@ def run_training_workstation(
                 resume = False
             else:
                 current_step = int(ckpt_data.get("step", 0))
-                print(f"[Resume] Found previous checkpoint at step {current_step} ({ckpt_data.get('checkpoint_dir')}).")
+                active_ckpt_str = ckpt_data.get("checkpoint_dir", "")
+                if active_ckpt_str:
+                    active_ckpt_path = Path(active_ckpt_str)
+                print(f"[Resume] Found previous valid checkpoint at step {current_step} ({active_ckpt_str}).")
                 if current_step >= effective_steps:
                     effective_steps = current_step + max(train_steps, 500)
                     print(f"[Resume] Target step already reached ({current_step}). Extending target to {effective_steps} steps.")
@@ -467,6 +472,30 @@ def run_training_workstation(
             resume = False
     else:
         print(f"[Scratch] Starting fresh scratch pretraining run for '{profile_name}' (zero weights).")
+
+    # Volume disk maintenance: Remove corrupt checkpoints and prune older checkpoints to free space
+    try:
+        for ckpt_dir in list(train_dir.glob("checkpoint-step-*")):
+            if not ckpt_dir.is_dir():
+                continue
+            pt_file = ckpt_dir / "model.pt"
+            # Remove incomplete/corrupt checkpoints (e.g. from prior disk-full crashes)
+            if not pt_file.exists() or pt_file.stat().st_size < 1_000_000:
+                print(f"[Volume Maintenance] Cleaning up incomplete/corrupt checkpoint: {ckpt_dir.name}")
+                shutil.rmtree(ckpt_dir, ignore_errors=True)
+                continue
+        # Prune older checkpoints, keeping only the active manifest checkpoint + 1 recent
+        all_ckpts = sorted([d for d in train_dir.glob("checkpoint-step-*") if d.is_dir()], key=lambda d: d.name)
+        if len(all_ckpts) > 2:
+            for old_ckpt in all_ckpts[:-2]:
+                if active_ckpt_path and old_ckpt.resolve() == active_ckpt_path.resolve():
+                    continue
+                print(f"[Volume Maintenance] Pruning obsolete checkpoint to free disk: {old_ckpt.name}")
+                shutil.rmtree(old_ckpt, ignore_errors=True)
+        total_b, used_b, free_b = shutil.disk_usage(volume_root)
+        print(f"[Storage] Volume disk usage: {used_b / 1e9:.1f} GB used / {free_b / 1e9:.1f} GB free (Total: {total_b / 1e9:.1f} GB)")
+    except Exception as cleanup_err:
+        print(f"[Volume Maintenance] Disk inspection note: {cleanup_err}")
 
     progress = LiveJupyterProgressReporter(path=progress_file)
 
@@ -486,6 +515,7 @@ def run_training_workstation(
             validate_every=100,
             validation_batches=4,
             checkpoint_every=250,
+            keep_last_n_checkpoints=3,
             early_stopping_patience=early_stopping_patience,
             model_profile_name=profile_name,
             attention_impl="sdpa",
