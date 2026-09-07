@@ -3,8 +3,10 @@
 ## Scope And Authority
 
 This file applies to the entire repository. `src/aeitron` is the authoritative
-application source root. Use Craftly as the primary product and model name in all new
-code, configuration, documentation, artifacts, and user-facing text.
+application source root. The official brand and product name is **Craftly**
+(managed by the Craftly Robot Research Team at https://github.com/Craftly-Robot/research-model).
+Use **Craftly** as the primary brand, product, and model name in all new code,
+configuration, documentation, artifacts, and user-facing text.
 
 Treat this file as the operational policy for coding agents. Use `README.md`
 for entry-point documentation and
@@ -20,7 +22,7 @@ instruction files, additional architecture manuals, or numbered phase systems.
   or claims that unmeasured behavior is production-ready.
 - Keep every model scratch-origin. External foundation-model weights, borrowed
   quality baselines, LoRA, QLoRA, adapters, and modification of third-party
-  checkpoints are prohibited. After the 1B foundation proof passes, Aeitron-
+  checkpoints are prohibited. After the 1B foundation proof passes, Craftly-
   owned weights may enter a separately governed full-parameter instruction,
   tool-use, or execution-grounded continuation stage. That stage must update
   the complete model, use no external weights, and pass executable regression
