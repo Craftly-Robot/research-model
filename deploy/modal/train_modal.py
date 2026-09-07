@@ -397,6 +397,25 @@ def run_training_workstation(
     # 8. Commit Volume (safely if mounted)
     safe_volume_commit()
 
+    # 9. Automatically create downloadable archive of checkpoints & tokenizer
+    try:
+        import shutil
+        zip_candidates = [
+            Path("/root/aeitron_300m_model_bundle"),
+            volume_root.parent / "aeitron_300m_model_bundle",
+        ]
+        for z_path in zip_candidates:
+            try:
+                z_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.make_archive(str(z_path), "zip", volume_root)
+                print(f"[Archive] Saved complete downloadable model bundle at: {z_path}.zip")
+                print("[TIP] You can now right-click 'aeitron_300m_model_bundle.zip' in your Jupyter file browser to download!")
+                break
+            except Exception:
+                continue
+    except Exception as e:
+        print(f"[Archive Note] Auto-packaging skipped: {e}")
+
     return report
 
 
@@ -449,8 +468,8 @@ if app is not None:
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Aeitron Continuous Scratch Pretraining.")
-    parser.add_argument("--output-dir", default="artifacts/aeitron/train_run")
+    default_out = "/vol/train_run" if Path("/vol").exists() else "artifacts/aeitron/train_run"
+    parser.add_argument("--output-dir", default=default_out)
     parser.add_argument(
         "--profile",
         default="300m",
