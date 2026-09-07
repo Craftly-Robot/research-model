@@ -192,6 +192,62 @@ async def prepare_defensive_training_corpus(corpus_path: Path, max_records: int 
 
 
 # ---------------------------------------------------------------------------
+# Live Progress Reporter for Real-Time Terminal & Jupyter Output
+# ---------------------------------------------------------------------------
+from src.aeitron.shared.progress import ProgressReporter
+
+class LiveJupyterProgressReporter(ProgressReporter):
+    """Clean, real-time live progress reporter designed for Jupyter Notebooks and CLI."""
+
+    def __init__(self, path: Path | str | None = None) -> None:
+        super().__init__(path=path, to_stdout=False)
+        self.last_time = time.time()
+        self.last_tokens = 0
+
+    def emit(self, stage: str, status: str = "running", **metrics: Any) -> dict[str, Any]:
+        payload = super().emit(stage, status, **metrics)
+        now = time.time()
+
+        if stage == "training" and status == "running":
+            step = metrics.get("step", 0)
+            total = metrics.get("requested_steps", 0)
+            loss = metrics.get("loss", 0.0)
+            lr = metrics.get("learning_rate", 0.0)
+            grad_norm = metrics.get("grad_norm", 0.0)
+            tokens = metrics.get("trained_tokens", 0)
+
+            dt = max(0.001, now - self.last_time)
+            d_tokens = max(0, tokens - self.last_tokens)
+            speed = int(d_tokens / dt) if self.last_tokens > 0 else 0
+            self.last_time = now
+            self.last_tokens = tokens
+
+            pct = (step / total * 100) if total else 0.0
+            speed_str = f"{speed:,} tok/s" if speed > 0 else "-- tok/s"
+
+            line = (
+                f"[TRAIN] Step {step:5d}/{total:<5d} ({pct:4.1f}%) | "
+                f"Loss: {loss:6.4f} | LR: {lr:.2e} | "
+                f"GradNorm: {grad_norm:5.2f} | Tokens: {tokens:9,d} | Speed: {speed_str}"
+            )
+            print(line, flush=True)
+
+        elif stage == "validation":
+            step = metrics.get("step", 0)
+            val_loss = metrics.get("validation_loss", 0.0)
+            best_loss = metrics.get("best_validation_loss", None)
+            best_str = f" | Best Val: {best_loss:6.4f}" if best_loss else ""
+            print(f"[VAL]   Step {step:5d} | Validation Loss: {val_loss:6.4f}{best_str}", flush=True)
+
+        elif stage == "training" and status == "complete":
+            step = metrics.get("steps", 0)
+            final_loss = metrics.get("final_loss", 0.0)
+            print(f"[DONE]  Training finished {step} steps | Final Loss: {final_loss:6.4f}", flush=True)
+
+        return payload
+
+
+# ---------------------------------------------------------------------------
 # Training Logic Executed Inside Modal Container
 # ---------------------------------------------------------------------------
 def run_training_workstation(
@@ -204,7 +260,8 @@ def run_training_workstation(
     learning_rate: float,
     resume: bool = True,
 ) -> dict[str, object]:
-    """Execute data sharding, model setup, and 2-hour pretraining loop on GPU."""
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(line_buffering=True)
     import torch
     from src.aeitron.model_ops.foundation import model_profiles
     from src.aeitron.model_ops.pretrain_loop import run_pretraining_loop
@@ -295,7 +352,7 @@ def run_training_workstation(
     else:
         print("[Scratch] Starting fresh scratch pretraining run (zero weights).")
 
-    progress = ProgressReporter(path=progress_file, to_stdout=True)
+    progress = LiveJupyterProgressReporter(path=progress_file)
 
     # 7. Execute Continuous Pretraining Loop
     start_time = time.time()
@@ -319,7 +376,7 @@ def run_training_workstation(
             gradient_checkpointing=True,
             resume=resume,
             progress=progress,
-            progress_every_steps=10,
+            progress_every_steps=1,
         )
     except Exception as exc:
         print(f"\n[FATAL RUNTIME ERROR]: {exc}")
