@@ -259,6 +259,7 @@ def run_training_workstation(
     sequence_length: int,
     learning_rate: float,
     resume: bool = True,
+    early_stopping_patience: int = 10,
 ) -> dict[str, object]:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(line_buffering=True)
@@ -380,7 +381,7 @@ def run_training_workstation(
             validate_every=100,
             validation_batches=4,
             checkpoint_every=250,
-            early_stopping_patience=10,
+            early_stopping_patience=early_stopping_patience,
             model_profile_name=profile_name,
             attention_impl="sdpa",
             gradient_checkpointing=True,
@@ -492,6 +493,7 @@ if __name__ == "__main__":
     parser.add_argument("--gradient-accumulation-steps", type=int, default=8)
     parser.add_argument("--sequence-length", type=int, default=1024)
     parser.add_argument("--learning-rate", type=float, default=3e-4)
+    parser.add_argument("--early-stopping-patience", type=int, default=10, help="Early stopping checks (0 to disable)")
     parser.add_argument("--no-resume", action="store_true", help="Disable automatic checkpoint resumption")
     parser.add_argument("--smoke", action="store_true", help="Run a quick 10-step smoke test")
     parser.add_argument("--local", action="store_true", help="Alias for local execution")
@@ -509,5 +511,6 @@ if __name__ == "__main__":
         sequence_length=args.sequence_length if not args.smoke else 64,
         learning_rate=args.learning_rate if not args.smoke else 1e-3,
         resume=not args.no_resume,
+        early_stopping_patience=args.early_stopping_patience,
     )
     print(json.dumps(report, indent=2, sort_keys=True))
