@@ -98,6 +98,25 @@ instruction files, additional architecture manuals, or numbered phase systems.
   scientific hypotheses. Only the experiment authority and final production
   qualification may promote them; configuration defaults are not evidence.
 
+## Training Operations And Storage Durability
+
+- Every pretraining loop must enforce automatic checkpoint retention
+  (`keep_last_n_checkpoints`, default 3) to prevent filesystem or volume disk
+  exhaustion (`ENOSPC`). Never allow unbounded accumulation of optimizer states.
+- On any runtime failure, uncaught exception, or user interrupt (`SIGINT`), the
+  training harness must execute an emergency recovery handler to extract clean,
+  compact model weights and commit them to durable storage or user-accessible
+  roots before exiting.
+- Never assume cloud notebook sandbox roots or container filesystems are
+  persistent unless an external volume mount or cloud sync is explicitly
+  verified with `mount` or volume inspection.
+- When configuring remote training jobs (Modal, Slurm, Kubernetes), provide
+  atomic, unbuffered (`python -u`) execution, live metrics logging to JSONL,
+  and exportable lightweight inference packages (~150MB) alongside training
+  state.
+- Never make unverified assertions regarding checkpoint persistence or
+  environment state. Always inspect real storage geometry and mount tables.
+
 ## Working Method
 
 1. Read relevant code, tests, schemas, migrations, and documentation before
