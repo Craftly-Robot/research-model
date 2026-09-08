@@ -278,6 +278,16 @@ def export_clean_sft_package(
             size_mb = final_zip.stat().st_size / (1024 * 1024)
             print(f"[EXPORT] [OK] Saved {final_zip.name} ({size_mb:.1f} MB, Step {step_val:,})", flush=True)
 
+            # Copy to mounted volume if available for persistence across container restarts
+            for vol_cand in [Path("/mnt/craftly-training-volume"), Path("/vol")]:
+                if vol_cand.exists() and vol_cand.is_dir():
+                    try:
+                        dest = vol_cand / final_zip.name
+                        shutil.copy(final_zip, dest)
+                        print(f"[VOLUME BACKUP] [OK] Copied {final_zip.name} to {dest}", flush=True)
+                    except Exception:
+                        pass
+
             meta_txt = root_dir / "LATEST_SFT_CHECKPOINT.txt"
             meta_txt.write_text(
                 f"==================================================\n"
