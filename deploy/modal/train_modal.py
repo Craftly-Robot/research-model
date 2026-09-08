@@ -347,9 +347,9 @@ class LiveJupyterProgressReporter(ProgressReporter):
             best_str = f" | Best Val: {best_loss:6.4f}" if best_loss else ""
             print(f"[VAL]   Step {step:5d} | Validation Loss: {val_loss:6.4f}{best_str}", flush=True)
 
-        elif stage == "checkpoint" and status == "saved":
+        elif stage == "checkpoint" and status in {"saved", "best_saved"}:
             step = metrics.get("step", 0)
-            print(f"\n[CHECKPOINT] Scheduled step {step} reached! Saving to disk and exporting to /root...", flush=True)
+            print(f"\n[CHECKPOINT] Step {step} reached! Saving to disk and exporting to /root...", flush=True)
             if self.on_checkpoint:
                 try:
                     self.on_checkpoint(step)
