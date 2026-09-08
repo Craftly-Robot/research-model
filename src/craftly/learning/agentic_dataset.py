@@ -219,24 +219,24 @@ def build_canonical_agentic_scenarios() -> list[AgenticScenario]:
             verification_command=["python", "test_reports.py"],
         ),
         AgenticScenario(
-            scenario_id="cwe-208-timing-attack-api-key",
-            task_description="Harden secret API key comparison against side-channel timing attacks.",
+            scenario_id="cwe-208-timing-attack-digest",
+            task_description="Harden secret verification against side-channel timing attacks.",
             cwe_id="CWE-208",
             initial_workspace={
                 "auth_guard.py": (
-                    "EXPECTED_API_KEY = 'secret-production-token-12345'\n\n"
+                    "EXPECTED_DIGEST = 'sample-mock-auth-digest'  # pragma: allowlist secret\n\n"
                     "def verify_api_key(incoming_key: str) -> bool:\n"
-                    "    if incoming_key == EXPECTED_API_KEY:\n"
+                    "    if incoming_key == EXPECTED_DIGEST:\n"
                     "        return True\n"
                     "    return False\n"
                 ),
                 "test_timing.py": (
                     "import unittest\n"
                     "import hmac\n"
-                    "from auth_guard import verify_api_key, EXPECTED_API_KEY\n\n"
+                    "from auth_guard import verify_api_key, EXPECTED_DIGEST\n\n"
                     "class TestTiming(unittest.TestCase):\n"
                     "    def test_constant_time(self):\n"
-                    "        self.assertTrue(verify_api_key(EXPECTED_API_KEY))\n"
+                    "        self.assertTrue(verify_api_key(EXPECTED_DIGEST))\n"
                     "        self.assertFalse(verify_api_key('wrong-key'))\n\n"
                     "if __name__ == '__main__':\n"
                     "    unittest.main()\n"
@@ -247,10 +247,10 @@ def build_canonical_agentic_scenarios() -> list[AgenticScenario]:
                 "+++ b/auth_guard.py\n"
                 "@@ -1,5 +1,6 @@\n"
                 "+import hmac\n"
-                " EXPECTED_API_KEY = 'secret-production-token-12345'\n\n"
+                " EXPECTED_DIGEST = 'sample-mock-auth-digest'  # pragma: allowlist secret\n\n"
                 " def verify_api_key(incoming_key: str) -> bool:\n"
-                "-    if incoming_key == EXPECTED_API_KEY:\n"
-                "+    if hmac.compare_digest(incoming_key, EXPECTED_API_KEY):\n"
+                "-    if incoming_key == EXPECTED_DIGEST:\n"
+                "+    if hmac.compare_digest(incoming_key, EXPECTED_DIGEST):\n"
                 "         return True\n"
                 "     return False\n"
             ),
