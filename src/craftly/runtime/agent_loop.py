@@ -163,6 +163,78 @@ def apply_unified_diff(workspace_dir: Path, diff_text: str) -> bool:
     return applied_any
 
 
+def apply_patch_to_workspace(workspace_dir: Path, patch_text: str) -> bool:
+    """Parse patch text and apply to workspace files.
+
+    Supports:
+    1. Standard Unified Diff (--- a/file ... +++ b/file ... @@ ... @@)
+    2. File-annotated code blocks (e.g. ### File: db.py or # File: db.py)
+    3. Function-level replacement matching existing functions in workspace .py files
+    4. Whole-file replacement if a single non-test source file exists
+    """
+    cleaned = patch_text.strip()
+    if not cleaned:
+        return False
+
+    # Strip markdown code blocks if wrapped
+    if cleaned.startswith("```"):
+        lines = cleaned.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].startswith("```"):
+            lines = lines[:-1]
+        cleaned = "\n".join(lines).strip()
+
+    # 1. Try standard unified diff
+    if "--- " in cleaned and "+++ " in cleaned:
+        if apply_unified_diff(workspace_dir, cleaned):
+            return True
+
+    # 2. File header pattern: e.g. "### File: `db.py`" or "# File: db.py"
+    file_match = re.search(r"(?:###?\s*File:?\s*[`'\"]?|#\s*file:?\s*[`'\"]?)([a-zA-Z0-9_./\\]+\.py)[`'\"]?", cleaned, re.IGNORECASE)
+    if file_match:
+        target_name = file_match.group(1).replace("\\", "/").split("/")[-1]
+        target_file = workspace_dir / target_name
+        if target_file.exists():
+            code_lines = [l for l in cleaned.splitlines() if not re.search(r"(?:###?\s*File|#\s*file)", l, re.IGNORECASE)]
+            target_file.write_text("\n".join(code_lines).strip() + "\n", encoding="utf-8")
+            return True
+
+    # 3. Match function definition inside workspace Python files
+    func_names = re.findall(r"def\s+([a-zA-Z0-9_]+)\s*\(", cleaned)
+    if func_names:
+        for p in sorted(workspace_dir.glob("*.py")):
+            if p.name.startswith("test_"):
+                continue
+            original_code = p.read_text(encoding="utf-8", errors="replace")
+            if any(f"def {fn}(" in original_code for fn in func_names):
+                new_code = original_code
+                replaced_any = False
+                for fn in func_names:
+                    fn_pattern = rf"(def\s+{fn}\s*\([^)]*\).*?)(?=\n(?:def|class)\s+|\Z)"
+                    patch_fn_m = re.search(fn_pattern, cleaned, re.DOTALL)
+                    orig_fn_m = re.search(fn_pattern, new_code, re.DOTALL)
+                    if patch_fn_m and orig_fn_m:
+                        new_code = new_code.replace(orig_fn_m.group(0), patch_fn_m.group(0), 1)
+                        replaced_any = True
+
+                if replaced_any:
+                    for line in cleaned.splitlines():
+                        line_s = line.strip()
+                        if (line_s.startswith("import ") or line_s.startswith("from ")) and line_s not in new_code:
+                            new_code = line_s + "\n" + new_code
+                    p.write_text(new_code, encoding="utf-8")
+                    return True
+
+    # 4. If exactly one non-test .py file in workspace and patch contains python code
+    source_files = [p for p in workspace_dir.glob("*.py") if not p.name.startswith("test_")]
+    if len(source_files) == 1 and ("def " in cleaned or "import " in cleaned or "from " in cleaned):
+        source_files[0].write_text(cleaned + "\n", encoding="utf-8")
+        return True
+
+    return False
+
+
 class AgenticRuntime:
     """Hardened execution orchestrator for Craftly coding agents."""
 
@@ -182,12 +254,23 @@ class AgenticRuntime:
             sandbox_root = Path(tmp_sandbox).resolve()
             shutil.copytree(src_root, sandbox_root, dirs_exist_ok=True)
 
+            # Discover files in workspace
+            workspace_files: list[str] = []
+            for p in sorted(sandbox_root.rglob("*.py")):
+                if not p.name.startswith("test_") and not p.name.startswith("."):
+                    rel = p.relative_to(sandbox_root).as_posix()
+                    content = p.read_text(encoding="utf-8", errors="replace")
+                    workspace_files.append(f"File `{rel}`:\n```python\n{content.strip()}\n```")
+
+            files_context = ("\n\nExisting Workspace Code:\n" + "\n\n".join(workspace_files)) if workspace_files else ""
+
             history_dialogue: list[str] = [
                 f"Task: {task.instruction}\n"
-                f"Workspace Root: {sandbox_root.name}\n"
+                f"{files_context}\n\n"
                 f"Available Tools: test, git_diff, shell\n"
                 "Format tool calls as: <|tool_call|>{\"tool\": \"...\", \"command\": [...] }<|tool_end|>\n"
-                "Format final patches as: <|patch_start|>\n--- a/file\n+++ b/file\n...<|patch_end|>\n"
+                "Format patches as: <|patch_start|>\n--- a/filename\n+++ b/filename\n...<|patch_end|>\n"
+                "Or provide the complete corrected file/function code inside <|patch_start|> and <|patch_end|>.\n"
             ]
 
             status = "max_turns_exceeded"
@@ -235,13 +318,13 @@ class AgenticRuntime:
                         f"{format_tool_result(tool_res)}"
                     )
 
-                # 2. Handle Unified Diff Patch
+                # 2. Handle Patch (Unified Diff or Direct Code Replacement)
                 elif parsed.patch:
                     final_patch = parsed.patch
-                    applied = apply_unified_diff(sandbox_root, parsed.patch)
+                    applied = apply_patch_to_workspace(sandbox_root, parsed.patch)
                     if not applied:
                         history_dialogue.append(
-                            f"Observation: Patch could not be applied cleanly. Check unified diff format."
+                            f"Observation: Patch could not be applied cleanly. Check format."
                         )
                         steps.append(step_record)
                         continue

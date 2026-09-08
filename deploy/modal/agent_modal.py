@@ -36,16 +36,16 @@ VOLUME_NAME = "craftly-training-volume"
 
 def locate_sft_checkpoint() -> Path:
     """Auto-locate the latest fine-tuned Craftly SFT model bundle."""
-    candidates = [
+    # 1. Search for SFT checkpoints first
+    sft_candidates = [
         Path("/root/craftly_300m_sft_latest.zip"),
         Path("/root/craftly_300m_sft_completed.zip"),
         Path("/mnt/craftly-training-volume/craftly_300m_sft_latest.zip"),
         Path("/mnt/craftly-training-volume/craftly_300m_sft_completed.zip"),
         Path("/vol/craftly_300m_sft_latest.zip"),
-        Path("/root/model_300m_extracted/model.pt"),
-        Path("/mnt/craftly-training-volume/craftly_300m_checkpoint_latest.zip"),
+        Path("/vol/craftly_300m_sft_completed.zip"),
     ]
-    for c in candidates:
+    for c in sft_candidates:
         if c.exists():
             return c
 
@@ -54,6 +54,20 @@ def locate_sft_checkpoint() -> Path:
             zips = sorted(root.rglob("*craftly*300m*sft*.zip"), key=lambda p: p.stat().st_mtime, reverse=True)
             if zips:
                 return zips[0]
+
+    # 2. Fall back to extracted model or pretraining foundation checkpoint
+    fallback_candidates = [
+        Path("/root/model_300m_extracted/model.pt"),
+        Path("/mnt/craftly-training-volume/craftly_300m_checkpoint_latest.zip"),
+        Path("/mnt/craftly-training-volume/craftly_300m_checkpoint_completed.zip"),
+        Path("/vol/craftly_300m_checkpoint_latest.zip"),
+    ]
+    for c in fallback_candidates:
+        if c.exists():
+            return c
+
+    for root in [Path("/root"), Path("/mnt"), Path("/vol")]:
+        if root.exists():
             base_zips = sorted(root.rglob("*craftly*300m*checkpoint*.zip"), key=lambda p: p.stat().st_mtime, reverse=True)
             if base_zips:
                 return base_zips[0]
@@ -116,10 +130,18 @@ async def execute_agentic_pipeline(
             print(f"\nOutcome:         {report.status.upper()}")
             print(f"Turns Taken:     {report.turns_taken}")
             print(f"Execution Time:  {report.duration_ms / 1000:.2f}s")
-            if report.patch:
-                print(f"Generated Patch:\n{report.patch}\n")
+            for st in report.steps:
+                print(f"  ▶ Turn {st.turn}:")
+                if st.thought:
+                    print(f"    Thought:      {st.thought.strip()[:180]}")
+                if st.tool_call:
+                    print(f"    Tool Call:    {st.tool_call.get('tool')} -> {st.tool_call.get('command')}")
+                if st.patch:
+                    print(f"    Patch:\n{st.patch.strip()[:240]}")
+                if st.explanation:
+                    print(f"    Explanation:  {st.explanation.strip()[:180]}")
             if report.verification_stdout:
-                print(f"Verification Output:\n{report.verification_stdout.strip()}\n")
+                print(f"\nVerification Output:\n{report.verification_stdout.strip()}\n")
 
             results.append(report.model_dump())
 
