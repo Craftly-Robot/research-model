@@ -21,6 +21,7 @@ import shutil
 import sys
 import time
 from pathlib import Path
+from typing import Any, Callable
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
@@ -305,10 +306,11 @@ from src.craftly.shared.progress import ProgressReporter
 class LiveJupyterProgressReporter(ProgressReporter):
     """Clean, real-time live progress reporter designed for Jupyter Notebooks and CLI."""
 
-    def __init__(self, path: Path | str | None = None) -> None:
+    def __init__(self, path: Path | str | None = None, on_checkpoint: Any = None) -> None:
         super().__init__(path=path, to_stdout=False)
         self.last_time = time.time()
         self.last_tokens = 0
+        self.on_checkpoint = on_checkpoint
 
     def emit(self, stage: str, status: str = "running", **metrics: Any) -> dict[str, Any]:
         payload = super().emit(stage, status, **metrics)
@@ -345,6 +347,15 @@ class LiveJupyterProgressReporter(ProgressReporter):
             best_str = f" | Best Val: {best_loss:6.4f}" if best_loss else ""
             print(f"[VAL]   Step {step:5d} | Validation Loss: {val_loss:6.4f}{best_str}", flush=True)
 
+        elif stage == "checkpoint" and status in {"saved", "best_saved"}:
+            step = metrics.get("step", 0)
+            print(f"\n[CHECKPOINT] Step {step} reached! Saving to disk and exporting to /root...", flush=True)
+            if self.on_checkpoint:
+                try:
+                    self.on_checkpoint(step)
+                except Exception as cb_err:
+                    print(f"[Checkpoint Hook Note] {cb_err}", flush=True)
+
         elif stage == "training" and status == "complete":
             step = metrics.get("steps", 0)
             final_loss = metrics.get("final_loss", 0.0)
@@ -364,6 +375,7 @@ def run_training_workstation(
     gradient_accumulation_steps: int,
     sequence_length: int,
     learning_rate: float,
+    checkpoint_every: int = 3000,
     resume: bool = True,
     early_stopping_patience: int = 10,
 ) -> dict[str, object]:
@@ -497,7 +509,27 @@ def run_training_workstation(
     except Exception as cleanup_err:
         print(f"[Volume Maintenance] Disk inspection note: {cleanup_err}")
 
-    progress = LiveJupyterProgressReporter(path=progress_file)
+    def handle_checkpoint_save(step: int) -> None:
+        try:
+            print(f"\n[AUTO-SAVE TO /root] Step {step} reached! Packaging lightweight model directly to /root ...", flush=True)
+            step_zip = export_clean_checkpoint_to_root(
+                train_dir=train_dir,
+                volume_root=volume_root,
+                profile_name=profile_name,
+                prefix=f"step_{step}",
+            )
+            latest_zip = export_clean_checkpoint_to_root(
+                train_dir=train_dir,
+                volume_root=volume_root,
+                profile_name=profile_name,
+                prefix="latest",
+            )
+            safe_volume_commit(train_dir=train_dir, zip_file=latest_zip or step_zip)
+            print(f"[AUTO-SAVE TO /root] [OK] Step {step} model is now visible & downloadable in /root!\n", flush=True)
+        except Exception as export_err:
+            print(f"[AUTO-SAVE NOTE] Step {step} export note: {export_err}", flush=True)
+
+    progress = LiveJupyterProgressReporter(path=progress_file, on_checkpoint=handle_checkpoint_save)
 
     # 7. Execute Continuous Pretraining Loop
     start_time = time.time()
@@ -514,7 +546,7 @@ def run_training_workstation(
             dtype="bf16" if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else "fp32",
             validate_every=100,
             validation_batches=4,
-            checkpoint_every=250,
+            checkpoint_every=checkpoint_every,
             keep_last_n_checkpoints=3,
             early_stopping_patience=early_stopping_patience,
             model_profile_name=profile_name,
@@ -529,7 +561,7 @@ def run_training_workstation(
         print("[Emergency Auto-Save] Instantly preserving latest valid weights directly to /root ...")
         saved_zip = export_clean_checkpoint_to_root(train_dir, volume_root, profile_name, prefix="emergency_saved")
         safe_volume_commit(train_dir=train_dir, zip_file=saved_zip)
-        print("[Emergency Auto-Save] ✅ Checkpoint preserved in /root! You can download it directly from file explorer.")
+        print("[Emergency Auto-Save] [OK] Checkpoint preserved in /root! You can download it directly from file explorer.")
         raise
 
     elapsed_mins = (time.time() - start_time) / 60.0
@@ -566,39 +598,90 @@ def export_clean_checkpoint_to_root(
     try:
         import torch
         manifest_file = train_dir / "checkpoint_manifest.json"
-        if not manifest_file.exists():
+        if not manifest_file.exists() and (train_dir / "best_checkpoint_manifest.json").exists():
+            manifest_file = train_dir / "best_checkpoint_manifest.json"
+        ckpt_path: Path | None = None
+        step_val: int = 0
+        tokens_val: int = 0
+
+        if manifest_file.exists():
+            try:
+                m_info = json.loads(manifest_file.read_text(encoding="utf-8-sig"))
+                raw_ckpt_p = m_info.get("checkpoint_dir", "")
+                if raw_ckpt_p and Path(raw_ckpt_p).exists():
+                    ckpt_path = Path(raw_ckpt_p)
+                step_val = int(m_info.get("step", 0))
+                tokens_val = int(m_info.get("trained_tokens", 0))
+            except Exception:
+                pass
+
+        if ckpt_path is None:
+            all_ckpts = sorted([d for d in train_dir.glob("checkpoint-step-*") if d.is_dir()], key=lambda d: d.name)
+            if all_ckpts:
+                ckpt_path = all_ckpts[-1]
+                try:
+                    step_val = int(ckpt_path.name.rsplit("-", 1)[-1])
+                except Exception:
+                    pass
+
+        if ckpt_path is None or not ckpt_path.exists():
             return None
-        clean_dir = Path(f"/root/craftly_{profile_name}_{prefix}_bundle")
+
+        root_dir = Path("/root") if Path("/root").is_dir() else (train_dir.parent / "root_exports")
+        root_dir.mkdir(parents=True, exist_ok=True)
+
+        clean_dir = root_dir / f"craftly_{profile_name}_{prefix}_bundle"
         shutil.rmtree(clean_dir, ignore_errors=True)
         clean_dir.mkdir(parents=True, exist_ok=True)
 
         if (volume_root / "tokenizer").exists():
             shutil.copytree(volume_root / "tokenizer", clean_dir / "tokenizer", dirs_exist_ok=True)
 
-        shutil.copy(manifest_file, clean_dir / "checkpoint_manifest.json")
-        m_info = json.loads(manifest_file.read_text(encoding="utf-8-sig"))
-        ckpt_path = Path(m_info.get("checkpoint_dir", ""))
-        if ckpt_path.exists():
-            dest_ckpt = clean_dir / ckpt_path.name
-            dest_ckpt.mkdir(parents=True, exist_ok=True)
-            if (ckpt_path / "config.json").exists():
-                shutil.copy(ckpt_path / "config.json", dest_ckpt / "config.json")
-            if (ckpt_path / "model.pt").exists():
-                raw_payload = torch.load(ckpt_path / "model.pt", map_location="cpu")
-                clean_payload = {
-                    "model": raw_payload.get("model", {}),
-                    "config": raw_payload.get("config", {}),
-                    "step": raw_payload.get("step", 0),
-                    "trained_tokens": raw_payload.get("trained_tokens", 0),
-                }
-                torch.save(clean_payload, dest_ckpt / "model.pt")
+        if manifest_file.exists():
+            shutil.copy(manifest_file, clean_dir / "checkpoint_manifest.json")
 
-        out_zip = Path(f"/root/craftly_{profile_name}_{prefix}_model")
+        dest_ckpt = clean_dir / ckpt_path.name
+        dest_ckpt.mkdir(parents=True, exist_ok=True)
+        if (ckpt_path / "config.json").exists():
+            shutil.copy(ckpt_path / "config.json", dest_ckpt / "config.json")
+        if (ckpt_path / "model.pt").exists():
+            try:
+                raw_payload = torch.load(ckpt_path / "model.pt", map_location="cpu", weights_only=True)
+            except Exception:
+                raw_payload = torch.load(ckpt_path / "model.pt", map_location="cpu", weights_only=False)
+            clean_payload = {
+                "model": raw_payload.get("model", {}),
+                "config": raw_payload.get("config", {}),
+                "step": raw_payload.get("step", step_val),
+                "trained_tokens": raw_payload.get("trained_tokens", tokens_val),
+            }
+            torch.save(clean_payload, dest_ckpt / "model.pt")
+
+        out_zip = root_dir / f"craftly_{profile_name}_{prefix}_model"
         shutil.make_archive(str(out_zip), "zip", clean_dir)
         final_zip = Path(f"{out_zip}.zip")
+        shutil.rmtree(clean_dir, ignore_errors=True)
+
         if final_zip.exists():
             size_mb = final_zip.stat().st_size / (1024 * 1024)
-            print(f"[SAVE TO ROOT] ✅ Model package ({size_mb:.1f} MB) saved to {final_zip}")
+            print(f"[SAVE TO ROOT] [OK] Model package ({size_mb:.1f} MB) saved to {final_zip}", flush=True)
+
+            try:
+                meta_txt = root_dir / "LATEST_CHECKPOINT.txt"
+                meta_txt.write_text(
+                    f"Craftly Checkpoint Saved\n"
+                    f"Profile: {profile_name}\n"
+                    f"Prefix: {prefix}\n"
+                    f"Step: {step_val}\n"
+                    f"Tokens: {tokens_val:,}\n"
+                    f"Archive: {final_zip.name}\n"
+                    f"Size: {size_mb:.1f} MB\n"
+                    f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}\n",
+                    encoding="utf-8",
+                )
+            except Exception:
+                pass
+
             return final_zip
     except Exception as err:
         print(f"[Save to Root Note] {err}")
@@ -651,6 +734,7 @@ if app is not None:
         gradient_accumulation_steps: int = 8,
         sequence_length: int = 1024,
         learning_rate: float = 3e-4,
+        checkpoint_every: int = 3000,
         resume: bool = True,
     ) -> dict[str, object]:
         """Modal remote worker entrypoint."""
@@ -663,6 +747,7 @@ if app is not None:
             gradient_accumulation_steps=gradient_accumulation_steps,
             sequence_length=sequence_length,
             learning_rate=learning_rate,
+            checkpoint_every=checkpoint_every,
             resume=resume,
         )
 
@@ -686,6 +771,7 @@ if __name__ == "__main__":
         help="Model architecture profile (default: 300m)",
     )
     parser.add_argument("--steps", type=int, default=15000, help="Total optimizer steps (~2 hours on GPU)")
+    parser.add_argument("--checkpoint-every", type=int, default=3000, help="Steps between checkpoints (default: 3000)")
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--gradient-accumulation-steps", type=int, default=8)
     parser.add_argument("--sequence-length", type=int, default=1024)
@@ -707,6 +793,7 @@ if __name__ == "__main__":
         gradient_accumulation_steps=args.gradient_accumulation_steps if not args.smoke else 1,
         sequence_length=args.sequence_length if not args.smoke else 64,
         learning_rate=args.learning_rate if not args.smoke else 1e-3,
+        checkpoint_every=args.checkpoint_every if not args.smoke else 5,
         resume=not args.no_resume,
         early_stopping_patience=args.early_stopping_patience,
     )
