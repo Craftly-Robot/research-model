@@ -155,6 +155,46 @@ class TestCraftlySFT(unittest.TestCase):
         self.assertTrue(Path(summary["checkpoint_manifest"]).exists())
         self.assertTrue((Path(summary["latest_checkpoint_dir"]) / "model.pt").exists())
 
+    def test_run_sft_from_zip_checkpoint(self) -> None:
+        if torch is None:
+            self.skipTest("PyTorch is not available")
+
+        import zipfile
+        config = tiny_smoke_config()
+        model = CraftlyDecoderLM(config)
+        staging_dir = self.temp_dir / "zip_staging"
+        staging_dir.mkdir(parents=True, exist_ok=True)
+        save_trusted_checkpoint(
+            {
+                "model": model.state_dict(),
+                "config": config.model_dump(),
+                "step": 0,
+                "trained_tokens": 0,
+            },
+            staging_dir / "model.pt",
+        )
+        (staging_dir / "config.json").write_text(json.dumps(config.model_dump(), indent=2), encoding="utf-8")
+
+        zip_target = self.temp_dir / "test_model_checkpoint.zip"
+        with zipfile.ZipFile(zip_target, "w") as zf:
+            zf.write(staging_dir / "model.pt", arcname="model.pt")
+            zf.write(staging_dir / "config.json", arcname="config.json")
+
+        sft_out = self.temp_dir / "sft_zip_out"
+        run_cfg = SFTRunConfig(
+            base_checkpoint=str(zip_target),
+            tokenizer_path=str(self.tokenizer_path),
+            output_dir=str(sft_out),
+            steps=1,
+            batch_size=1,
+            gradient_accumulation_steps=1,
+            max_sequence_length=128,
+            dtype="fp32",
+        )
+        summary = run_sft(run_cfg)
+        self.assertEqual(summary["status"], "completed")
+        self.assertEqual(summary["steps_completed"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

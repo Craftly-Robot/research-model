@@ -70,8 +70,18 @@ def resolve_base_model_assets(base_checkpoint_ref: str | Path) -> tuple[Path, di
     if not ref_path.exists():
         raise FileNotFoundError(f"Base checkpoint not found at: {ref_path}")
 
+    # Case 0: Zip archive containing model bundle
+    if ref_path.suffix == ".zip":
+        import zipfile
+        extract_dir = ref_path.parent / f"_extracted_{ref_path.stem}"
+        if not (extract_dir / "model.pt").exists():
+            extract_dir.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(ref_path, "r") as zf:
+                zf.extractall(extract_dir)
+        model_file = extract_dir / "model.pt"
+        config_file = extract_dir / "config.json"
     # Case 1: Manifest JSON
-    if ref_path.name.endswith(".json") and "manifest" in ref_path.name.lower():
+    elif ref_path.name.endswith(".json") and "manifest" in ref_path.name.lower():
         with ref_path.open("r", encoding="utf-8") as f:
             manifest_data = json.load(f)
         ckpt_dir = Path(manifest_data.get("checkpoint_dir", ref_path.parent))
