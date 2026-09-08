@@ -524,10 +524,12 @@ def run_training_workstation(
             progress=progress,
             progress_every_steps=1,
         )
-    except Exception as exc:
-        print(f"\n[FATAL RUNTIME ERROR]: {exc}")
-        print("[Recovery] Emergency flush to persistent volume...")
-        safe_volume_commit()
+    except (Exception, KeyboardInterrupt) as exc:
+        print(f"\n[FATAL RUNTIME / INTERRUPT ERROR]: {exc}")
+        print("[Emergency Auto-Save] Instantly preserving latest valid weights directly to /root ...")
+        saved_zip = export_clean_checkpoint_to_root(train_dir, volume_root, profile_name, prefix="emergency_saved")
+        safe_volume_commit(train_dir=train_dir, zip_file=saved_zip)
+        print("[Emergency Auto-Save] ✅ Checkpoint preserved in /root! You can download it directly from file explorer.")
         raise
 
     elapsed_mins = (time.time() - start_time) / 60.0
@@ -540,60 +542,67 @@ def run_training_workstation(
     print(f"Latest Checkpoint: {report.get('checkpoint_manifest')}")
     print("=" * 70)
 
-    # 8. Commit Volume (safely if mounted)
-    safe_volume_commit()
+    # 8. Automatically create clean lightweight inference bundle (~150MB) saved directly into /root
+    fast_zip = export_clean_checkpoint_to_root(train_dir, volume_root, profile_name, prefix="completed")
+    if fast_zip and fast_zip.exists():
+        legacy_dest = Path(f"/root/craftly_{profile_name}_fast_model.zip")
+        shutil.copy(fast_zip, legacy_dest)
+        print(f"[FAST DOWNLOAD READY] Direct model package at: {legacy_dest}")
+        print(f"[TIP] Download {legacy_dest.name} directly from your Modal file explorer!")
 
-    # 9. Automatically create clean lightweight inference bundle (~150MB) for ultra-fast download
+    # 9. Commit to volume and cloud backup
+    safe_volume_commit(train_dir=train_dir, zip_file=fast_zip)
+
+    return report
+
+
+def export_clean_checkpoint_to_root(
+    train_dir: Path,
+    volume_root: Path,
+    profile_name: str,
+    prefix: str = "latest",
+) -> Path | None:
+    """Instantly save clean lightweight model weights and tokenizer into /root as a zip file."""
     try:
-        import shutil
-        clean_dir = volume_root.parent / f"craftly_{profile_name}_clean_inference"
+        import torch
+        manifest_file = train_dir / "checkpoint_manifest.json"
+        if not manifest_file.exists():
+            return None
+        clean_dir = Path(f"/root/craftly_{profile_name}_{prefix}_bundle")
         shutil.rmtree(clean_dir, ignore_errors=True)
         clean_dir.mkdir(parents=True, exist_ok=True)
 
-        # 1. Copy Tokenizer
         if (volume_root / "tokenizer").exists():
             shutil.copytree(volume_root / "tokenizer", clean_dir / "tokenizer", dirs_exist_ok=True)
 
-        # 2. Extract clean model weights without 4GB optimizer states
-        manifest_file = train_dir / "checkpoint_manifest.json"
-        if manifest_file.exists():
-            shutil.copy(manifest_file, clean_dir / "checkpoint_manifest.json")
-            m_info = json.loads(manifest_file.read_text(encoding="utf-8-sig"))
-            ckpt_path = Path(m_info.get("checkpoint_dir", ""))
-            if ckpt_path.exists():
-                dest_ckpt = clean_dir / ckpt_path.name
-                dest_ckpt.mkdir(parents=True, exist_ok=True)
-                if (ckpt_path / "config.json").exists():
-                    shutil.copy(ckpt_path / "config.json", dest_ckpt / "config.json")
-                if (ckpt_path / "model.pt").exists():
-                    raw_payload = torch.load(ckpt_path / "model.pt", map_location="cpu")
-                    clean_payload = {
-                        "model": raw_payload.get("model", {}),
-                        "config": raw_payload.get("config", {}),
-                        "step": raw_payload.get("step", 0),
-                        "trained_tokens": raw_payload.get("trained_tokens", 0),
-                    }
-                    torch.save(clean_payload, dest_ckpt / "model.pt")
+        shutil.copy(manifest_file, clean_dir / "checkpoint_manifest.json")
+        m_info = json.loads(manifest_file.read_text(encoding="utf-8-sig"))
+        ckpt_path = Path(m_info.get("checkpoint_dir", ""))
+        if ckpt_path.exists():
+            dest_ckpt = clean_dir / ckpt_path.name
+            dest_ckpt.mkdir(parents=True, exist_ok=True)
+            if (ckpt_path / "config.json").exists():
+                shutil.copy(ckpt_path / "config.json", dest_ckpt / "config.json")
+            if (ckpt_path / "model.pt").exists():
+                raw_payload = torch.load(ckpt_path / "model.pt", map_location="cpu")
+                clean_payload = {
+                    "model": raw_payload.get("model", {}),
+                    "config": raw_payload.get("config", {}),
+                    "step": raw_payload.get("step", 0),
+                    "trained_tokens": raw_payload.get("trained_tokens", 0),
+                }
+                torch.save(clean_payload, dest_ckpt / "model.pt")
 
-            fast_zip = Path(f"/root/craftly_{profile_name}_fast_model")
-            shutil.make_archive(str(fast_zip), "zip", clean_dir)
-            # Also keep legacy/compat alias if needed
-            compat_zip = Path(f"/root/craftly_{profile_name}_fast_model")
-            shutil.copy(f"{fast_zip}.zip", f"{compat_zip}.zip")
-            if profile_name == "300m":
-                legacy_zip = Path("/root/craftly_300m_fast_model_150mb")
-                shutil.copy(f"{fast_zip}.zip", f"{legacy_zip}.zip")
-            zip_size_mb = Path(f"{fast_zip}.zip").stat().st_size / (1024 * 1024)
-            print("\n" + "=" * 70)
-            print(f"[FAST DOWNLOAD READY] Compact model ({zip_size_mb:.1f} MB) at: {fast_zip}.zip")
-            print(f"[TIP] Download {fast_zip}.zip directly from your Modal file explorer or notebook!")
-            print("=" * 70)
-    except Exception as e:
-        print(f"[Fast Packaging Note] {e}")
-
-    safe_volume_commit(train_dir=train_dir, zip_file=Path(f"{fast_zip}.zip") if 'fast_zip' in locals() and Path(f"{fast_zip}.zip").exists() else None)
-
-    return report
+        out_zip = Path(f"/root/craftly_{profile_name}_{prefix}_model")
+        shutil.make_archive(str(out_zip), "zip", clean_dir)
+        final_zip = Path(f"{out_zip}.zip")
+        if final_zip.exists():
+            size_mb = final_zip.stat().st_size / (1024 * 1024)
+            print(f"[SAVE TO ROOT] ✅ Model package ({size_mb:.1f} MB) saved to {final_zip}")
+            return final_zip
+    except Exception as err:
+        print(f"[Save to Root Note] {err}")
+    return None
 
 
 def safe_volume_commit(train_dir: Path | None = None, zip_file: Path | None = None) -> None:
