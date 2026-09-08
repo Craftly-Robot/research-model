@@ -87,10 +87,7 @@ def resolve_base_model_assets(base_checkpoint_ref: str | Path) -> tuple[Path, di
     if not model_file.exists():
         raise FileNotFoundError(f"Missing model.pt in checkpoint asset tree: {model_file}")
 
-    try:
-        raw_payload = load_trusted_checkpoint(model_file, map_location="cpu")
-    except Exception:
-        raw_payload = torch.load(model_file, map_location="cpu", weights_only=False)
+    raw_payload = load_trusted_checkpoint(model_file, map_location="cpu")
 
     if isinstance(raw_payload, dict) and "model" in raw_payload:
         state_dict = raw_payload["model"]
