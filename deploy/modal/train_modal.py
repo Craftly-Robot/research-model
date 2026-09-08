@@ -591,16 +591,37 @@ def run_training_workstation(
     except Exception as e:
         print(f"[Fast Packaging Note] {e}")
 
+    safe_volume_commit(train_dir=train_dir, zip_file=Path(f"{fast_zip}.zip") if 'fast_zip' in locals() and Path(f"{fast_zip}.zip").exists() else None)
+
     return report
 
 
-def safe_volume_commit() -> None:
-    """Commit volume if running inside a mounted Modal container; ignore if standalone."""
+def safe_volume_commit(train_dir: Path | None = None, zip_file: Path | None = None) -> None:
+    """Commit volume if mounted; also permanently back up checkpoints to Modal cloud storage."""
     if modal is not None and training_volume is not None:
         try:
             training_volume.commit()
-            print("[Volume] All checkpoints and logs successfully committed to Modal Volume.")
+            print("[Volume] All checkpoints committed to mounted volume.")
         except Exception:
+            pass
+    if modal is not None and train_dir is not None:
+        try:
+            vol = modal.Volume.from_name("craftly-training-volume", create_if_missing=True)
+            manifest_file = train_dir / "checkpoint_manifest.json"
+            if manifest_file.exists():
+                with vol.batch_upload(force=True) as batch:
+                    batch.put_file(manifest_file, "/train_run/checkpoint_manifest.json")
+                    try:
+                        data = json.loads(manifest_file.read_text(encoding="utf-8"))
+                        ckpt_p = Path(data.get("checkpoint_dir", ""))
+                        if ckpt_p.exists():
+                            batch.put_directory(ckpt_p, f"/train_run/{ckpt_p.name}")
+                    except Exception:
+                        pass
+                    if zip_file and zip_file.exists():
+                        batch.put_file(zip_file, f"/{zip_file.name}")
+                print("[Volume Cloud Backup] Permanently saved to Modal Cloud Volume 'craftly-training-volume'.")
+        except Exception as exc:
             pass
 
 
