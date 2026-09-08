@@ -511,21 +511,20 @@ def run_training_workstation(
 
     def handle_checkpoint_save(step: int) -> None:
         try:
-            print(f"\n[AUTO-SAVE TO /root] Step {step} reached! Packaging lightweight model directly to /root ...", flush=True)
+            print(f"\n[AUTO-SAVE TO /root] Step {step} reached! Packaging clean model directly to /root ...", flush=True)
             step_zip = export_clean_checkpoint_to_root(
                 train_dir=train_dir,
                 volume_root=volume_root,
                 profile_name=profile_name,
                 prefix=f"step_{step}",
             )
-            latest_zip = export_clean_checkpoint_to_root(
-                train_dir=train_dir,
-                volume_root=volume_root,
-                profile_name=profile_name,
-                prefix="latest",
-            )
-            safe_volume_commit(train_dir=train_dir, zip_file=latest_zip or step_zip)
-            print(f"[AUTO-SAVE TO /root] [OK] Step {step} model is now visible & downloadable in /root!\n", flush=True)
+            root_dir = Path("/root") if Path("/root").is_dir() else (train_dir.parent / "root_exports")
+            latest_zip = root_dir / f"craftly_{profile_name}_checkpoint_latest.zip"
+            if step_zip and step_zip.exists():
+                shutil.copy(step_zip, latest_zip)
+                print(f"[AUTO-SAVE TO /root] [OK] Latest link updated: {latest_zip.name}", flush=True)
+            safe_volume_commit(train_dir=train_dir, zip_file=latest_zip if latest_zip.exists() else step_zip)
+            print(f"[AUTO-SAVE TO /root] [OK] Step {step} checkpoint ({step_zip.name if step_zip else 'saved'}) is ready in /root!\n", flush=True)
         except Exception as export_err:
             print(f"[AUTO-SAVE NOTE] Step {step} export note: {export_err}", flush=True)
 
@@ -577,10 +576,13 @@ def run_training_workstation(
     # 8. Automatically create clean lightweight inference bundle (~150MB) saved directly into /root
     fast_zip = export_clean_checkpoint_to_root(train_dir, volume_root, profile_name, prefix="completed")
     if fast_zip and fast_zip.exists():
-        legacy_dest = Path(f"/root/craftly_{profile_name}_fast_model.zip")
+        root_dir = Path("/root") if Path("/root").is_dir() else (train_dir.parent / "root_exports")
+        latest_dest = root_dir / f"craftly_{profile_name}_checkpoint_latest.zip"
+        legacy_dest = root_dir / f"craftly_{profile_name}_fast_model.zip"
+        shutil.copy(fast_zip, latest_dest)
         shutil.copy(fast_zip, legacy_dest)
-        print(f"[FAST DOWNLOAD READY] Direct model package at: {legacy_dest}")
-        print(f"[TIP] Download {legacy_dest.name} directly from your Modal file explorer!")
+        print(f"[FAST DOWNLOAD READY] Direct model package at: {latest_dest}")
+        print(f"[TIP] Download {latest_dest.name} directly from your Modal file explorer!")
 
     # 9. Commit to volume and cloud backup
     safe_volume_commit(train_dir=train_dir, zip_file=fast_zip)
@@ -630,20 +632,13 @@ def export_clean_checkpoint_to_root(
         root_dir = Path("/root") if Path("/root").is_dir() else (train_dir.parent / "root_exports")
         root_dir.mkdir(parents=True, exist_ok=True)
 
-        clean_dir = root_dir / f"craftly_{profile_name}_{prefix}_bundle"
+        bundle_name = f"craftly_{profile_name}_{prefix}_bundle"
+        clean_dir = root_dir / bundle_name
         shutil.rmtree(clean_dir, ignore_errors=True)
         clean_dir.mkdir(parents=True, exist_ok=True)
 
-        if (volume_root / "tokenizer").exists():
-            shutil.copytree(volume_root / "tokenizer", clean_dir / "tokenizer", dirs_exist_ok=True)
-
-        if manifest_file.exists():
-            shutil.copy(manifest_file, clean_dir / "checkpoint_manifest.json")
-
-        dest_ckpt = clean_dir / ckpt_path.name
-        dest_ckpt.mkdir(parents=True, exist_ok=True)
-        if (ckpt_path / "config.json").exists():
-            shutil.copy(ckpt_path / "config.json", dest_ckpt / "config.json")
+        clean_payload: dict[str, Any] = {}
+        # 1. Clean model.pt (ONLY model weights, architecture config, step, and tokens - zero optimizer bloat)
         if (ckpt_path / "model.pt").exists():
             try:
                 raw_payload = torch.load(ckpt_path / "model.pt", map_location="cpu", weights_only=True)
@@ -655,28 +650,88 @@ def export_clean_checkpoint_to_root(
                 "step": raw_payload.get("step", step_val),
                 "trained_tokens": raw_payload.get("trained_tokens", tokens_val),
             }
-            torch.save(clean_payload, dest_ckpt / "model.pt")
+            torch.save(clean_payload, clean_dir / "model.pt")
 
-        out_zip = root_dir / f"craftly_{profile_name}_{prefix}_model"
-        shutil.make_archive(str(out_zip), "zip", clean_dir)
-        final_zip = Path(f"{out_zip}.zip")
+        # 2. Architecture config.json directly at root of bundle
+        if (ckpt_path / "config.json").exists():
+            shutil.copy(ckpt_path / "config.json", clean_dir / "config.json")
+        elif clean_payload.get("config"):
+            (clean_dir / "config.json").write_text(json.dumps(clean_payload["config"], indent=2), encoding="utf-8")
+
+        # 3. Tokenizer directly at root of bundle
+        tok_source = volume_root / "tokenizer" / "tokenizer.json"
+        if tok_source.exists():
+            shutil.copy(tok_source, clean_dir / "tokenizer.json")
+        elif (volume_root / "tokenizer").exists():
+            shutil.copytree(volume_root / "tokenizer", clean_dir / "tokenizer", dirs_exist_ok=True)
+
+        # 4. Checkpoint provenance info
+        info_payload = {
+            "model_name": "Craftly",
+            "architecture_profile": profile_name,
+            "checkpoint_step": step_val,
+            "trained_tokens": tokens_val,
+            "status": "clean_model_package",
+            "saved_at_utc": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()),
+            "files": ["model.pt", "config.json", "tokenizer.json", "checkpoint_info.json", "README.md"],
+        }
+        (clean_dir / "checkpoint_info.json").write_text(json.dumps(info_payload, indent=2), encoding="utf-8")
+
+        # 5. README.md with clear Python loading instructions
+        readme_content = (
+            f"# Craftly {profile_name.upper()} Model Checkpoint (Step {step_val:,})\n\n"
+            f"This package contains the clean weights and tokenizer for Craftly.\n"
+            f"All training optimizer buffers, momentum states, and dataloader states have been stripped\n"
+            f"to produce a lightweight (~150MB), production-ready model bundle.\n\n"
+            f"## Checkpoint Details\n"
+            f"- **Architecture Profile**: `{profile_name}`\n"
+            f"- **Optimizer Step**: `{step_val:,}`\n"
+            f"- **Trained Tokens**: `{tokens_val:,}`\n"
+            f"- **Exported At**: `{time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}`\n\n"
+            f"## Package Files\n"
+            f"- `model.pt`: Clean model weights (state_dict) and architecture config\n"
+            f"- `config.json`: Complete model hyperparameter specification\n"
+            f"- `tokenizer.json`: BPE Tokenizer\n"
+            f"- `checkpoint_info.json`: Checkpoint metadata and provenance\n\n"
+            f"## Loading in Python\n"
+            f"```python\n"
+            f"import torch\n"
+            f"from tokenizers import Tokenizer\n\n"
+            f"# 1. Load model weights\n"
+            f"checkpoint = torch.load('model.pt', map_location='cpu', weights_only=True)\n"
+            f"model_weights = checkpoint['model']\n"
+            f"model_config = checkpoint['config']\n"
+            f"print(f\"Loaded Craftly Step {{checkpoint['step']}}\")\n\n"
+            f"# 2. Load tokenizer\n"
+            f"tokenizer = Tokenizer.from_file('tokenizer.json')\n"
+            f"```\n"
+        )
+        (clean_dir / "README.md").write_text(readme_content, encoding="utf-8")
+
+        # Create zip archive: craftly_{profile_name}_checkpoint_{prefix}.zip
+        out_zip_base = root_dir / f"craftly_{profile_name}_checkpoint_{prefix}"
+        shutil.make_archive(str(out_zip_base), "zip", clean_dir)
+        final_zip = Path(f"{out_zip_base}.zip")
         shutil.rmtree(clean_dir, ignore_errors=True)
 
         if final_zip.exists():
             size_mb = final_zip.stat().st_size / (1024 * 1024)
-            print(f"[SAVE TO ROOT] [OK] Model package ({size_mb:.1f} MB) saved to {final_zip}", flush=True)
+            print(f"[SAVE TO ROOT] [OK] Saved {final_zip.name} ({size_mb:.1f} MB, Step: {step_val:,})", flush=True)
 
             try:
                 meta_txt = root_dir / "LATEST_CHECKPOINT.txt"
                 meta_txt.write_text(
-                    f"Craftly Checkpoint Saved\n"
-                    f"Profile: {profile_name}\n"
-                    f"Prefix: {prefix}\n"
-                    f"Step: {step_val}\n"
-                    f"Tokens: {tokens_val:,}\n"
-                    f"Archive: {final_zip.name}\n"
-                    f"Size: {size_mb:.1f} MB\n"
-                    f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}\n",
+                    f"==================================================\n"
+                    f"Craftly Checkpoint Status\n"
+                    f"==================================================\n"
+                    f"Model Profile:   {profile_name}\n"
+                    f"Checkpoint Step: {step_val:,}\n"
+                    f"Trained Tokens:  {tokens_val:,}\n"
+                    f"Archive File:    {final_zip.name}\n"
+                    f"Archive Size:    {size_mb:.1f} MB\n"
+                    f"Saved At (UTC):  {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}\n"
+                    f"Status:          Clean package ready for download & inference\n"
+                    f"==================================================\n",
                     encoding="utf-8",
                 )
             except Exception:
