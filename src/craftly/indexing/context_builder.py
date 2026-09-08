@@ -1,4 +1,4 @@
-﻿"""Context Builder for indexed Craftly workspaces."""
+"""Context Builder for indexed Craftly workspaces."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ import uuid
 from collections import Counter
 from html import escape
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import urlparse
 
 import httpx
@@ -24,8 +24,10 @@ from pydantic import Field
 from src.craftly.db.local_store import LocalStore, PostgresRAGStore
 from src.craftly.indexing.repository_indexer import RepositoryIndexer, estimate_tokens
 from src.craftly.indexing.vector_index import VectorBackendConfig, VectorIndexBackend, create_vector_index
-from src.craftly.memory.system import UnifiedMemoryManager
 from src.craftly.shared.schemas import StrictModel
+
+if TYPE_CHECKING:
+    from src.craftly.memory.system import UnifiedMemoryManager
 
 
 TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{1,}|[A-Za-z]:\\[^\\s]+|[./\\w-]+\\.[A-Za-z0-9]+")
@@ -608,7 +610,11 @@ class HybridRAGEngine:
         return sorted(results, key=lambda item: (-float(item["score"]), str(item["id"])))[: self.context_policy.candidate_limit_per_source]
 
     def memory_candidates(self, project_id: str, query: str) -> list[dict[str, Any]]:
-        manager = self.memory_manager or UnifiedMemoryManager(project_id=project_id, store=self.store)
+        if self.memory_manager is not None:
+            manager = self.memory_manager
+        else:
+            from src.craftly.memory.system import UnifiedMemoryManager
+            manager = UnifiedMemoryManager(project_id=project_id, store=self.store)
         report = manager.retrieve_report(query, limit=min(20, self.context_policy.candidate_limit_per_source))
         candidates: list[dict[str, Any]] = []
         for hit in report.hits:
