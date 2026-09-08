@@ -131,18 +131,15 @@ class LiveSFTProgressReporter(ProgressReporter):
 
 def locate_base_checkpoint() -> Path:
     """Find the best available Craftly foundation checkpoint."""
-    candidates = [
-        # 1. Standard Modal cloud training directory
+    # 1. Check direct known paths
+    direct_candidates = [
         Path("/root/research-model/artifacts/craftly/train_run/train_output_300m/checkpoint_manifest.json"),
         Path("/vol/train_run/train_output_300m/checkpoint_manifest.json"),
-        # 2. Direct zip bundles in /root
         Path("/root/craftly_300m_checkpoint_latest.zip"),
         Path("/root/craftly_300m_checkpoint_completed.zip"),
-        # 3. Local relative workspace
         Path("artifacts/craftly/train_run/train_output_300m/checkpoint_manifest.json"),
     ]
-
-    for candidate in candidates:
+    for candidate in direct_candidates:
         if candidate.exists():
             if candidate.suffix == ".zip":
                 extract_dir = Path("/root/model_300m_extracted")
@@ -153,6 +150,25 @@ def locate_base_checkpoint() -> Path:
                 return extract_dir / "model.pt"
             return candidate
 
+    # 2. Dynamic discovery in /vol, /mnt, /root
+    search_roots = [Path("/vol"), Path("/mnt"), Path("/root")]
+    for s_root in search_roots:
+        if s_root.exists():
+            # Check for manifests
+            manifests = sorted(s_root.rglob("*checkpoint_manifest.json"), key=lambda p: p.stat().st_mtime, reverse=True)
+            if manifests:
+                return manifests[0]
+            # Check for zip packages
+            zips = sorted(s_root.rglob("*craftly*300m*checkpoint*.zip"), key=lambda p: p.stat().st_mtime, reverse=True)
+            if zips:
+                chosen_zip = zips[0]
+                extract_dir = Path("/root/model_300m_extracted")
+                if not extract_dir.exists():
+                    print(f"[Setup] Extracting {chosen_zip.name} to {extract_dir}...", flush=True)
+                    with zipfile.ZipFile(chosen_zip, "r") as zf:
+                        zf.extractall(extract_dir)
+                return extract_dir / "model.pt"
+
     raise FileNotFoundError(
         "Could not auto-locate Craftly 300M base checkpoint. "
         "Provide explicit path via --base-checkpoint <path>."
@@ -161,15 +177,23 @@ def locate_base_checkpoint() -> Path:
 
 def locate_tokenizer() -> Path:
     """Find tokenizer.json."""
-    candidates = [
+    direct_candidates = [
         Path("/root/research-model/artifacts/craftly/train_run/tokenizer/tokenizer.json"),
         Path("/vol/train_run/tokenizer/tokenizer.json"),
         Path("/root/model_300m_extracted/tokenizer.json"),
         Path("artifacts/craftly/train_run/tokenizer/tokenizer.json"),
     ]
-    for c in candidates:
+    for c in direct_candidates:
         if c.exists():
             return c
+
+    # Dynamic scan
+    for s_root in [Path("/vol"), Path("/mnt"), Path("/root")]:
+        if s_root.exists():
+            matches = list(s_root.rglob("tokenizer.json"))
+            if matches:
+                return matches[0]
+
     raise FileNotFoundError("Could not auto-locate tokenizer.json. Provide --tokenizer <path>.")
 
 
