@@ -18,6 +18,7 @@ from typing import Any
 
 from pydantic import Field
 
+from src.craftly.learning.continual import ExperienceReplayBuffer, ReferenceModelKLLoss
 from src.craftly.learning.sft_dataset import SFTDatasetEngine, SFTRecord, encode_sft_record
 from src.craftly.model_ops.foundation import CheckpointManifest, ScratchDecoderConfig
 from src.craftly.model_ops.tokenizer_pipeline import load_tokenizer
@@ -62,6 +63,8 @@ class SFTRunConfig(StrictModel):
     seed: int = 1337
     dtype: str = Field(default="bf16", pattern=r"^(bf16|fp16|fp32)$")
     device: str = Field(default="auto", description="PyTorch device ('auto', 'cuda', 'cpu')")
+    replay_ratio: float = Field(default=0.0, ge=0.0, le=0.8, description="Proportion of pretraining code replay")
+    kl_penalty_weight: float = Field(default=0.0, ge=0.0, le=10.0, description="Weight for reference model KL penalty")
 
 
 def resolve_base_model_assets(base_checkpoint_ref: str | Path) -> tuple[Path, dict[str, Any], dict[str, Any]]:
@@ -217,12 +220,27 @@ def run_sft(
     train_record_idx = 0
     trained_tokens = 0
 
+    replay_buffer = None
+    if run_config.replay_ratio > 0.0:
+        replay_buffer = ExperienceReplayBuffer(replay_ratio=run_config.replay_ratio, seed=run_config.seed)
+
+    ref_model = None
+    kl_loss_fn = None
+    if run_config.kl_penalty_weight > 0.0:
+        ref_model = CraftlyDecoderLM(arch_config)
+        ref_model.load_state_dict(state_dict)
+        ref_model.eval()
+        ref_model = ref_model.to(device)
+        for p in ref_model.parameters():
+            p.requires_grad = False
+        kl_loss_fn = ReferenceModelKLLoss()
+
     reporter.emit(
         stage="sft",
         status="running",
         step=0,
         requested_steps=run_config.steps,
-        message=f"Starting SFT on {device} ({arch_config.name}, {len(train_records)} train records)",
+        message=f"Starting SFT on {device} ({arch_config.name}, {len(train_records)} train records, replay: {run_config.replay_ratio:.0%}, KL: {run_config.kl_penalty_weight})",
     )
 
     optimizer.zero_grad(set_to_none=True)
@@ -231,16 +249,19 @@ def run_sft(
         step_loss_acc = 0.0
 
         for _ in range(run_config.gradient_accumulation_steps):
-            # Form micro-batch
-            batch_records = []
-            for _ in range(run_config.batch_size):
-                batch_records.append(train_records[train_record_idx % len(train_records)])
-                train_record_idx += 1
-
+            # Form micro-batch with optional pretraining replay
             batch_input_ids = []
             batch_labels = []
 
-            for rec in batch_records:
+            replay_count = 0
+            if replay_buffer and run_config.replay_ratio > 0.0:
+                replay_count = max(1, int(round(run_config.batch_size * run_config.replay_ratio)))
+                replay_count = min(replay_count, max(1, run_config.batch_size - 1))
+
+            sft_count = max(1, run_config.batch_size - replay_count)
+            for _ in range(sft_count):
+                rec = train_records[train_record_idx % len(train_records)]
+                train_record_idx += 1
                 inp_ids, lbls, _ = encode_sft_record(
                     rec,
                     tokenizer,
@@ -248,6 +269,15 @@ def run_sft(
                 )
                 batch_input_ids.append(inp_ids)
                 batch_labels.append(lbls)
+
+            if replay_count > 0 and replay_buffer:
+                r_inps, r_lbls = replay_buffer.sample_batch(
+                    count=replay_count,
+                    tokenizer=tokenizer,
+                    max_sequence_length=run_config.max_sequence_length,
+                )
+                batch_input_ids.extend(r_inps)
+                batch_labels.extend(r_lbls)
 
             inp_tensor = torch.tensor(batch_input_ids, dtype=torch.long, device=device)
             lbl_tensor = torch.tensor(batch_labels, dtype=torch.long, device=device)
@@ -260,7 +290,14 @@ def run_sft(
                 output = model(inp_tensor, labels=lbl_tensor)
                 if output.loss is None:
                     raise RuntimeError("SFT model forward pass did not return loss")
-                loss = output.loss / run_config.gradient_accumulation_steps
+                raw_loss = output.loss
+                if kl_loss_fn and ref_model and run_config.kl_penalty_weight > 0.0:
+                    with torch.no_grad():
+                        ref_out = ref_model(inp_tensor)
+                    kl_val = kl_loss_fn.compute(output.logits, ref_out.logits, mask=lbl_tensor)
+                    raw_loss = raw_loss + (run_config.kl_penalty_weight * kl_val)
+
+                loss = raw_loss / run_config.gradient_accumulation_steps
 
             loss.backward()
             step_loss_acc += float(output.loss.detach().cpu())

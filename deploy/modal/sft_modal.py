@@ -361,6 +361,10 @@ def execute_sft_pipeline(
     learning_rate: float = 3e-5,
     checkpoint_every: int = 250,
     validate_every: int = 50,
+    replay_ratio: float = 0.0,
+    kl_penalty_weight: float = 0.0,
+    slerp_merge: bool = False,
+    slerp_t: float = 0.3,
     smoke: bool = False,
 ) -> dict[str, Any]:
     """Execute complete Phase 2 Defensive SFT."""
@@ -395,6 +399,10 @@ def execute_sft_pipeline(
     print(f"[Config] Target SFT Steps:        {10 if smoke else steps}")
     print(f"[Config] Effective Batch Size:    {(1 if smoke else batch_size) * (1 if smoke else gradient_accumulation_steps)}")
     print(f"[Config] Learning Rate:           {1e-4 if smoke else learning_rate}")
+    if replay_ratio > 0:
+        print(f"[Continual] Replay Ratio:         {replay_ratio:.0%}")
+    if kl_penalty_weight > 0:
+        print(f"[Continual] KL Anchor Weight:     {kl_penalty_weight}")
 
     def on_checkpoint_hook(step: int, tokens: int, ckpt_path: Path) -> None:
         export_clean_sft_package(
@@ -421,10 +429,28 @@ def execute_sft_pipeline(
         checkpoint_every=5 if smoke else checkpoint_every,
         validate_every=5 if smoke else validate_every,
         max_sequence_length=128 if smoke else 1024,
+        replay_ratio=replay_ratio,
+        kl_penalty_weight=kl_penalty_weight,
     )
 
     reporter = LiveSFTProgressReporter(on_checkpoint=on_checkpoint_hook)
     summary = run_sft(run_cfg, progress_reporter=reporter, on_checkpoint=on_checkpoint_hook)
+
+    # Optional Post-SFT SLERP Weight Merging
+    if slerp_merge:
+        try:
+            from src.craftly.learning.continual import WeightMerger
+            merged_file = resolved_out / f"model_slerp_t{int(slerp_t * 100)}.pt"
+            WeightMerger.merge_checkpoint_files(
+                base_path=resolved_base,
+                sft_path=Path(summary["latest_checkpoint_dir"]) / "model.pt",
+                output_path=merged_file,
+                method="slerp",
+                t=slerp_t,
+            )
+            print(f"\n[SLERP MERGE] [OK] Successfully merged base and SFT weights -> {merged_file}")
+        except Exception as err:
+            print(f"[SLERP MERGE Warning] Could not perform weight merge: {err}")
 
     # Final Export
     latest_ckpt = Path(summary["latest_checkpoint_dir"])
@@ -500,6 +526,10 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=3e-5)
     parser.add_argument("--checkpoint-every", type=int, default=250)
     parser.add_argument("--validate-every", type=int, default=50)
+    parser.add_argument("--replay-ratio", type=float, default=0.0, help="Pretraining experience replay ratio (e.g. 0.20)")
+    parser.add_argument("--kl-weight", type=float, default=0.0, help="Reference model KL divergence penalty weight")
+    parser.add_argument("--slerp-merge", action="store_true", help="Perform post-SFT SLERP weight merge with base model")
+    parser.add_argument("--slerp-t", type=float, default=0.3, help="SLERP interpolation weight t (default: 0.3)")
     parser.add_argument("--smoke", action="store_true", help="Quick 10-step smoke test")
     args = parser.parse_args()
 
@@ -513,5 +543,9 @@ if __name__ == "__main__":
         learning_rate=args.lr,
         checkpoint_every=args.checkpoint_every,
         validate_every=args.validate_every,
+        replay_ratio=args.replay_ratio,
+        kl_penalty_weight=args.kl_weight,
+        slerp_merge=args.slerp_merge,
+        slerp_t=args.slerp_t,
         smoke=args.smoke,
     )
