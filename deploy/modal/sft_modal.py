@@ -392,6 +392,28 @@ def execute_sft_pipeline(
     return summary
 
 
+if modal is not None and app is not None:
+    @app.function(
+        gpu="A100-80GB",
+        timeout=7200,
+        volumes={"/vol": training_volume},
+        image=training_image,
+    )
+    def sft_craftly_modal(
+        steps: int = 1000,
+        batch_size: int = 4,
+        gradient_accumulation_steps: int = 4,
+        lr: float = 3e-5,
+    ) -> dict[str, Any]:
+        return execute_sft_pipeline(
+            output_dir="/vol/sft_run",
+            steps=steps,
+            batch_size=batch_size,
+            gradient_accumulation_steps=gradient_accumulation_steps,
+            learning_rate=lr,
+        )
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Craftly Phase 2 Defensive SFT on Modal.")
     parser.add_argument("--base-checkpoint", default=None, help="Base model checkpoint or manifest")
