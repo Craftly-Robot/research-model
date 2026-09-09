@@ -1,2 +1,1 @@
-﻿"""Deployment validation utilities for Craftly."""
-
+"""Deployment validation utilities for Craftly."""

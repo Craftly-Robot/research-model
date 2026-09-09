@@ -16,7 +16,6 @@ from pydantic import Field
 
 from src.craftly.shared.schemas import StrictModel
 
-
 TOOL_CALL_START = "<|tool_call|>"
 TOOL_CALL_END = "<|tool_end|>"
 TOOL_RESULT_START = "<|tool_result|>"
@@ -66,7 +65,11 @@ class ParsedAgentStep(StrictModel):
 
 def format_tool_call(call: ToolCall) -> str:
     """Format a ToolCall into delimited syntax."""
-    payload = {"tool": call.tool, "command": call.command, "timeout_ms": call.timeout_ms}
+    payload = {
+        "tool": call.tool,
+        "command": call.command,
+        "timeout_ms": call.timeout_ms,
+    }
     return f"{TOOL_CALL_START}{json.dumps(payload)}{TOOL_CALL_END}"
 
 
@@ -89,7 +92,9 @@ def parse_agentic_output(text: str) -> ParsedAgentStep:
     patch = None
 
     # 1. Parse Thought
-    thought_match = re.search(r"<\|thought_start\|>(.*?)<\|thought_end\|>", text, re.DOTALL)
+    thought_match = re.search(
+        r"<\|thought_start\|>(.*?)<\|thought_end\|>", text, re.DOTALL
+    )
     if thought_match:
         thought = thought_match.group(1).strip()
 
@@ -175,7 +180,7 @@ def build_canonical_agentic_scenarios() -> list[AgenticScenario]:
                 " def authenticate_user(cursor, username, password):\n"
                 "-    query = f\"SELECT id, role FROM users WHERE user='{username}' AND pass='{password}'\"\n"
                 "-    cursor.execute(query)\n"
-                "+    query = \"SELECT id, role FROM users WHERE user=%s AND pass=%s\"\n"
+                '+    query = "SELECT id, role FROM users WHERE user=%s AND pass=%s"\n'
                 "+    cursor.execute(query, (username, password))\n"
                 "     return cursor.fetchone()\n"
             ),

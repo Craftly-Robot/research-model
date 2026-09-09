@@ -1,2 +1,1 @@
 """Gateway API facade."""
-

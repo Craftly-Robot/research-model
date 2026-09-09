@@ -1,2 +1,1 @@
-﻿"""Security audit utilities for Craftly."""
-
+"""Security audit utilities for Craftly."""

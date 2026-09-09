@@ -1,15 +1,15 @@
-﻿"""Native Intent & Planning Engine for the final Craftly architecture."""
+"""Native Intent & Planning Engine for the final Craftly architecture."""
 
 from __future__ import annotations
 
-import time
 import json
+import time
 from typing import Any
 
 from pydantic import Field
 
-from src.craftly.shared.schemas import StrictModel
 from src.craftly.model_ops.backends import ModelBackend
+from src.craftly.shared.schemas import StrictModel
 
 
 class PlanningResult(StrictModel):
@@ -29,7 +29,16 @@ class IntentPlanningEngine:
     def plan(self, prompt: str, *, run_id: str | None = None) -> PlanningResult:
         rid = run_id or f"craftly-plan-{time.time_ns()}"
         lowered = prompt.lower()
-        intent = "security_review" if any(term in lowered for term in ["security", "vulnerability", "cve", "exploit"]) else "debug" if any(term in lowered for term in ["bug", "fix", "error", "fail"]) else "code_edit"
+        intent = (
+            "security_review"
+            if any(
+                term in lowered
+                for term in ["security", "vulnerability", "cve", "exploit"]
+            )
+            else "debug"
+            if any(term in lowered for term in ["bug", "fix", "error", "fail"])
+            else "code_edit"
+        )
         requirements = [
             "understand the repository context",
             "retrieve relevant files and symbols",
@@ -38,7 +47,9 @@ class IntentPlanningEngine:
             "return evidence with the final answer",
         ]
         if intent == "security_review":
-            requirements.append("run defensive security checks before accepting changes")
+            requirements.append(
+                "run defensive security checks before accepting changes"
+            )
         risks = [
             "insufficient repository context",
             "patch may fail tests",
@@ -50,7 +61,11 @@ class IntentPlanningEngine:
             "configured tests pass",
             "verifier returns accept",
         ]
-        expansion = {"intent": intent, "acceptance_tests": success_criteria, "source": "native-planner"}
+        expansion = {
+            "intent": intent,
+            "acceptance_tests": success_criteria,
+            "source": "native-planner",
+        }
         return PlanningResult(
             run_id=rid,
             prompt=prompt,
@@ -88,7 +103,11 @@ class IntentPlanningEngine:
             goal = str(payload.get("goal") or "").strip()
             if not goal:
                 raise ValueError("planner output missing goal")
-            expansion = payload.get("expansion") if isinstance(payload.get("expansion"), dict) else {}
+            expansion = (
+                payload.get("expansion")
+                if isinstance(payload.get("expansion"), dict)
+                else {}
+            )
             expansion = {**expansion, "source": "structured-model-planner"}
             return PlanningResult(
                 run_id=run_id or f"craftly-plan-{time.time_ns()}",
@@ -108,12 +127,17 @@ class IntentPlanningEngine:
                 fallback.risks.append(f"structured planner fallback used: {exc}")
                 fallback.confidence = min(fallback.confidence, 0.62)
                 return fallback
-            raise ValueError(f"structured planner returned invalid JSON: {exc}") from exc
+            raise ValueError(
+                f"structured planner returned invalid JSON: {exc}"
+            ) from exc
 
     @staticmethod
     def _required_string_list(payload: dict[str, Any], key: str) -> list[str]:
         values = payload.get(key)
-        if not isinstance(values, list) or not values or not all(isinstance(item, str) and item.strip() for item in values):
+        if (
+            not isinstance(values, list)
+            or not values
+            or not all(isinstance(item, str) and item.strip() for item in values)
+        ):
             raise ValueError(f"planner output {key!r} must be a non-empty string list")
         return [item.strip() for item in values]
-

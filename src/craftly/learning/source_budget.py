@@ -1,4 +1,4 @@
-﻿"""Source budget allocation driven by reputation scores."""
+"""Source budget allocation driven by reputation scores."""
 
 from __future__ import annotations
 
@@ -55,7 +55,11 @@ def _weighted_allocations(
     if not ordered or target_total_docs <= 0:
         return allocations
 
-    minimum = min_docs_per_source if target_total_docs >= min_docs_per_source * len(ordered) else 0
+    minimum = (
+        min_docs_per_source
+        if target_total_docs >= min_docs_per_source * len(ordered)
+        else 0
+    )
     if minimum:
         for name in ordered:
             granted = min(minimum, caps[name])
@@ -82,7 +86,11 @@ def _weighted_allocations(
         if granted_this_round == 0:
             ranked = sorted(
                 active,
-                key=lambda name: (-(raw_shares[name] - int(raw_shares[name])), -weights[name], name),
+                key=lambda name: (
+                    -(raw_shares[name] - int(raw_shares[name])),
+                    -weights[name],
+                    name,
+                ),
             )
             for name in ranked:
                 if remaining <= 0:
@@ -110,7 +118,11 @@ def build_source_budget_plan(
         has_evidence = rep is not None
         score = float(rep.get("reputation_score", 0.0)) if rep else 0.0
         action = str(rep.get("action", "block")) if rep else "block"
-        category_multiplier = 1.25 if source.category in {"defensive_security", "vulnerability_database"} else 1.0
+        category_multiplier = (
+            1.25
+            if source.category in {"defensive_security", "vulnerability_database"}
+            else 1.0
+        )
         action_multiplier = {
             "promote": 1.4,
             "watch": 1.0,
@@ -123,7 +135,13 @@ def build_source_budget_plan(
         source_cap = min(max_docs_per_source, source.collection_budget)
         if action == "quarantine":
             source_cap = min(source_cap, max(1, int(target_total_docs * 0.01)))
-        source_meta[source.name] = (source.category, action, score, source_cap, has_evidence)
+        source_meta[source.name] = (
+            source.category,
+            action,
+            score,
+            source_cap,
+            has_evidence,
+        )
 
     eligible_weights = {name: weight for name, weight in weights.items() if weight > 0}
     caps = {name: source_meta[name][3] for name in eligible_weights}
@@ -170,16 +188,22 @@ def build_source_budget_plan(
     )
 
 
-def write_source_budget_plan(output_path: str | Path, **kwargs: object) -> SourceBudgetPlan:
+def write_source_budget_plan(
+    output_path: str | Path, **kwargs: object
+) -> SourceBudgetPlan:
     plan = build_source_budget_plan(**kwargs)
     target = Path(output_path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(plan.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+    target.write_text(
+        json.dumps(plan.model_dump(), indent=2, sort_keys=True), encoding="utf-8"
+    )
     return plan
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Allocate Craftly crawl budget from source reputation.")
+    parser = argparse.ArgumentParser(
+        description="Allocate Craftly crawl budget from source reputation."
+    )
     parser.add_argument("--sources", required=True)
     parser.add_argument("--reputation-report")
     parser.add_argument("--target-total-docs", type=int, required=True)
@@ -196,4 +220,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

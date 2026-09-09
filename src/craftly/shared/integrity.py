@@ -7,7 +7,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-
 DEFAULT_HASH_CHUNK_SIZE = 1024 * 1024
 
 

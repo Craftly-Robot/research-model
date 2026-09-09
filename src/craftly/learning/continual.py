@@ -103,7 +103,7 @@ CANONICAL_PRETRAINING_REPLAY_SAMPLES: list[dict[str, str]] = [
             "        self.send_response(200)\n"
             "        self.send_header('Content-type', 'application/json')\n"
             "        self.end_headers()\n"
-            "        self.wfile.write(b'{\"status\": \"healthy\"}')\n"
+            '        self.wfile.write(b\'{"status": "healthy"}\')\n'
         ),
     },
     {
@@ -137,7 +137,9 @@ class ExperienceReplayBuffer:
         if replay_samples is not None and len(replay_samples) > 0:
             self.samples = list(replay_samples)
         else:
-            self.samples = [item["text"] for item in CANONICAL_PRETRAINING_REPLAY_SAMPLES]
+            self.samples = [
+                item["text"] for item in CANONICAL_PRETRAINING_REPLAY_SAMPLES
+            ]
 
     def add_sample(self, text: str) -> None:
         clean = text.strip()
@@ -184,6 +186,7 @@ class ExperienceReplayBuffer:
 # 2. KL Divergence Penalty: Reference Policy Constraint
 # ---------------------------------------------------------------------------
 
+
 class ReferenceModelKLLoss:
     """Computes token-level KL divergence penalty between active model and frozen base model."""
 
@@ -213,7 +216,7 @@ class ReferenceModelKLLoss:
         log_q = F.log_softmax(ref_logits / t, dim=-1)
 
         # KL(P || Q) = sum P * (log P - log Q)
-        kl_per_token = torch.sum(p * (log_p - log_q), dim=-1) * (t ** 2)
+        kl_per_token = torch.sum(p * (log_p - log_q), dim=-1) * (t**2)
 
         if mask is not None:
             active_mask = (mask != -100).float()
@@ -226,6 +229,7 @@ class ReferenceModelKLLoss:
 # ---------------------------------------------------------------------------
 # 3. Weight Space Merging: SLERP & Task Vector Arithmetic
 # ---------------------------------------------------------------------------
+
 
 class WeightMerger:
     """Merges foundation base weights and specialized SFT weights without external checkpoints."""
@@ -300,16 +304,22 @@ class WeightMerger:
                 continue
 
             sft_val = sft_state[key]
-            if not isinstance(base_val, torch.Tensor) or not isinstance(sft_val, torch.Tensor):
+            if not isinstance(base_val, torch.Tensor) or not isinstance(
+                sft_val, torch.Tensor
+            ):
                 merged[key] = copy.deepcopy(sft_val)
                 continue
 
             if base_val.shape != sft_val.shape:
-                raise ValueError(f"Shape mismatch for parameter '{key}': {base_val.shape} vs {sft_val.shape}")
+                raise ValueError(
+                    f"Shape mismatch for parameter '{key}': {base_val.shape} vs {sft_val.shape}"
+                )
 
             # 1D biases and layer norms are typically linearly averaged
             if base_val.dim() <= 1 or method == "linear":
-                merged[key] = ((1.0 - t) * base_val.float() + t * sft_val.float()).to(base_val.dtype)
+                merged[key] = ((1.0 - t) * base_val.float() + t * sft_val.float()).to(
+                    base_val.dtype
+                )
             else:
                 merged[key] = cls.slerp(base_val, sft_val, t=t)
 
@@ -363,8 +373,9 @@ class WeightMerger:
     @staticmethod
     def _extract_or_load(path: Path) -> dict[str, Any]:
         if path.suffix == ".zip":
-            import zipfile
             import tempfile
+            import zipfile
+
             with tempfile.TemporaryDirectory(prefix="craftly_merge_") as td:
                 with zipfile.ZipFile(path, "r") as zf:
                     zf.extractall(td)
@@ -378,6 +389,7 @@ class WeightMerger:
 # ---------------------------------------------------------------------------
 # 4. Scientific Catastrophic Forgetting Benchmark Suite
 # ---------------------------------------------------------------------------
+
 
 class ForgettingTask(StrictModel):
     task_id: str
@@ -434,7 +446,9 @@ class ForgettingReport(StrictModel):
     perplexity_defensive: float
     general_retention_score: float
     evaluated_tasks_count: int
-    created_at_utc: str = Field(default_factory=lambda: time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()))
+    created_at_utc: str = Field(
+        default_factory=lambda: time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+    )
 
 
 def evaluate_continual_perplexity(
@@ -489,6 +503,7 @@ def evaluate_continual_perplexity(
 # ---------------------------------------------------------------------------
 # 5. Elastic Weight Consolidation (EWC): Anti-Forgetting via Fisher Information
 # ---------------------------------------------------------------------------
+
 
 class ElasticWeightConsolidation:
     """Prevents catastrophic forgetting by penalizing changes to important weights.
@@ -670,4 +685,6 @@ class ElasticWeightConsolidation:
         self.lambda_ = state["lambda_"]
         device = next(self.model.parameters()).device
         self.fisher = {k: v.to(device) for k, v in state["fisher"].items()}
-        self.optimal_weights = {k: v.to(device) for k, v in state["optimal_weights"].items()}
+        self.optimal_weights = {
+            k: v.to(device) for k, v in state["optimal_weights"].items()
+        }

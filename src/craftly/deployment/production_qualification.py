@@ -37,8 +37,11 @@ from src.craftly.deployment.production_proof import (
     run_native_serving_load_test,
     run_production_proof,
 )
-from src.craftly.learning.calibration_gate import CalibrationDecision, CalibrationPreflightReport
 from src.craftly.learning.ablation_runner import verify_promotion_chain
+from src.craftly.learning.calibration_gate import (
+    CalibrationDecision,
+    CalibrationPreflightReport,
+)
 from src.craftly.learning.production_dataset import (
     ProductionDatasetManifest,
     validate_dataset_manifest_for_promotion,
@@ -46,7 +49,6 @@ from src.craftly.learning.production_dataset import (
 from src.craftly.model_ops.tokenizer_pipeline import TokenizerAuditReport
 from src.craftly.shared.integrity import canonical_json_bytes, sha256_file
 from src.craftly.shared.schemas import StrictModel
-
 
 QualificationStatus = Literal["passed", "failed", "blocked", "not_run"]
 HEX_SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -106,18 +108,34 @@ class QualificationPolicy(StrictModel):
             raise ValueError("minimum_internal_canary_users exceeds maximum")
         if sorted(self.required_canary_percentages) != self.required_canary_percentages:
             raise ValueError("required_canary_percentages must be ordered")
-        if len(set(self.required_canary_percentages)) != len(self.required_canary_percentages):
+        if len(set(self.required_canary_percentages)) != len(
+            self.required_canary_percentages
+        ):
             raise ValueError("required_canary_percentages contains duplicates")
         if self.required_canary_percentages[-1] != 100:
             raise ValueError("canary ladder must end at 100 percent")
         if self.canary_rollback_error_rate <= self.canary_maximum_error_rate:
-            raise ValueError("rollback error threshold must exceed normal canary error threshold")
-        if len(set(stage.concurrency for stage in self.load_stages)) != len(self.load_stages):
+            raise ValueError(
+                "rollback error threshold must exceed normal canary error threshold"
+            )
+        if len(set(stage.concurrency for stage in self.load_stages)) != len(
+            self.load_stages
+        ):
             raise ValueError("load stage concurrency values must be unique")
-        if self.tokenizer_selection_mode == "fixed" and self.required_tokenizer_vocab_size is None:
-            raise ValueError("fixed tokenizer selection requires required_tokenizer_vocab_size")
-        if self.tokenizer_selection_mode == "evidence_selected" and self.required_tokenizer_vocab_size is not None:
-            raise ValueError("evidence-selected tokenizer policy cannot hard-code a vocabulary size")
+        if (
+            self.tokenizer_selection_mode == "fixed"
+            and self.required_tokenizer_vocab_size is None
+        ):
+            raise ValueError(
+                "fixed tokenizer selection requires required_tokenizer_vocab_size"
+            )
+        if (
+            self.tokenizer_selection_mode == "evidence_selected"
+            and self.required_tokenizer_vocab_size is not None
+        ):
+            raise ValueError(
+                "evidence-selected tokenizer policy cannot hard-code a vocabulary size"
+            )
         return self
 
     @classmethod
@@ -322,7 +340,9 @@ class ImmutableQualificationStore:
         run_dir = self.root / "runs" / final.report_id
         run_dir.mkdir(parents=True, exist_ok=False)
         report_path = run_dir / "production_qualification_report.json"
-        self._write_exclusive(report_path, canonical_json_bytes(final.model_dump()) + b"\n")
+        self._write_exclusive(
+            report_path, canonical_json_bytes(final.model_dump()) + b"\n"
+        )
         self._write_exclusive(
             report_path.with_suffix(".json.sha256"),
             f"{sha256_file(report_path)}  {report_path.name}\n".encode("ascii"),
@@ -335,7 +355,9 @@ class ImmutableQualificationStore:
             "report_sha256": final.report_sha256,
             "updated_at": utc_now(),
         }
-        self._write_atomic(self.root / "latest.json", canonical_json_bytes(pointer) + b"\n")
+        self._write_atomic(
+            self.root / "latest.json", canonical_json_bytes(pointer) + b"\n"
+        )
         return report_path
 
     def _latest_digest(self) -> str | None:
@@ -343,7 +365,9 @@ class ImmutableQualificationStore:
         if not pointer_path.exists():
             return None
         payload = json.loads(pointer_path.read_text(encoding="utf-8-sig"))
-        report_path = Path(str(payload["report_path"])).expanduser().resolve(strict=True)
+        report_path = (
+            Path(str(payload["report_path"])).expanduser().resolve(strict=True)
+        )
         actual = sha256_file(report_path)
         if not hmac.compare_digest(actual, str(payload["file_sha256"])):
             raise ValueError("latest qualification report file hash mismatch")
@@ -388,14 +412,18 @@ def verify_qualification_report(
             "signature": None,
         }
     )
-    expected_digest = hashlib.sha256(canonical_json_bytes(unsigned.model_dump())).hexdigest()
+    expected_digest = hashlib.sha256(
+        canonical_json_bytes(unsigned.model_dump())
+    ).hexdigest()
     if not hmac.compare_digest(expected_digest, report.report_sha256):
         raise ValueError("qualification report digest verification failed")
     if report.signature_algorithm or report.signature:
         if report.signature_algorithm != "HMAC-SHA256" or not report.signature:
             raise ValueError("qualification report signature metadata is incomplete")
         if not signing_key:
-            raise ValueError("qualification report signature cannot be verified without signing key")
+            raise ValueError(
+                "qualification report signature cannot be verified without signing key"
+            )
         expected_signature = hmac.new(
             signing_key.encode("utf-8"),
             report.report_sha256.encode("ascii"),
@@ -476,13 +504,27 @@ def _git_commit() -> str:
         timeout=10,
     )
     value = completed.stdout.strip().lower()
-    return value if completed.returncode == 0 and re.fullmatch(r"[0-9a-f]{40}", value) else "unavailable"
+    return (
+        value
+        if completed.returncode == 0 and re.fullmatch(r"[0-9a-f]{40}", value)
+        else "unavailable"
+    )
 
 
-def run_fixed_functional_gates(output_dir: Path, *, timeout_seconds: int) -> QualificationCheck:
+def run_fixed_functional_gates(
+    output_dir: Path, *, timeout_seconds: int
+) -> QualificationCheck:
     output_dir.mkdir(parents=True, exist_ok=True)
     commands = [
-        [sys.executable, "-m", "compileall", "-q", "src/craftly", "tests", "deploy/gpu"],
+        [
+            sys.executable,
+            "-m",
+            "compileall",
+            "-q",
+            "src/craftly",
+            "tests",
+            "deploy/gpu",
+        ],
         [sys.executable, "-m", "unittest"],
         [sys.executable, "-m", "src.craftly.evaluation.release_gate", "--skip-tests"],
     ]
@@ -525,7 +567,9 @@ def run_fixed_functional_gates(output_dir: Path, *, timeout_seconds: int) -> Qua
                 }
             )
             if completed.returncode != 0:
-                failures.append(f"functional gate {index} exited {completed.returncode}")
+                failures.append(
+                    f"functional gate {index} exited {completed.returncode}"
+                )
         except subprocess.TimeoutExpired:
             failures.append(f"functional gate {index} exceeded {timeout_seconds}s")
     return QualificationCheck(
@@ -591,7 +635,9 @@ async def run_load_ladder(
         results.append(
             LoadStageResult(
                 name=stage.name,
-                status="passed" if raw.status == "passed" and not blockers else "failed",
+                status="passed"
+                if raw.status == "passed" and not blockers
+                else "failed",
                 concurrency=stage.concurrency,
                 requests=stage.requests,
                 error_rate=round(error_rate, 6),
@@ -625,7 +671,9 @@ def validate_training_proofs(
             subsystem="soak_recovery",
             status="blocked",
             summary="24-hour and 7-day soak evidence is absent.",
-            blockers=["a current training proof report containing both soak durations is required"],
+            blockers=[
+                "a current training proof report containing both soak durations is required"
+            ],
         )
         return blocked, soak
     try:
@@ -656,9 +704,7 @@ def validate_training_proofs(
             if statuses.get(name) != "passed"
         ]
         proof_by_name = {
-            str(row.get("name")): row
-            for row in rows
-            if isinstance(row, dict)
+            str(row.get("name")): row for row in rows if isinstance(row, dict)
         }
         semantic_errors = [
             error
@@ -668,13 +714,18 @@ def validate_training_proofs(
                 proof_by_name.get(name),
             )
         ]
-        soak_names = [f"infrastructure_soak_{seconds}s" for seconds in policy.required_soak_seconds]
+        soak_names = [
+            f"infrastructure_soak_{seconds}s"
+            for seconds in policy.required_soak_seconds
+        ]
         missing_soak = [name for name in soak_names if statuses.get(name) != "passed"]
         for seconds, name in zip(policy.required_soak_seconds, soak_names, strict=True):
             row = proof_by_name.get(name)
             if not isinstance(row, dict):
                 continue
-            evidence = row.get("evidence") if isinstance(row.get("evidence"), dict) else {}
+            evidence = (
+                row.get("evidence") if isinstance(row.get("evidence"), dict) else {}
+            )
             if float(row.get("duration_seconds", 0.0)) < seconds * 0.99:
                 missing_soak.append(f"{name}: measured duration was too short")
             if int(evidence.get("requested_seconds", 0)) != seconds:
@@ -683,11 +734,15 @@ def validate_training_proofs(
                 missing_soak.append(f"{name}: no successful transaction evidence")
         failure = QualificationCheck(
             subsystem="failure_chaos",
-            status="passed" if not missing_failure and not semantic_errors else "failed",
+            status="passed"
+            if not missing_failure and not semantic_errors
+            else "failed",
             summary="Controlled dependency restart, worker loss, ordered events, and durable recovery.",
             evidence=[binding],
             metrics={"required": policy.required_training_proofs, "statuses": statuses},
-            blockers=[f"required proof did not pass: {name}" for name in missing_failure]
+            blockers=[
+                f"required proof did not pass: {name}" for name in missing_failure
+            ]
             + semantic_errors,
         )
         soak = QualificationCheck(
@@ -778,11 +833,18 @@ def _validate_dataset_artifacts(dataset: ProductionDatasetManifest) -> list[str]
             blockers.append("dataset single-source token share exceeds 20 percent")
         if float(trust.get("maximum_source_family_token_fraction", 1.0)) > 0.35:
             blockers.append("dataset source-family token share exceeds 35 percent")
-    if not isinstance(split, dict) or int(split.get("cross_split_group_collisions", -1)) != 0:
+    if (
+        not isinstance(split, dict)
+        or int(split.get("cross_split_group_collisions", -1)) != 0
+    ):
         blockers.append("dataset split is not proven family-safe")
     promotion = dataset.promotion_decision
     checks = promotion.get("checks") if isinstance(promotion, dict) else None
-    if not isinstance(checks, dict) or not checks or not all(value is True for value in checks.values()):
+    if (
+        not isinstance(checks, dict)
+        or not checks
+        or not all(value is True for value in checks.values())
+    ):
         blockers.append("dataset promotion checks are missing or contain a failure")
     return blockers
 
@@ -850,9 +912,15 @@ def validate_scratch_training_chain(
                 load_json_evidence(preflight_binding)
             )
             if preflight.status != "ready":
-                if any(item.startswith("reviewer_qualification:") for item in preflight.blockers):
+                if any(
+                    item.startswith("reviewer_qualification:")
+                    for item in preflight.blockers
+                ):
                     next_stage = "reviewer-qualification-report"
-                elif any(item.startswith("source_legal_approval:") for item in preflight.blockers):
+                elif any(
+                    item.startswith("source_legal_approval:")
+                    for item in preflight.blockers
+                ):
                     next_stage = "source-legal-approvals"
                 else:
                     next_stage = "governance-preflight"
@@ -904,7 +972,9 @@ def validate_scratch_training_chain(
         )
         active_trust_policy = dataset.governance_paths.get("trust_policy_path")
         if not active_trust_policy:
-            blockers.append("production dataset manifest is missing its active trust-policy binding")
+            blockers.append(
+                "production dataset manifest is missing its active trust-policy binding"
+            )
         else:
             try:
                 replayed_dataset = validate_dataset_manifest_for_promotion(
@@ -924,7 +994,9 @@ def validate_scratch_training_chain(
                     dataset.advancement_decision_sha256,
                 )
                 if replay_identity != parsed_identity:
-                    blockers.append("production dataset authority replay returned a different manifest identity")
+                    blockers.append(
+                        "production dataset authority replay returned a different manifest identity"
+                    )
             except Exception as exc:
                 blockers.append(f"production dataset authority replay failed: {exc}")
         tokenizer = TokenizerAuditReport.model_validate(
@@ -950,18 +1022,33 @@ def validate_scratch_training_chain(
             or calibration_5k.next_stage != "100k_dataset_build_allowed"
         ):
             blockers.append("calibration_5k decision did not unlock production_100k")
-        if calibration_5k.prior_decision_sha256 != bindings["calibration-200-decision"].sha256:
-            blockers.append("calibration_5k is not hash-bound to the supplied calibration_200 decision")
+        if (
+            calibration_5k.prior_decision_sha256
+            != bindings["calibration-200-decision"].sha256
+        ):
+            blockers.append(
+                "calibration_5k is not hash-bound to the supplied calibration_200 decision"
+            )
 
         if dataset.status != "promoted" or dataset.dev_smoke:
-            blockers.append("production dataset manifest is not a non-smoke promoted version")
-        if int(dataset.metrics.get("promoted_records", 0)) < active_policy.minimum_promoted_dataset_records:
+            blockers.append(
+                "production dataset manifest is not a non-smoke promoted version"
+            )
+        if (
+            int(dataset.metrics.get("promoted_records", 0))
+            < active_policy.minimum_promoted_dataset_records
+        ):
             blockers.append(
                 "production dataset has fewer than "
                 f"{active_policy.minimum_promoted_dataset_records:,} promoted records"
             )
-        if dataset.advancement_decision_sha256 != bindings["calibration-5k-decision"].sha256:
-            blockers.append("production dataset is not hash-bound to the supplied calibration_5k decision")
+        if (
+            dataset.advancement_decision_sha256
+            != bindings["calibration-5k-decision"].sha256
+        ):
+            blockers.append(
+                "production dataset is not hash-bound to the supplied calibration_5k decision"
+            )
         if dataset.promotion_decision.get("status") != "promoted":
             blockers.append("dataset promotion decision is not promoted")
         blockers.extend(_validate_dataset_artifacts(dataset))
@@ -969,28 +1056,40 @@ def validate_scratch_training_chain(
         selected_vocab_size = active_policy.required_tokenizer_vocab_size
         if active_policy.tokenizer_selection_mode == "evidence_selected":
             try:
-                promotion, decision, comparison, experiment_manifest = verify_promotion_chain(
-                    bindings["tokenizer-selection-promotion"].path
+                promotion, decision, comparison, experiment_manifest = (
+                    verify_promotion_chain(
+                        bindings["tokenizer-selection-promotion"].path
+                    )
                 )
                 if (
                     promotion.status != "promoted"
                     or decision.status != "passed"
                     or comparison.status != "passed"
-                    or experiment_manifest.campaign.experiment_type != "tokenizer_selection"
+                    or experiment_manifest.campaign.experiment_type
+                    != "tokenizer_selection"
                 ):
-                    raise ValueError("tokenizer scientific promotion chain did not pass")
+                    raise ValueError(
+                        "tokenizer scientific promotion chain did not pass"
+                    )
                 selected_vocab_size = int(str(promotion.promoted_candidate))
-                if selected_vocab_size not in experiment_manifest.campaign.candidate_vocab_sizes:
+                if (
+                    selected_vocab_size
+                    not in experiment_manifest.campaign.candidate_vocab_sizes
+                ):
                     raise ValueError("promoted tokenizer is not a planned candidate")
                 if (
                     experiment_manifest.bindings["dataset_manifest"].sha256
                     != bindings["production-dataset-manifest"].sha256
                 ):
-                    raise ValueError("tokenizer experiment is not bound to the production dataset")
+                    raise ValueError(
+                        "tokenizer experiment is not bound to the production dataset"
+                    )
                 metrics["tokenizer_experiment_id"] = experiment_manifest.experiment_id
                 metrics["tokenizer_promotion_sha256"] = promotion.promotion_sha256
             except Exception as exc:
-                blockers.append(f"tokenizer evidence-selection verification failed: {exc}")
+                blockers.append(
+                    f"tokenizer evidence-selection verification failed: {exc}"
+                )
         if (
             tokenizer.status != "passed"
             or selected_vocab_size is None
@@ -1000,8 +1099,13 @@ def validate_scratch_training_chain(
             or tokenizer.audit_failures
         ):
             blockers.append("evidence-selected tokenizer qualification did not pass")
-        if tokenizer.dataset_manifest_sha256 != bindings["production-dataset-manifest"].sha256:
-            blockers.append("tokenizer is not hash-bound to the supplied production dataset manifest")
+        if (
+            tokenizer.dataset_manifest_sha256
+            != bindings["production-dataset-manifest"].sha256
+        ):
+            blockers.append(
+                "tokenizer is not hash-bound to the supplied production dataset manifest"
+            )
         if active_policy.require_family_safe_tokenizer_split and (
             not tokenizer.family_safe_split
             or tokenizer.split_strategy != "pre_split_family_safe"
@@ -1033,9 +1137,15 @@ def validate_scratch_training_chain(
             except Exception as exc:
                 blockers.append(str(exc))
         shard_payload = tokenizer.shard_manifest
-        if str(shard_payload.get("tokenizer_sha256") or "") != tokenizer.tokenizer_sha256:
+        if (
+            str(shard_payload.get("tokenizer_sha256") or "")
+            != tokenizer.tokenizer_sha256
+        ):
             blockers.append("token shard manifest tokenizer hash mismatch")
-        if str(shard_payload.get("dataset_manifest_sha256") or "") != tokenizer.dataset_manifest_sha256:
+        if (
+            str(shard_payload.get("dataset_manifest_sha256") or "")
+            != tokenizer.dataset_manifest_sha256
+        ):
             blockers.append("token shard manifest dataset hash mismatch")
         if str(shard_payload.get("split_strategy") or "") != tokenizer.split_strategy:
             blockers.append("token shard manifest split strategy mismatch")
@@ -1045,51 +1155,86 @@ def validate_scratch_training_chain(
         else:
             relative_drop = float(overfit.get("relative_loss_drop", -1.0))
             required_drop = float(overfit.get("required_relative_loss_drop", 0.20))
-            if not math.isfinite(relative_drop) or relative_drop < max(0.20, required_drop):
-                blockers.append("controlled overfit loss did not drop by the required amount")
+            if not math.isfinite(relative_drop) or relative_drop < max(
+                0.20, required_drop
+            ):
+                blockers.append(
+                    "controlled overfit loss did not drop by the required amount"
+                )
             overfit_training = overfit.get("training_report")
-            if not isinstance(overfit_training, dict) or overfit_training.get("scratch_only") is not True:
-                blockers.append("controlled overfit report is not bound to a scratch training run")
+            if (
+                not isinstance(overfit_training, dict)
+                or overfit_training.get("scratch_only") is not True
+            ):
+                blockers.append(
+                    "controlled overfit report is not bound to a scratch training run"
+                )
             elif (
                 overfit_training.get("checkpoint_reload_verified") is not True
                 or overfit_training.get("checkpoint_reload_logit_parity") is not True
             ):
-                blockers.append("controlled overfit checkpoint reload parity did not pass")
+                blockers.append(
+                    "controlled overfit checkpoint reload parity did not pass"
+                )
 
         required_steps = {"t4_1k": 1_000, "t4_10k": 10_000}
         for name, payload in t4_reports.items():
             if not isinstance(payload, dict):
                 blockers.append(f"{name} training report must be an object")
                 continue
-            model = payload.get("model_config") if isinstance(payload.get("model_config"), dict) else {}
+            model = (
+                payload.get("model_config")
+                if isinstance(payload.get("model_config"), dict)
+                else {}
+            )
             if payload.get("status") not in {"passed", "early_stopped"}:
                 blockers.append(f"{name} training status did not pass")
             if payload.get("scratch_only") is not True:
                 blockers.append(f"{name} is not scratch-only")
             if int(payload.get("steps", 0)) < required_steps[name]:
-                blockers.append(f"{name} did not complete {required_steps[name]} measured steps")
+                blockers.append(
+                    f"{name} did not complete {required_steps[name]} measured steps"
+                )
             if payload.get("checkpoint_reload_verified") is not True:
                 blockers.append(f"{name} checkpoint reload was not verified")
             if payload.get("checkpoint_reload_logit_parity") is not True:
-                blockers.append(f"{name} checkpoint reload logit parity was not verified")
+                blockers.append(
+                    f"{name} checkpoint reload logit parity was not verified"
+                )
             reload_difference = float(
                 payload.get("checkpoint_reload_max_abs_logit_difference", math.inf)
             )
             if (
                 not math.isfinite(reload_difference)
-                or reload_difference > active_policy.maximum_checkpoint_reload_logit_difference
+                or reload_difference
+                > active_policy.maximum_checkpoint_reload_logit_difference
             ):
-                blockers.append(f"{name} checkpoint reload logit difference exceeded policy")
+                blockers.append(
+                    f"{name} checkpoint reload logit difference exceeded policy"
+                )
             if (
                 int(model.get("hidden_size", 0)) < active_policy.t4_minimum_hidden_size
                 or int(model.get("num_layers", 0)) < active_policy.t4_minimum_layers
-                or int(model.get("max_sequence_length", 0)) < active_policy.t4_minimum_sequence_length
+                or int(model.get("max_sequence_length", 0))
+                < active_policy.t4_minimum_sequence_length
             ):
-                blockers.append(f"{name} model is below the T4 technical qualification profile")
-            if selected_vocab_size is None or int(model.get("vocab_size", 0)) != selected_vocab_size:
-                blockers.append(f"{name} model vocabulary does not match the qualified tokenizer")
-            if payload.get("dataset_manifest_sha256") != tokenizer.shard_manifest_sha256:
-                blockers.append(f"{name} training dataset does not match the qualified shard manifest")
+                blockers.append(
+                    f"{name} model is below the T4 technical qualification profile"
+                )
+            if (
+                selected_vocab_size is None
+                or int(model.get("vocab_size", 0)) != selected_vocab_size
+            ):
+                blockers.append(
+                    f"{name} model vocabulary does not match the qualified tokenizer"
+                )
+            if (
+                payload.get("dataset_manifest_sha256")
+                != tokenizer.shard_manifest_sha256
+            ):
+                blockers.append(
+                    f"{name} training dataset does not match the qualified shard manifest"
+                )
             if payload.get("shard_manifest_sha256") != tokenizer.shard_manifest_sha256:
                 blockers.append(f"{name} shard manifest lineage mismatch")
             if payload.get("tokenizer_sha256") != tokenizer.tokenizer_sha256:
@@ -1108,11 +1253,18 @@ def validate_scratch_training_chain(
                 except Exception as exc:
                     blockers.append(str(exc))
             losses = payload.get("train_losses")
-            if not isinstance(losses, list) or not losses or any(
-                not isinstance(value, (int, float)) or not math.isfinite(float(value))
-                for value in losses
+            if (
+                not isinstance(losses, list)
+                or not losses
+                or any(
+                    not isinstance(value, (int, float))
+                    or not math.isfinite(float(value))
+                    for value in losses
+                )
             ):
-                blockers.append(f"{name} training loss evidence is missing or non-finite")
+                blockers.append(
+                    f"{name} training loss evidence is missing or non-finite"
+                )
             validation_losses = payload.get("validation_losses")
             if not isinstance(validation_losses, list) or not validation_losses:
                 blockers.append(f"{name} validation loss evidence is missing")
@@ -1124,18 +1276,24 @@ def validate_scratch_training_chain(
             ):
                 blockers.append(f"{name} validation loss evidence is non-finite")
 
-        metrics.update({
-            "calibration_200": calibration_200.status,
-            "calibration_5k": calibration_5k.status,
-            "promoted_records": int(dataset.metrics.get("promoted_records", 0)),
-            "dataset_manifest_sha256": bindings["production-dataset-manifest"].sha256,
-            "tokenizer_vocab_size": tokenizer.vocab_size_actual,
-            "tokenizer_sha256": tokenizer.tokenizer_sha256,
-            "token_shard_manifest_sha256": tokenizer.shard_manifest_sha256,
-            "overfit_relative_loss_drop": float(overfit.get("relative_loss_drop", -1.0)),
-            "t4_1k_steps": int(t4_reports["t4_1k"].get("steps", 0)),
-            "t4_10k_steps": int(t4_reports["t4_10k"].get("steps", 0)),
-        })
+        metrics.update(
+            {
+                "calibration_200": calibration_200.status,
+                "calibration_5k": calibration_5k.status,
+                "promoted_records": int(dataset.metrics.get("promoted_records", 0)),
+                "dataset_manifest_sha256": bindings[
+                    "production-dataset-manifest"
+                ].sha256,
+                "tokenizer_vocab_size": tokenizer.vocab_size_actual,
+                "tokenizer_sha256": tokenizer.tokenizer_sha256,
+                "token_shard_manifest_sha256": tokenizer.shard_manifest_sha256,
+                "overfit_relative_loss_drop": float(
+                    overfit.get("relative_loss_drop", -1.0)
+                ),
+                "t4_1k_steps": int(t4_reports["t4_1k"].get("steps", 0)),
+                "t4_10k_steps": int(t4_reports["t4_10k"].get("steps", 0)),
+            }
+        )
     except Exception as exc:
         blockers.append(str(exc))
 
@@ -1163,7 +1321,9 @@ def write_scratch_advancement_report(
         git_commit=_git_commit(),
         check=check,
     )
-    digest = hashlib.sha256(canonical_json_bytes(unsigned.model_dump(mode="json"))).hexdigest()
+    digest = hashlib.sha256(
+        canonical_json_bytes(unsigned.model_dump(mode="json"))
+    ).hexdigest()
     report = unsigned.model_copy(update={"report_sha256": digest})
     target = root / f"{report_id}.json"
     temporary_path: Path | None = None
@@ -1190,10 +1350,16 @@ def write_scratch_advancement_report(
 def verify_scratch_advancement_report(path: str | Path) -> ScratchAdvancementReport:
     source = Path(path).expanduser().resolve(strict=True)
     if not source.is_file() or source.stat().st_size > 10_000_000:
-        raise ValueError("scratch advancement report must be a regular file no larger than 10 MiB")
-    report = ScratchAdvancementReport.model_validate_json(source.read_text(encoding="utf-8-sig"))
+        raise ValueError(
+            "scratch advancement report must be a regular file no larger than 10 MiB"
+        )
+    report = ScratchAdvancementReport.model_validate_json(
+        source.read_text(encoding="utf-8-sig")
+    )
     unsigned = report.model_copy(update={"report_sha256": ""})
-    expected = hashlib.sha256(canonical_json_bytes(unsigned.model_dump(mode="json"))).hexdigest()
+    expected = hashlib.sha256(
+        canonical_json_bytes(unsigned.model_dump(mode="json"))
+    ).hexdigest()
     if not hmac.compare_digest(report.report_sha256, expected):
         raise ValueError("scratch advancement report digest verification failed")
     return report
@@ -1277,21 +1443,26 @@ def validate_security_review(
             for domain in policy.required_security_domains
             if review.domains.get(domain) != "passed"
         ]
-        blockers = [f"security domain did not pass: {domain}" for domain in missing_domains]
+        blockers = [
+            f"security domain did not pass: {domain}" for domain in missing_domains
+        ]
         if len(review.reviewers) < policy.minimum_security_reviewers:
             blockers.append("independent reviewer count is below policy")
-        if review.critical_findings or review.high_findings or review.unresolved_findings:
+        if (
+            review.critical_findings
+            or review.high_findings
+            or review.unresolved_findings
+        ):
             blockers.append("security review has unresolved critical/high findings")
         if review.decision != "approved":
             blockers.append("security review decision is not approved")
-        if (
-            expected_scanner_report_sha256
-            and not hmac.compare_digest(
-                review.scanner_report_sha256,
-                expected_scanner_report_sha256,
-            )
+        if expected_scanner_report_sha256 and not hmac.compare_digest(
+            review.scanner_report_sha256,
+            expected_scanner_report_sha256,
         ):
-            blockers.append("manual review is not bound to the current automated scanner report")
+            blockers.append(
+                "manual review is not bound to the current automated scanner report"
+            )
         return QualificationCheck(
             subsystem="independent_security_review",
             status="passed" if not blockers else "failed",
@@ -1361,7 +1532,10 @@ def validate_canary(
                 blockers.append(
                     f"{percentage}% canary rollback was not triggered at the policy threshold"
                 )
-            if stage.rollback_completed_seconds > policy.canary_maximum_rollback_seconds:
+            if (
+                stage.rollback_completed_seconds
+                > policy.canary_maximum_rollback_seconds
+            ):
                 blockers.append(f"{percentage}% canary rollback exceeded recovery SLO")
         if canary.status != "passed":
             blockers.append("canary report status is not passed")
@@ -1370,7 +1544,10 @@ def validate_canary(
             status="passed" if not blockers else "failed",
             summary="Internal users and progressive 1/10/50/100 percent traffic canary.",
             evidence=[binding],
-            metrics={"canary_id": canary.canary_id, "stages": [row.model_dump() for row in canary.stages]},
+            metrics={
+                "canary_id": canary.canary_id,
+                "stages": [row.model_dump() for row in canary.stages],
+            },
             blockers=blockers,
         )
     except Exception as exc:
@@ -1443,13 +1620,17 @@ async def check_observability(
                 maximum_age_seconds=policy.evidence_max_age_seconds,
             )
             if recovery_at < firing_at:
-                raise ValueError("operator recovery notification predates firing notification")
+                raise ValueError(
+                    "operator recovery notification predates firing notification"
+                )
             if (
                 notification.status != "passed"
                 or not notification.firing_delivered
                 or not notification.recovery_delivered
             ):
-                raise ValueError("operator firing and recovery notifications were not both delivered")
+                raise ValueError(
+                    "operator firing and recovery notifications were not both delivered"
+                )
         validated = {
             name: _validated_service_url(
                 str(value),
@@ -1459,7 +1640,13 @@ async def check_observability(
             for name, value in endpoints.items()
         }
         async with httpx.AsyncClient(timeout=10.0) as client:
-            metric_response, prometheus_response, grafana_response, otel_response, alertmanager_response = await asyncio.gather(
+            (
+                metric_response,
+                prometheus_response,
+                grafana_response,
+                otel_response,
+                alertmanager_response,
+            ) = await asyncio.gather(
                 client.get(validated["metrics"]),
                 client.get(validated["prometheus"]),
                 client.get(validated["grafana"]),
@@ -1591,7 +1778,9 @@ async def prove_alert_lifecycle(
     raise RuntimeError("synthetic Alertmanager alert did not resolve")
 
 
-def _map_live_proof(report: ProductionProofReport) -> tuple[QualificationCheck, QualificationCheck]:
+def _map_live_proof(
+    report: ProductionProofReport,
+) -> tuple[QualificationCheck, QualificationCheck]:
     by_name = {check.name: check for check in report.checks}
     dependency_names = {
         "postgres_migrations",
@@ -1605,13 +1794,11 @@ def _map_live_proof(report: ProductionProofReport) -> tuple[QualificationCheck, 
         rows = [by_name[name] for name in names if name in by_name]
         missing = sorted(names - set(by_name))
         failed = [row for row in rows if row.status == "failed"]
-        blocked = [row for row in rows if row.status in {"skipped", "blocked", "not_run"}]
+        blocked = [
+            row for row in rows if row.status in {"skipped", "blocked", "not_run"}
+        ]
         status: QualificationStatus = (
-            "failed"
-            if failed
-            else "blocked"
-            if blocked or missing
-            else "passed"
+            "failed" if failed else "blocked" if blocked or missing else "passed"
         )
         return QualificationCheck(
             subsystem=subsystem,
@@ -1639,7 +1826,9 @@ def _map_live_proof(report: ProductionProofReport) -> tuple[QualificationCheck, 
     )
 
 
-async def run_qualification(args: argparse.Namespace) -> tuple[ProductionQualificationReport, Path]:
+async def run_qualification(
+    args: argparse.Namespace,
+) -> tuple[ProductionQualificationReport, Path]:
     policy_path = Path(args.policy).expanduser().resolve(strict=True)
     policy = QualificationPolicy.from_file(policy_path)
     signing_key = os.environ.get("CRAFTLY_PROOF_SIGNING_KEY")
@@ -1655,7 +1844,8 @@ async def run_qualification(args: argparse.Namespace) -> tuple[ProductionQualifi
         postgres_url=args.postgres_url or os.environ.get("CRAFTLY_DATABASE_URL"),
         apply_postgres_migrations=args.apply_postgres_migrations,
         redis_url=args.redis_url or os.environ.get("CRAFTLY_REDIS_URL"),
-        object_store_uri=args.object_store_uri or os.environ.get("CRAFTLY_OBJECT_STORE_URI"),
+        object_store_uri=args.object_store_uri
+        or os.environ.get("CRAFTLY_OBJECT_STORE_URI"),
         object_store_endpoint_url=(
             args.object_store_endpoint_url
             or os.environ.get("CRAFTLY_OBJECT_STORE_ENDPOINT_URL")
@@ -1737,7 +1927,9 @@ async def run_qualification(args: argparse.Namespace) -> tuple[ProductionQualifi
     scanner_report_path = (
         output_dir / "live-proof" / "security-audit" / "security_audit_report.json"
     )
-    scanner_hash = sha256_file(scanner_report_path) if scanner_report_path.exists() else None
+    scanner_hash = (
+        sha256_file(scanner_report_path) if scanner_report_path.exists() else None
+    )
     security = validate_security_review(
         args.manual_security_review,
         policy=policy,
@@ -1754,7 +1946,11 @@ async def run_qualification(args: argparse.Namespace) -> tuple[ProductionQualifi
             else live_security.error
             or str(live_security.details.get("reason") or live_security.status)
         )
-        security.status = "failed" if live_security and live_security.status == "failed" else "blocked"
+        security.status = (
+            "failed"
+            if live_security and live_security.status == "failed"
+            else "blocked"
+        )
         security.blockers.append(f"automated security audit: {reason}")
     canary = validate_canary(args.canary_report, policy=policy)
     checks = [
@@ -1794,7 +1990,9 @@ async def run_qualification(args: argparse.Namespace) -> tuple[ProductionQualifi
         environment={
             "python": platform.python_version(),
             "platform": platform.platform(),
-            "hostname_sha256": hashlib.sha256(platform.node().encode("utf-8")).hexdigest(),
+            "hostname_sha256": hashlib.sha256(
+                platform.node().encode("utf-8")
+            ).hexdigest(),
         },
         checks=checks,
         load_stages=load_stages,
@@ -1812,7 +2010,9 @@ def parse_args() -> argparse.Namespace:
         description="Run the authoritative Craftly production qualification decision."
     )
     parser.add_argument("--policy", default="config/production_qualification.json")
-    parser.add_argument("--output-dir", default="artifacts/craftly/production-qualification")
+    parser.add_argument(
+        "--output-dir", default="artifacts/craftly/production-qualification"
+    )
     parser.add_argument("--production", action="store_true")
     parser.add_argument("--postgres-url")
     parser.add_argument("--apply-postgres-migrations", action="store_true")
@@ -1875,7 +2075,9 @@ def main() -> None:
             maximum_age_seconds=policy.evidence_max_age_seconds,
             policy=policy,
         )
-        advancement, path = write_scratch_advancement_report(check, output_dir=args.output_dir)
+        advancement, path = write_scratch_advancement_report(
+            check, output_dir=args.output_dir
+        )
         print(
             json.dumps(
                 {
@@ -1883,7 +2085,9 @@ def main() -> None:
                     "report_id": advancement.report_id,
                     "report_path": str(path),
                     "report_sha256": advancement.report_sha256,
-                    "next_required_stage": advancement.check.metrics.get("next_required_stage"),
+                    "next_required_stage": advancement.check.metrics.get(
+                        "next_required_stage"
+                    ),
                     "blockers": advancement.check.blockers,
                 },
                 indent=2,
@@ -1902,10 +2106,7 @@ def main() -> None:
                 "report_id": report.report_id,
                 "report_path": str(path),
                 "report_sha256": report.report_sha256,
-                "checks": {
-                    check.subsystem: check.status
-                    for check in report.checks
-                },
+                "checks": {check.subsystem: check.status for check in report.checks},
             },
             indent=2,
             sort_keys=True,

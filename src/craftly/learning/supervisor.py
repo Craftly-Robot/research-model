@@ -1,4 +1,4 @@
-﻿"""Long-running data worker supervision with heartbeat and backoff."""
+"""Long-running data worker supervision with heartbeat and backoff."""
 
 from __future__ import annotations
 
@@ -12,7 +12,10 @@ from typing import Any
 
 from pydantic import Field
 
-from src.craftly.learning.production_check import DataPlatformReadinessConfig, run_readiness_check
+from src.craftly.learning.production_check import (
+    DataPlatformReadinessConfig,
+    run_readiness_check,
+)
 from src.craftly.learning.worker import CrawlerWorkerConfig, run_crawler_worker
 from src.craftly.shared.schemas import StrictModel
 
@@ -61,7 +64,9 @@ async def run_supervisor(config: SupervisorConfig) -> SupervisorReport:
         )
     )
     if readiness.status == "block":
-        raise RuntimeError(f"data platform readiness blocked supervisor: {readiness.model_dump()}")
+        raise RuntimeError(
+            f"data platform readiness blocked supervisor: {readiness.model_dump()}"
+        )
 
     started = time.perf_counter()
     failures = 0
@@ -92,7 +97,9 @@ async def run_supervisor(config: SupervisorConfig) -> SupervisorReport:
             )
             last_worker_report = worker_report
             last_error = None
-            fetched = sum(int(item.get("fetched", 0)) for item in worker_report.get("reports", []))
+            fetched = sum(
+                int(item.get("fetched", 0)) for item in worker_report.get("reports", [])
+            )
             if fetched == 0:
                 break
         except Exception as exc:
@@ -125,20 +132,78 @@ async def run_supervisor(config: SupervisorConfig) -> SupervisorReport:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run supervised Craftly data crawl cycles.")
-    parser.add_argument("--sources", default=os.environ.get("CRAFTLY_DATA_SOURCES", "config/data_sources.ultimate.json"))
-    parser.add_argument("--postgres-dsn", default=os.environ.get("CRAFTLY_DATABASE_URL", ""))
-    parser.add_argument("--raw-output-dir", default=os.environ.get("CRAFTLY_RAW_OUTPUT_DIR", "artifacts/craftly/data-engine/raw"))
-    parser.add_argument("--clean-output-dir", default=os.environ.get("CRAFTLY_CLEAN_OUTPUT_DIR", "artifacts/craftly/data-engine/clean"))
-    parser.add_argument("--object-store-uri", default=os.environ.get("CRAFTLY_OBJECT_STORE_URI", "s3://craftly-datasets/pretraining"))
-    parser.add_argument("--heartbeat-path", default=os.environ.get("CRAFTLY_HEARTBEAT_PATH", "artifacts/craftly/supervisor/heartbeat.json"))
-    parser.add_argument("--status-path", default=os.environ.get("CRAFTLY_STATUS_PATH", "artifacts/craftly/supervisor/status.json"))
-    parser.add_argument("--worker-replicas", type=int, default=int(os.environ.get("CRAFTLY_WORKER_REPLICAS", "1")))
-    parser.add_argument("--async-workers", type=int, default=int(os.environ.get("CRAFTLY_ASYNC_WORKERS", "16")))
-    parser.add_argument("--batch-docs", type=int, default=int(os.environ.get("CRAFTLY_BATCH_DOCS", "10000")))
-    parser.add_argument("--max-cycles", type=int, default=int(os.environ.get("CRAFTLY_SUPERVISOR_MAX_CYCLES", "100")))
-    parser.add_argument("--sleep-seconds", type=float, default=float(os.environ.get("CRAFTLY_SUPERVISOR_SLEEP_SECONDS", "30")))
-    parser.add_argument("--max-failures", type=int, default=int(os.environ.get("CRAFTLY_SUPERVISOR_MAX_FAILURES", "5")))
+    parser = argparse.ArgumentParser(
+        description="Run supervised Craftly data crawl cycles."
+    )
+    parser.add_argument(
+        "--sources",
+        default=os.environ.get(
+            "CRAFTLY_DATA_SOURCES", "config/data_sources.ultimate.json"
+        ),
+    )
+    parser.add_argument(
+        "--postgres-dsn", default=os.environ.get("CRAFTLY_DATABASE_URL", "")
+    )
+    parser.add_argument(
+        "--raw-output-dir",
+        default=os.environ.get(
+            "CRAFTLY_RAW_OUTPUT_DIR", "artifacts/craftly/data-engine/raw"
+        ),
+    )
+    parser.add_argument(
+        "--clean-output-dir",
+        default=os.environ.get(
+            "CRAFTLY_CLEAN_OUTPUT_DIR", "artifacts/craftly/data-engine/clean"
+        ),
+    )
+    parser.add_argument(
+        "--object-store-uri",
+        default=os.environ.get(
+            "CRAFTLY_OBJECT_STORE_URI", "s3://craftly-datasets/pretraining"
+        ),
+    )
+    parser.add_argument(
+        "--heartbeat-path",
+        default=os.environ.get(
+            "CRAFTLY_HEARTBEAT_PATH", "artifacts/craftly/supervisor/heartbeat.json"
+        ),
+    )
+    parser.add_argument(
+        "--status-path",
+        default=os.environ.get(
+            "CRAFTLY_STATUS_PATH", "artifacts/craftly/supervisor/status.json"
+        ),
+    )
+    parser.add_argument(
+        "--worker-replicas",
+        type=int,
+        default=int(os.environ.get("CRAFTLY_WORKER_REPLICAS", "1")),
+    )
+    parser.add_argument(
+        "--async-workers",
+        type=int,
+        default=int(os.environ.get("CRAFTLY_ASYNC_WORKERS", "16")),
+    )
+    parser.add_argument(
+        "--batch-docs",
+        type=int,
+        default=int(os.environ.get("CRAFTLY_BATCH_DOCS", "10000")),
+    )
+    parser.add_argument(
+        "--max-cycles",
+        type=int,
+        default=int(os.environ.get("CRAFTLY_SUPERVISOR_MAX_CYCLES", "100")),
+    )
+    parser.add_argument(
+        "--sleep-seconds",
+        type=float,
+        default=float(os.environ.get("CRAFTLY_SUPERVISOR_SLEEP_SECONDS", "30")),
+    )
+    parser.add_argument(
+        "--max-failures",
+        type=int,
+        default=int(os.environ.get("CRAFTLY_SUPERVISOR_MAX_FAILURES", "5")),
+    )
     return parser.parse_args()
 
 
@@ -171,4 +236,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

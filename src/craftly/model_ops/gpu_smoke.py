@@ -1,4 +1,4 @@
-﻿"""GPU smoke runner for Craftly scratch decoder training path."""
+"""GPU smoke runner for Craftly scratch decoder training path."""
 
 from __future__ import annotations
 
@@ -55,9 +55,13 @@ def run_scratch_gpu_smoke(
         torch.cuda.manual_seed_all(seed)
     config = tiny_smoke_config()
     if sequence_length > config.max_sequence_length:
-        raise ValueError("sequence_length exceeds tiny smoke config max_sequence_length")
+        raise ValueError(
+            "sequence_length exceeds tiny smoke config max_sequence_length"
+        )
     model = CraftlyDecoderLM(config).to(selected_device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, betas=(0.9, 0.95), weight_decay=0.1)
+    optimizer = torch.optim.AdamW(
+        model.parameters(), lr=1e-3, betas=(0.9, 0.95), weight_decay=0.1
+    )
     autocast_dtype = torch.bfloat16 if dtype == "bf16" else torch.float16
     use_autocast = selected_device.type == "cuda" and dtype in {"bf16", "fp16"}
     losses: list[float] = []
@@ -70,7 +74,9 @@ def run_scratch_gpu_smoke(
             device=selected_device,
         )
         optimizer.zero_grad(set_to_none=True)
-        with torch.autocast(device_type=selected_device.type, dtype=autocast_dtype, enabled=use_autocast):
+        with torch.autocast(
+            device_type=selected_device.type, dtype=autocast_dtype, enabled=use_autocast
+        ):
             output = model(tokens, labels=tokens)
             if output.loss is None:
                 raise RuntimeError("scratch decoder did not produce a loss")
@@ -91,7 +97,9 @@ def run_scratch_gpu_smoke(
         },
         checkpoint_dir / "model.pt",
     )
-    (checkpoint_dir / "config.json").write_text(json.dumps(config.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+    (checkpoint_dir / "config.json").write_text(
+        json.dumps(config.model_dump(), indent=2, sort_keys=True), encoding="utf-8"
+    )
     manifest = CheckpointManifest.from_directory(
         architecture_name=config.name,
         run_id="gpu-smoke",
@@ -124,12 +132,16 @@ def run_scratch_gpu_smoke(
         "checkpoint_manifest": str(manifest_path),
         "duration_ms": round((time.perf_counter() - started) * 1000, 3),
     }
-    (root / "gpu_smoke_report.json").write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+    (root / "gpu_smoke_report.json").write_text(
+        json.dumps(report, indent=2, sort_keys=True), encoding="utf-8"
+    )
     return report
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run an Craftly scratch decoder GPU smoke test.")
+    parser = argparse.ArgumentParser(
+        description="Run an Craftly scratch decoder GPU smoke test."
+    )
     parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
     parser.add_argument("--output-dir", default="artifacts/craftly/gpu-smoke")
     parser.add_argument("--batch-size", type=int, default=2)
@@ -156,4 +168,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -1,4 +1,4 @@
-﻿"""Adapters for external-style benchmark suites.
+"""Adapters for external-style benchmark suites.
 
 These adapters intentionally require local files. Craftly does not silently
 download protected benchmarks into training or eval runs.
@@ -17,7 +17,11 @@ from typing import Any, Literal
 
 from pydantic import Field
 
-from src.craftly.evaluation.benchmarks import BenchmarkHarness, BenchmarkRunReport, BenchmarkTask
+from src.craftly.evaluation.benchmarks import (
+    BenchmarkHarness,
+    BenchmarkRunReport,
+    BenchmarkTask,
+)
 from src.craftly.model_ops.checkpoint_compare import (
     GenerationConfig,
     _load_model,
@@ -32,7 +36,6 @@ from src.craftly.tools.sandbox import (
     HardenedSandboxPolicy,
     SandboxRunRequest,
 )
-
 
 SuiteKind = Literal[
     "swe_bench_style",
@@ -68,7 +71,9 @@ class BenchmarkSuiteResult(StrictModel):
 class BenchmarkSuitesReport(StrictModel):
     schema_version: Literal[2] = 2
     status: str
-    evaluation_mode: Literal["dataset_validation", "executable_model"] = "dataset_validation"
+    evaluation_mode: Literal["dataset_validation", "executable_model"] = (
+        "dataset_validation"
+    )
     suites: list[BenchmarkSuiteResult]
     aggregate_score: float
     checkpoint_manifest_sha256: str = ""
@@ -81,7 +86,9 @@ class BenchmarkSuitesReport(StrictModel):
         root = Path(output_dir)
         root.mkdir(parents=True, exist_ok=True)
         target = root / "benchmark_suites_report.json"
-        target.write_text(json.dumps(self.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+        target.write_text(
+            json.dumps(self.model_dump(), indent=2, sort_keys=True), encoding="utf-8"
+        )
         write_markdown(self, root / "benchmark_suites_report.md")
         return target
 
@@ -98,13 +105,19 @@ def _load_jsonl(path: str | Path) -> list[dict[str, Any]]:
             if not line.strip():
                 continue
             if len(line.encode("utf-8")) > 64 * 1024 * 1024:
-                raise ValueError(f"benchmark row exceeds 64 MiB at {source}:{line_number}")
+                raise ValueError(
+                    f"benchmark row exceeds 64 MiB at {source}:{line_number}"
+                )
             try:
                 row = json.loads(line)
             except json.JSONDecodeError as exc:
-                raise ValueError(f"invalid JSONL in {path} line {line_number}: {exc.msg}") from exc
+                raise ValueError(
+                    f"invalid JSONL in {path} line {line_number}: {exc.msg}"
+                ) from exc
             if not isinstance(row, dict):
-                raise ValueError(f"benchmark row must be an object at {source}:{line_number}")
+                raise ValueError(
+                    f"benchmark row must be an object at {source}:{line_number}"
+                )
             rows.append(row)
     return rows
 
@@ -114,10 +127,16 @@ def swe_bench_style_to_tasks(path: str | Path) -> list[BenchmarkTask]:
     for index, row in enumerate(_load_jsonl(path)):
         task_id = str(row.get("instance_id") or row.get("task_id") or f"swe-{index}")
         files = row.get("files", {}) if isinstance(row.get("files"), dict) else {}
-        patch = str(row.get("patch") or row.get("gold_patch") or row.get("test_patch") or "")
+        patch = str(
+            row.get("patch") or row.get("gold_patch") or row.get("test_patch") or ""
+        )
         if patch:
             files = {**files, "patch.diff": patch}
-        expected = row.get("expected_findings") or row.get("expected_terms") or ["diff", "test"]
+        expected = (
+            row.get("expected_findings")
+            or row.get("expected_terms")
+            or ["diff", "test"]
+        )
         tasks.append(
             BenchmarkTask(
                 task_id=task_id,
@@ -136,9 +155,17 @@ def code_style_to_tasks(path: str | Path, *, tag: str) -> list[BenchmarkTask]:
     for index, row in enumerate(_load_jsonl(path)):
         task_id = str(row.get("task_id") or row.get("name") or f"{tag}-{index}")
         prompt = str(row.get("prompt") or row.get("text") or row.get("question") or "")
-        solution = str(row.get("canonical_solution") or row.get("code") or row.get("answer") or "")
-        expected = row.get("expected_terms") or (["def"] if tag == "human_eval_style" else [])
-        source_text = f"{prompt}\n{solution}".strip() if tag == "human_eval_style" else (solution or prompt)
+        solution = str(
+            row.get("canonical_solution") or row.get("code") or row.get("answer") or ""
+        )
+        expected = row.get("expected_terms") or (
+            ["def"] if tag == "human_eval_style" else []
+        )
+        source_text = (
+            f"{prompt}\n{solution}".strip()
+            if tag == "human_eval_style"
+            else (solution or prompt)
+        )
         tasks.append(
             BenchmarkTask(
                 task_id=task_id,
@@ -201,12 +228,16 @@ def load_suite_tasks(spec: BenchmarkSuiteSpec) -> list[BenchmarkTask]:
     if spec.kind in {"ruler_style", "helmet_style", "repoqa_style"}:
         tasks = []
         for index, row in enumerate(_load_jsonl(spec.path)):
-            answers = row.get("answers", row.get("answer", row.get("expected_answers", [])))
+            answers = row.get(
+                "answers", row.get("answer", row.get("expected_answers", []))
+            )
             if isinstance(answers, str):
                 answers = [answers]
             tasks.append(
                 BenchmarkTask(
-                    task_id=str(row.get("task_id") or row.get("id") or f"long-context-{index}"),
+                    task_id=str(
+                        row.get("task_id") or row.get("id") or f"long-context-{index}"
+                    ),
                     benchmark="swe_style",
                     prompt=str(row.get("question") or row.get("prompt") or ""),
                     files={"context.txt": str(row.get("context") or "")},
@@ -241,7 +272,9 @@ class ExecutableBenchmarkConfig(StrictModel):
 
     @property
     def normalized_pass_k(self) -> list[int]:
-        return sorted({value for value in self.pass_k if 1 <= value <= self.candidates_per_task})
+        return sorted(
+            {value for value in self.pass_k if 1 <= value <= self.candidates_per_task}
+        )
 
 
 class ExecutableCandidateResult(StrictModel):
@@ -285,7 +318,10 @@ def _long_context_prompt(row: dict[str, Any], *, reverse_segments: bool = False)
         raise ValueError("long-context row requires question or prompt")
     raw_segments = row.get("segments")
     if isinstance(raw_segments, list):
-        segments = [str(item.get("text") if isinstance(item, dict) else item) for item in raw_segments]
+        segments = [
+            str(item.get("text") if isinstance(item, dict) else item)
+            for item in raw_segments
+        ]
     else:
         segments = [str(row.get("context") or "")]
     if reverse_segments:
@@ -310,7 +346,9 @@ def _long_context_prompt(row: dict[str, Any], *, reverse_segments: bool = False)
     )
 
 
-def _score_long_context_output(output: str, row: dict[str, Any]) -> tuple[float, bool, list[str]]:
+def _score_long_context_output(
+    output: str, row: dict[str, Any]
+) -> tuple[float, bool, list[str]]:
     answers = row.get("answers", row.get("answer", row.get("expected_answers", [])))
     if isinstance(answers, str):
         answers = [answers]
@@ -343,7 +381,10 @@ def run_long_context_benchmark_suites(
         if spec.kind not in {"ruler_style", "helmet_style", "repoqa_style"}
     ]
     if unsupported_kinds:
-        raise ValueError("long-context runner received unsupported suites: " + ", ".join(unsupported_kinds))
+        raise ValueError(
+            "long-context runner received unsupported suites: "
+            + ", ".join(unsupported_kinds)
+        )
     device = select_torch_device(config.device)
     model, manifest = _load_model(config.checkpoint_manifest, device=device)
     tokenizer = load_tokenizer(config.tokenizer_path)
@@ -378,7 +419,9 @@ def run_long_context_benchmark_suites(
         order_deltas: list[float] = []
         for index, row in enumerate(rows):
             context_size = len(
-                json.dumps(row.get("segments", row.get("context", "")), ensure_ascii=False).encode("utf-8")
+                json.dumps(
+                    row.get("segments", row.get("context", "")), ensure_ascii=False
+                ).encode("utf-8")
             )
             if context_size > config.maximum_context_bytes:
                 raise ValueError(
@@ -402,9 +445,11 @@ def run_long_context_benchmark_suites(
                     device=device,
                     config=generation,
                 )
-                reverse_score, reverse_unsupported, reverse_forbidden = _score_long_context_output(
-                    reverse_output,
-                    row,
+                reverse_score, reverse_unsupported, reverse_forbidden = (
+                    _score_long_context_output(
+                        reverse_output,
+                        row,
+                    )
                 )
                 unsupported = unsupported or reverse_unsupported
                 forbidden_hits.extend(reverse_forbidden)
@@ -413,7 +458,9 @@ def run_long_context_benchmark_suites(
             unsupported_count += int(unsupported)
             task_reports.append(
                 {
-                    "task_id": str(row.get("task_id") or row.get("id") or f"{spec.name}-{index}"),
+                    "task_id": str(
+                        row.get("task_id") or row.get("id") or f"{spec.name}-{index}"
+                    ),
                     "score": score,
                     "reverse_order_score": reverse_score,
                     "order_sensitivity": order_delta,
@@ -453,7 +500,9 @@ def run_long_context_benchmark_suites(
     active = [item for item in results if item.status != "skipped"]
     aggregate = sum(item.score for item in active) / max(1, len(active))
     return BenchmarkSuitesReport(
-        status="passed" if active and all(item.status == "passed" for item in active) else "failed",
+        status="passed"
+        if active and all(item.status == "passed" for item in active)
+        else "failed",
         evaluation_mode="executable_model",
         suites=results,
         aggregate_score=round(aggregate, 6),
@@ -467,11 +516,17 @@ def _estimate_pass_at_k(candidate_count: int, correct_count: int, k: int) -> flo
         raise ValueError("pass@k must be between one and candidate_count")
     if candidate_count - correct_count < k:
         return 1.0
-    return 1.0 - math.comb(candidate_count - correct_count, k) / math.comb(candidate_count, k)
+    return 1.0 - math.comb(candidate_count - correct_count, k) / math.comb(
+        candidate_count, k
+    )
 
 
-def _extract_python_source(output: str, *, prompt_prefix: str = "", entry_point: str = "") -> str:
-    fenced = re.findall(r"```(?:python|py)?\s*\n(.*?)```", output, flags=re.IGNORECASE | re.DOTALL)
+def _extract_python_source(
+    output: str, *, prompt_prefix: str = "", entry_point: str = ""
+) -> str:
+    fenced = re.findall(
+        r"```(?:python|py)?\s*\n(.*?)```", output, flags=re.IGNORECASE | re.DOTALL
+    )
     candidate = fenced[-1].strip() if fenced else output.strip()
     for start_marker, end_marker in (
         ("<|patch_start|>", "<|patch_end|>"),
@@ -482,11 +537,15 @@ def _extract_python_source(output: str, *, prompt_prefix: str = "", entry_point:
             if end_marker in candidate:
                 candidate = candidate.split(end_marker, 1)[0]
             candidate = candidate.strip()
-    if entry_point and not re.search(rf"(?m)^\s*def\s+{re.escape(entry_point)}\s*\(", candidate):
+    if entry_point and not re.search(
+        rf"(?m)^\s*def\s+{re.escape(entry_point)}\s*\(", candidate
+    ):
         candidate = f"{prompt_prefix.rstrip()}\n{candidate}".strip()
     encoded = candidate.encode("utf-8")
     if not candidate or len(encoded) > 256_000 or "\x00" in candidate:
-        raise ValueError("generated Python candidate is empty or exceeds the code-evaluation limit")
+        raise ValueError(
+            "generated Python candidate is empty or exceeds the code-evaluation limit"
+        )
     return candidate + ("\n" if not candidate.endswith("\n") else "")
 
 
@@ -502,7 +561,9 @@ def _human_eval_test_files(row: dict[str, Any], output: str) -> dict[str, str]:
     test_source = str(row.get("test") or "")
     if not prompt.strip() or not test_source.strip():
         raise ValueError("HumanEval row requires prompt, entry_point, and test")
-    candidate = _extract_python_source(output, prompt_prefix=prompt, entry_point=entry_point)
+    candidate = _extract_python_source(
+        output, prompt_prefix=prompt, entry_point=entry_point
+    )
     runner = (
         f"from candidate import {entry_point} as candidate\n"
         f"{test_source.rstrip()}\n"
@@ -515,7 +576,11 @@ def _mbpp_test_files(row: dict[str, Any], output: str) -> dict[str, str]:
     tests = row.get("test_list") or row.get("tests") or []
     if isinstance(tests, str):
         tests = [tests]
-    if not isinstance(tests, list) or not tests or not all(isinstance(item, str) for item in tests):
+    if (
+        not isinstance(tests, list)
+        or not tests
+        or not all(isinstance(item, str) for item in tests)
+    ):
         raise ValueError("MBPP row requires a non-empty test_list")
     setup = str(row.get("test_setup_code") or "")
     candidate = _extract_python_source(output)
@@ -571,7 +636,9 @@ def _run_code_candidate(
             )
         )
         passed = result.status == "ok" and result.exit_code == 0
-        failure = "" if passed else (result.reason or result.stderr[-2_000:] or result.status)
+        failure = (
+            "" if passed else (result.reason or result.stderr[-2_000:] or result.status)
+        )
         return ExecutableCandidateResult(
             candidate_index=candidate_index,
             passed=passed,
@@ -661,12 +728,18 @@ def run_executable_benchmark_suites(
         task_results: list[ExecutableTaskResult] = []
         infrastructure_failure = ""
         for row_index, row in enumerate(rows):
-            task_id = str(row.get("task_id") or row.get("name") or f"{spec.name}-{row_index}")
+            task_id = str(
+                row.get("task_id") or row.get("name") or f"{spec.name}-{row_index}"
+            )
             candidates: list[ExecutableCandidateResult] = []
             prompt = _code_prompt(row, spec.kind)
             for candidate_index in range(config.candidates_per_task):
                 generation = config.generation.model_copy(
-                    update={"seed": config.generation.seed + row_index * 10_000 + candidate_index}
+                    update={
+                        "seed": config.generation.seed
+                        + row_index * 10_000
+                        + candidate_index
+                    }
                 )
                 output, generated_tokens = generate_text(
                     model=model,
@@ -685,7 +758,9 @@ def run_executable_benchmark_suites(
                 )
                 candidates.append(candidate)
                 if candidate.status == "unavailable":
-                    infrastructure_failure = candidate.failure or "Docker sandbox unavailable"
+                    infrastructure_failure = (
+                        candidate.failure or "Docker sandbox unavailable"
+                    )
                     break
             if infrastructure_failure:
                 break
@@ -696,7 +771,9 @@ def run_executable_benchmark_suites(
                     candidate_count=len(candidates),
                     passed_candidates=correct,
                     pass_at_k={
-                        f"pass@{k}": round(_estimate_pass_at_k(len(candidates), correct, k), 6)
+                        f"pass@{k}": round(
+                            _estimate_pass_at_k(len(candidates), correct, k), 6
+                        )
                         for k in pass_k
                     },
                     candidates=candidates,
@@ -717,7 +794,8 @@ def run_executable_benchmark_suites(
             continue
         aggregate_pass_k = {
             f"pass@{k}": round(
-                sum(item.pass_at_k[f"pass@{k}"] for item in task_results) / len(task_results),
+                sum(item.pass_at_k[f"pass@{k}"] for item in task_results)
+                / len(task_results),
                 6,
             )
             for k in pass_k
@@ -735,7 +813,9 @@ def run_executable_benchmark_suites(
                 reason="checkpoint generations executed in the hardened Docker sandbox",
                 pass_at_k=aggregate_pass_k,
                 report={
-                    "checkpoint_manifest": str(Path(config.checkpoint_manifest).resolve()),
+                    "checkpoint_manifest": str(
+                        Path(config.checkpoint_manifest).resolve()
+                    ),
                     "tokenizer_path": str(Path(config.tokenizer_path).resolve()),
                     "candidates_per_task": config.candidates_per_task,
                     "tasks": [item.model_dump(mode="json") for item in task_results],
@@ -743,7 +823,11 @@ def run_executable_benchmark_suites(
             )
         )
     active = [item for item in suite_results if item.status != "skipped"]
-    status = "failed" if not active or any(item.status == "failed" for item in active) else "passed"
+    status = (
+        "failed"
+        if not active or any(item.status == "failed" for item in active)
+        else "passed"
+    )
     aggregate = sum(item.score for item in active) / max(1, len(active))
     return BenchmarkSuitesReport(
         status=status,
@@ -818,7 +902,9 @@ def write_markdown(report: BenchmarkSuitesReport, path: str | Path) -> Path:
         "|---|---|---|---:|---:|---:|---|---|",
     ]
     for suite in report.suites:
-        pass_at_k = ", ".join(f"{key}={value:.4f}" for key, value in sorted(suite.pass_at_k.items()))
+        pass_at_k = ", ".join(
+            f"{key}={value:.4f}" for key, value in sorted(suite.pass_at_k.items())
+        )
         lines.append(
             f"| {suite.name} | {suite.kind} | {suite.status} | {suite.score:.4f} | "
             f"{suite.total} | {suite.passed} | {pass_at_k} | {suite.reason} |"
@@ -828,14 +914,28 @@ def write_markdown(report: BenchmarkSuitesReport, path: str | Path) -> Path:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run local SWE-Bench/CyberSecEval-style benchmark adapters.")
+    parser = argparse.ArgumentParser(
+        description="Run local SWE-Bench/CyberSecEval-style benchmark adapters."
+    )
     parser.add_argument(
         "--mode",
         choices=["dataset-validation", "executable-model", "long-context-model"],
         default="dataset-validation",
     )
-    parser.add_argument("--suite", action="append", nargs=3, metavar=("NAME", "KIND", "PATH"), default=[])
-    parser.add_argument("--optional-suite", action="append", nargs=3, metavar=("NAME", "KIND", "PATH"), default=[])
+    parser.add_argument(
+        "--suite",
+        action="append",
+        nargs=3,
+        metavar=("NAME", "KIND", "PATH"),
+        default=[],
+    )
+    parser.add_argument(
+        "--optional-suite",
+        action="append",
+        nargs=3,
+        metavar=("NAME", "KIND", "PATH"),
+        default=[],
+    )
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--checkpoint-manifest")
     parser.add_argument("--tokenizer-path")
@@ -906,4 +1006,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

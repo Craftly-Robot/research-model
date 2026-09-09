@@ -1,4 +1,4 @@
-﻿"""Training resource catalog and priority planning."""
+"""Training resource catalog and priority planning."""
 
 from __future__ import annotations
 
@@ -12,8 +12,13 @@ from pydantic import Field
 
 from src.craftly.shared.schemas import StrictModel
 
-
-TrainPolicy = Literal["pretrain", "agentic_task", "eval_holdout", "research_reference", "governance_review"]
+TrainPolicy = Literal[
+    "pretrain",
+    "agentic_task",
+    "eval_holdout",
+    "research_reference",
+    "governance_review",
+]
 
 
 class TrainingResource(StrictModel):
@@ -53,27 +58,46 @@ def _load_payload(path: str | Path) -> dict[str, Any]:
 
 def load_training_resources(path: str | Path) -> list[TrainingResource]:
     payload = _load_payload(path)
-    return [TrainingResource.model_validate(item) for item in payload.get("training_resources", [])]
+    return [
+        TrainingResource.model_validate(item)
+        for item in payload.get("training_resources", [])
+    ]
 
 
 def load_priority_groups(path: str | Path) -> list[PriorityGroup]:
     payload = _load_payload(path)
-    return [PriorityGroup.model_validate(item) for item in payload.get("training_priority_groups", [])]
+    return [
+        PriorityGroup.model_validate(item)
+        for item in payload.get("training_priority_groups", [])
+    ]
 
 
-def build_resource_catalog_report(path: str | Path, *, train_first_limit: int = 24) -> ResourceCatalogReport:
+def build_resource_catalog_report(
+    path: str | Path, *, train_first_limit: int = 24
+) -> ResourceCatalogReport:
     resources = load_training_resources(path)
     groups = load_priority_groups(path)
     ids = {item.resource_id for item in resources}
-    missing = [resource_id for group in groups for resource_id in group.resource_ids if resource_id not in ids]
+    missing = [
+        resource_id
+        for group in groups
+        for resource_id in group.resource_ids
+        if resource_id not in ids
+    ]
     if missing:
-        raise ValueError(f"priority groups reference unknown resources: {sorted(set(missing))}")
+        raise ValueError(
+            f"priority groups reference unknown resources: {sorted(set(missing))}"
+        )
 
-    trainable = [item for item in resources if item.train_policy in {"pretrain", "agentic_task"}]
+    trainable = [
+        item for item in resources if item.train_policy in {"pretrain", "agentic_task"}
+    ]
     trainable.sort(key=lambda item: (item.priority_rank, item.resource_id))
     eval_holdout = [item for item in resources if item.train_policy == "eval_holdout"]
     eval_holdout.sort(key=lambda item: (item.priority_rank, item.resource_id))
-    review_required = [item for item in resources if item.train_policy == "governance_review"]
+    review_required = [
+        item for item in resources if item.train_policy == "governance_review"
+    ]
     review_required.sort(key=lambda item: (item.priority_rank, item.resource_id))
 
     return ResourceCatalogReport(
@@ -86,26 +110,35 @@ def build_resource_catalog_report(path: str | Path, *, train_first_limit: int = 
     )
 
 
-def write_resource_catalog_report(path: str | Path, output_path: str | Path, *, train_first_limit: int = 24) -> ResourceCatalogReport:
+def write_resource_catalog_report(
+    path: str | Path, output_path: str | Path, *, train_first_limit: int = 24
+) -> ResourceCatalogReport:
     report = build_resource_catalog_report(path, train_first_limit=train_first_limit)
     target = Path(output_path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+    target.write_text(
+        json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8"
+    )
     return report
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build Craftly training resource priority catalog.")
+    parser = argparse.ArgumentParser(
+        description="Build Craftly training resource priority catalog."
+    )
     parser.add_argument("--catalog", default="config/data_sources.ultimate.json")
     parser.add_argument("--output")
     parser.add_argument("--train-first-limit", type=int, default=24)
     args = parser.parse_args()
-    report = build_resource_catalog_report(args.catalog, train_first_limit=args.train_first_limit)
+    report = build_resource_catalog_report(
+        args.catalog, train_first_limit=args.train_first_limit
+    )
     if args.output:
-        write_resource_catalog_report(args.catalog, args.output, train_first_limit=args.train_first_limit)
+        write_resource_catalog_report(
+            args.catalog, args.output, train_first_limit=args.train_first_limit
+        )
     print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":
     main()
-

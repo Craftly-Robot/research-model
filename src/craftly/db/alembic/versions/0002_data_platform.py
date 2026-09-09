@@ -1,4 +1,4 @@
-﻿"""Data platform schema.
+"""Data platform schema.
 
 Revision ID: 0002_data_platform
 Revises: 0001_initial
@@ -10,7 +10,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from alembic import op
-
 
 revision = "0002_data_platform"
 down_revision = "0001_initial"
@@ -25,4 +24,3 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     raise RuntimeError("Craftly production migrations are forward-only")
-

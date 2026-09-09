@@ -1,4 +1,4 @@
-﻿"""Million-scale defensive data engine.
+"""Million-scale defensive data engine.
 
 The engine is designed for large allowlisted crawls: persistent frontier,
 resume/retry, per-domain throttling, URL discovery, provenance, content hash
@@ -23,7 +23,6 @@ import httpx
 from pydantic import Field
 
 from src.craftly.learning.quality import DatasetQualityGate
-from src.craftly.shared.progress import NullProgressReporter, ProgressReporter
 from src.craftly.learning.web_ingest import (
     RobotsCache,
     SourceSpec,
@@ -32,8 +31,8 @@ from src.craftly.learning.web_ingest import (
     load_sources,
     text_from_html,
 )
+from src.craftly.shared.progress import NullProgressReporter, ProgressReporter
 from src.craftly.shared.schemas import StrictModel
-
 
 LINK_RE = re.compile(r"""href=["']([^"'#]+)["']""", re.IGNORECASE)
 
@@ -146,7 +145,14 @@ class DataEngineReport(StrictModel):
 
 
 class ShardedJsonlWriter:
-    def __init__(self, output_dir: str | Path, *, prefix: str, rows_per_shard: int, overwrite: bool = True) -> None:
+    def __init__(
+        self,
+        output_dir: str | Path,
+        *,
+        prefix: str,
+        rows_per_shard: int,
+        overwrite: bool = True,
+    ) -> None:
         self.output_dir = Path(output_dir)
         self.prefix = prefix
         self.rows_per_shard = rows_per_shard
@@ -243,7 +249,9 @@ class FrontierStore:
         self.connection.commit()
         return urls
 
-    def enqueue_discovered(self, *, parent: dict[str, Any], urls: list[str], max_depth: int) -> int:
+    def enqueue_discovered(
+        self, *, parent: dict[str, Any], urls: list[str], max_depth: int
+    ) -> int:
         if int(parent["depth"]) >= max_depth:
             return 0
         allowed_domains = json.loads(parent["allowed_domains_json"])
@@ -279,10 +287,15 @@ class FrontierStore:
         return inserted
 
     def mark_done(self, url: str) -> None:
-        self.connection.execute("UPDATE urls SET status = 'done', updated_at = ? WHERE url = ?", (time.time(), url))
+        self.connection.execute(
+            "UPDATE urls SET status = 'done', updated_at = ? WHERE url = ?",
+            (time.time(), url),
+        )
         self.connection.commit()
 
-    def mark_failed(self, row: dict[str, Any], error: str, *, retry_limit: int, delay_seconds: float) -> None:
+    def mark_failed(
+        self, row: dict[str, Any], error: str, *, retry_limit: int, delay_seconds: float
+    ) -> None:
         attempts = int(row["attempts"]) + 1
         status = "failed" if attempts >= retry_limit else "queued"
         next_fetch_at = time.time() + delay_seconds * max(1, attempts)
@@ -292,7 +305,9 @@ class FrontierStore:
         )
         self.connection.commit()
 
-    def record_document(self, row: dict[str, Any], *, quality: dict[str, Any], shard_path: str | None) -> bool:
+    def record_document(
+        self, row: dict[str, Any], *, quality: dict[str, Any], shard_path: str | None
+    ) -> bool:
         cursor = self.connection.execute(
             """
             INSERT OR IGNORE INTO documents(
@@ -319,10 +334,16 @@ class FrontierStore:
 
     def stats(self) -> dict[str, int]:
         stats: dict[str, int] = {}
-        for row in self.connection.execute("SELECT status, COUNT(*) AS count FROM urls GROUP BY status"):
+        for row in self.connection.execute(
+            "SELECT status, COUNT(*) AS count FROM urls GROUP BY status"
+        ):
             stats[f"urls_{row['status']}"] = int(row["count"])
-        for row in self.connection.execute("SELECT accepted, COUNT(*) AS count FROM documents GROUP BY accepted"):
-            stats[f"documents_{'accepted' if row['accepted'] else 'rejected'}"] = int(row["count"])
+        for row in self.connection.execute(
+            "SELECT accepted, COUNT(*) AS count FROM documents GROUP BY accepted"
+        ):
+            stats[f"documents_{'accepted' if row['accepted'] else 'rejected'}"] = int(
+                row["count"]
+            )
         return stats
 
     def close(self) -> None:
@@ -346,11 +367,17 @@ class PostgresFrontierStore:
         self.path = dsn_label
 
     @classmethod
-    async def create(cls, dsn: str, *, min_size: int = 1, max_size: int = 10) -> "PostgresFrontierStore":
+    async def create(
+        cls, dsn: str, *, min_size: int = 1, max_size: int = 10
+    ) -> "PostgresFrontierStore":
         try:
             import asyncpg
-        except ImportError as exc:  # pragma: no cover - dependency is optional in CPU-only tests
-            raise RuntimeError("asyncpg is required for Postgres frontier support") from exc
+        except (
+            ImportError
+        ) as exc:  # pragma: no cover - dependency is optional in CPU-only tests
+            raise RuntimeError(
+                "asyncpg is required for Postgres frontier support"
+            ) from exc
         pool = await asyncpg.create_pool(dsn, min_size=min_size, max_size=max_size)
         store = cls(pool)
         async with pool.acquire() as connection:
@@ -409,7 +436,9 @@ class PostgresFrontierStore:
             )
         return [dict(row) for row in rows]
 
-    async def enqueue_discovered(self, *, parent: dict[str, Any], urls: list[str], max_depth: int) -> int:
+    async def enqueue_discovered(
+        self, *, parent: dict[str, Any], urls: list[str], max_depth: int
+    ) -> int:
         if int(parent["depth"]) >= max_depth:
             return 0
         allowed_domains = json.loads(parent["allowed_domains_json"])
@@ -446,9 +475,15 @@ class PostgresFrontierStore:
 
     async def mark_done(self, url: str) -> None:
         async with self.pool.acquire() as connection:
-            await connection.execute("UPDATE urls SET status = 'done', updated_at = $1 WHERE url = $2", time.time(), url)
+            await connection.execute(
+                "UPDATE urls SET status = 'done', updated_at = $1 WHERE url = $2",
+                time.time(),
+                url,
+            )
 
-    async def mark_failed(self, row: dict[str, Any], error: str, *, retry_limit: int, delay_seconds: float) -> None:
+    async def mark_failed(
+        self, row: dict[str, Any], error: str, *, retry_limit: int, delay_seconds: float
+    ) -> None:
         attempts = int(row["attempts"]) + 1
         status = "failed" if attempts >= retry_limit else "queued"
         next_fetch_at = time.time() + delay_seconds * max(1, attempts)
@@ -462,7 +497,9 @@ class PostgresFrontierStore:
                 row["url"],
             )
 
-    async def record_document(self, row: dict[str, Any], *, quality: dict[str, Any], shard_path: str | None) -> bool:
+    async def record_document(
+        self, row: dict[str, Any], *, quality: dict[str, Any], shard_path: str | None
+    ) -> bool:
         async with self.pool.acquire() as connection:
             status = await connection.execute(  # nosemgrep: python.lang.security.audit.sqli.asyncpg-sqli.asyncpg-sqli
                 """
@@ -489,10 +526,16 @@ class PostgresFrontierStore:
     async def stats(self) -> dict[str, int]:
         stats: dict[str, int] = {}
         async with self.pool.acquire() as connection:
-            for row in await connection.fetch("SELECT status, COUNT(*) AS count FROM urls GROUP BY status"):
+            for row in await connection.fetch(
+                "SELECT status, COUNT(*) AS count FROM urls GROUP BY status"
+            ):
                 stats[f"urls_{row['status']}"] = int(row["count"])
-            for row in await connection.fetch("SELECT accepted, COUNT(*) AS count FROM documents GROUP BY accepted"):
-                stats[f"documents_{'accepted' if row['accepted'] else 'rejected'}"] = int(row["count"])
+            for row in await connection.fetch(
+                "SELECT accepted, COUNT(*) AS count FROM documents GROUP BY accepted"
+            ):
+                stats[f"documents_{'accepted' if row['accepted'] else 'rejected'}"] = (
+                    int(row["count"])
+                )
         return stats
 
     async def close(self) -> None:
@@ -534,23 +577,25 @@ def is_supported_text_response(content_type: str, url: str) -> bool:
     lowered_type = content_type.lower().split(";", 1)[0].strip()
     lowered_url = url.lower()
     if not lowered_type:
-        return not lowered_url.endswith((
-            ".png",
-            ".jpg",
-            ".jpeg",
-            ".gif",
-            ".webp",
-            ".ico",
-            ".pdf",
-            ".zip",
-            ".gz",
-            ".tar",
-            ".woff",
-            ".woff2",
-            ".ttf",
-            ".mp4",
-            ".mp3",
-        ))
+        return not lowered_url.endswith(
+            (
+                ".png",
+                ".jpg",
+                ".jpeg",
+                ".gif",
+                ".webp",
+                ".ico",
+                ".pdf",
+                ".zip",
+                ".gz",
+                ".tar",
+                ".woff",
+                ".woff2",
+                ".ttf",
+                ".mp4",
+                ".mp3",
+            )
+        )
     if lowered_type.startswith("text/"):
         return True
     return lowered_type in {
@@ -577,13 +622,25 @@ async def _store_call(store: Any, method_name: str, *args: Any, **kwargs: Any) -
 
 
 class DataEngine:
-    def __init__(self, config: DataEngineConfig | None = None, *, store: Any | None = None, owns_store: bool | None = None) -> None:
+    def __init__(
+        self,
+        config: DataEngineConfig | None = None,
+        *,
+        store: Any | None = None,
+        owns_store: bool | None = None,
+    ) -> None:
         self.config = config or DataEngineConfig()
         self.store = store or FrontierStore(self.config.frontier_path)
         self.owns_store = store is None if owns_store is None else owns_store
         self.quality_gate = DatasetQualityGate()
-        self.raw_writer = ShardedJsonlWriter(self.config.output_dir, prefix="raw", rows_per_shard=self.config.shard_rows)
-        self.clean_writer = ShardedJsonlWriter(self.config.clean_output_dir, prefix="clean", rows_per_shard=self.config.shard_rows)
+        self.raw_writer = ShardedJsonlWriter(
+            self.config.output_dir, prefix="raw", rows_per_shard=self.config.shard_rows
+        )
+        self.clean_writer = ShardedJsonlWriter(
+            self.config.clean_output_dir,
+            prefix="clean",
+            rows_per_shard=self.config.shard_rows,
+        )
 
     def close(self) -> None:
         self.raw_writer.close()
@@ -626,9 +683,20 @@ class DataEngine:
         throttle = DomainThrottle(self.config.delay_seconds)
         headers = {"User-Agent": self.config.user_agent}
         own_client = client is None
-        active_client = client or httpx.AsyncClient(headers=headers, timeout=self.config.request_timeout_seconds, follow_redirects=True)
+        active_client = client or httpx.AsyncClient(
+            headers=headers,
+            timeout=self.config.request_timeout_seconds,
+            follow_redirects=True,
+        )
         robots = RobotsCache(self.config.user_agent)
-        counters = {"fetched": 0, "accepted": 0, "rejected": 0, "discovered": 0, "failed": 0, "duplicate": 0}
+        counters = {
+            "fetched": 0,
+            "accepted": 0,
+            "rejected": 0,
+            "discovered": 0,
+            "failed": 0,
+            "duplicate": 0,
+        }
         queue_lock = asyncio.Lock()
         progress_lock = asyncio.Lock()
         last_progress_docs = 0
@@ -640,7 +708,8 @@ class DataEngine:
                 now = time.time()
                 if (
                     force
-                    or counters["fetched"] - last_progress_docs >= max(1, progress_every_docs)
+                    or counters["fetched"] - last_progress_docs
+                    >= max(1, progress_every_docs)
                     or now - last_progress_time >= 10.0
                 ):
                     last_progress_docs = counters["fetched"]
@@ -660,13 +729,17 @@ class DataEngine:
         async def worker() -> None:
             while counters["fetched"] < self.config.max_docs:
                 async with queue_lock:
-                    claimed = await _store_call(self.store, "claim", limit=1, now=time.time())
+                    claimed = await _store_call(
+                        self.store, "claim", limit=1, now=time.time()
+                    )
                 if not claimed:
                     return
                 item = claimed[0]
                 try:
                     await throttle.wait(item["url"])
-                    if self.config.respect_robots and not await robots.allowed(active_client, item["url"]):
+                    if self.config.respect_robots and not await robots.allowed(
+                        active_client, item["url"]
+                    ):
                         await _store_call(
                             self.store,
                             "mark_failed",
@@ -686,7 +759,11 @@ class DataEngine:
                         counters["fetched"] += 1
                         continue
                     raw = response.text[: self.config.max_bytes_per_doc]
-                    text = text_from_html(raw) if "html" in content_type.lower() or "<html" in raw.lower() else raw
+                    text = (
+                        text_from_html(raw)
+                        if "html" in content_type.lower() or "<html" in raw.lower()
+                        else raw
+                    )
                     row = {
                         "source": item["source_name"],
                         "url": item["url"],
@@ -695,7 +772,11 @@ class DataEngine:
                         "text": text,
                         "content_hash": content_hash(text),
                         "fetched_at_unix": time.time(),
-                        "metadata": {"content_type": content_type, "status_code": response.status_code, "depth": item["depth"]},
+                        "metadata": {
+                            "content_type": content_type,
+                            "status_code": response.status_code,
+                            "depth": item["depth"],
+                        },
                     }
                     self.raw_writer.write(row)
                     decision = self.quality_gate.evaluate(row)
@@ -746,7 +827,12 @@ class DataEngine:
             if own_client:
                 await active_client.aclose()
 
-        active_progress.emit("crawl", "complete", **counters, duration_ms=round((time.perf_counter() - started) * 1000, 3))
+        active_progress.emit(
+            "crawl",
+            "complete",
+            **counters,
+            duration_ms=round((time.perf_counter() - started) * 1000, 3),
+        )
         return DataEngineReport(
             status="complete",
             frontier_path=str(self.store.path),
@@ -758,13 +844,21 @@ class DataEngine:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run Craftly million-scale defensive data engine.")
+    parser = argparse.ArgumentParser(
+        description="Run Craftly million-scale defensive data engine."
+    )
     parser.add_argument("--sources", required=True)
-    parser.add_argument("--frontier-backend", choices=["sqlite", "postgres"], default="sqlite")
+    parser.add_argument(
+        "--frontier-backend", choices=["sqlite", "postgres"], default="sqlite"
+    )
     parser.add_argument("--postgres-dsn")
-    parser.add_argument("--frontier", default="artifacts/craftly/data-engine/frontier.sqlite3")
+    parser.add_argument(
+        "--frontier", default="artifacts/craftly/data-engine/frontier.sqlite3"
+    )
     parser.add_argument("--raw-output-dir", default="artifacts/craftly/data-engine/raw")
-    parser.add_argument("--clean-output-dir", default="artifacts/craftly/data-engine/clean")
+    parser.add_argument(
+        "--clean-output-dir", default="artifacts/craftly/data-engine/clean"
+    )
     parser.add_argument("--max-docs", type=int, default=10_000)
     parser.add_argument("--max-bytes-per-doc", type=int, default=2_000_000)
     parser.add_argument("--workers", type=int, default=8)
@@ -778,7 +872,9 @@ def parse_args() -> argparse.Namespace:
 async def build_store(args: argparse.Namespace) -> Any:
     if args.frontier_backend == "postgres":
         if not args.postgres_dsn:
-            raise ValueError("--postgres-dsn is required when --frontier-backend postgres")
+            raise ValueError(
+                "--postgres-dsn is required when --frontier-backend postgres"
+            )
         return await PostgresFrontierStore.create(args.postgres_dsn)
     return FrontierStore(args.frontier)
 
@@ -814,4 +910,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

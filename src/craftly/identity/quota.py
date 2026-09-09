@@ -1,4 +1,4 @@
-﻿"""Continuous regenerative quota enforcement."""
+"""Continuous regenerative quota enforcement."""
 
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ from typing import Awaitable, Callable, Protocol
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 from starlette.middleware.base import BaseHTTPMiddleware
-
 
 QUOTA_LUA = """
 local key = KEYS[1]
@@ -50,7 +49,9 @@ class QuotaConfig:
         return cls(
             enabled=os.environ.get("CRAFTLY_QUOTA_ENABLED", "0") == "1",
             redis_url=os.environ.get("CRAFTLY_REDIS_URL"),
-            replenish_rate_per_second=float(os.environ.get("CRAFTLY_QUOTA_RATE_PER_SECOND", "0.05")),
+            replenish_rate_per_second=float(
+                os.environ.get("CRAFTLY_QUOTA_RATE_PER_SECOND", "0.05")
+            ),
             capacity=float(os.environ.get("CRAFTLY_QUOTA_CAPACITY", "100")),
             default_cost=float(os.environ.get("CRAFTLY_QUOTA_DEFAULT_COST", "1")),
         )
@@ -61,7 +62,9 @@ class LocalQuotaStore:
         self._state: dict[str, tuple[float, float]] = {}
         self._lock = RLock()
 
-    def consume(self, subject: str, *, now: float, rate: float, capacity: float, cost: float) -> tuple[bool, float]:
+    def consume(
+        self, subject: str, *, now: float, rate: float, capacity: float, cost: float
+    ) -> tuple[bool, float]:
         with self._lock:
             tokens, last = self._state.get(subject, (capacity, now))
             tokens = min(capacity, tokens + max(0.0, now - last) * rate)
@@ -76,13 +79,18 @@ LOCAL_QUOTA = LocalQuotaStore()
 
 
 class QuotaStore(Protocol):
-    async def consume(self, subject: str, *, now: float, rate: float, capacity: float, cost: float) -> tuple[bool, float]:
-        ...
+    async def consume(
+        self, subject: str, *, now: float, rate: float, capacity: float, cost: float
+    ) -> tuple[bool, float]: ...
 
 
 class AsyncLocalQuotaStore:
-    async def consume(self, subject: str, *, now: float, rate: float, capacity: float, cost: float) -> tuple[bool, float]:
-        return LOCAL_QUOTA.consume(subject, now=now, rate=rate, capacity=capacity, cost=cost)
+    async def consume(
+        self, subject: str, *, now: float, rate: float, capacity: float, cost: float
+    ) -> tuple[bool, float]:
+        return LOCAL_QUOTA.consume(
+            subject, now=now, rate=rate, capacity=capacity, cost=cost
+        )
 
 
 class RedisQuotaStore:
@@ -97,7 +105,9 @@ class RedisQuotaStore:
             self._client = Redis.from_url(self.redis_url, decode_responses=True)
         return self._client
 
-    async def consume(self, subject: str, *, now: float, rate: float, capacity: float, cost: float) -> tuple[bool, float]:
+    async def consume(
+        self, subject: str, *, now: float, rate: float, capacity: float, cost: float
+    ) -> tuple[bool, float]:
         client = await self.client()
         key = f"craftly:quota:{subject}"
         result = await client.eval(QUOTA_LUA, 1, key, now, rate, capacity, cost)
@@ -110,10 +120,20 @@ class QuotaMiddleware(BaseHTTPMiddleware):
     def __init__(self, app: FastAPI, config: QuotaConfig) -> None:
         super().__init__(app)
         self.config = config
-        self.store: QuotaStore = RedisQuotaStore(config.redis_url) if config.redis_url else AsyncLocalQuotaStore()
+        self.store: QuotaStore = (
+            RedisQuotaStore(config.redis_url)
+            if config.redis_url
+            else AsyncLocalQuotaStore()
+        )
 
-    async def dispatch(self, request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
-        if not self.config.enabled or not request.url.path.startswith("/v1") or request.url.path.startswith("/v1/auth/"):
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        if (
+            not self.config.enabled
+            or not request.url.path.startswith("/v1")
+            or request.url.path.startswith("/v1/auth/")
+        ):
             return await call_next(request)
         subject = str(getattr(request.state, "user_id", "anonymous"))
         cost = request_cost(request)
@@ -126,8 +146,13 @@ class QuotaMiddleware(BaseHTTPMiddleware):
                 cost=cost,
             )
         except Exception:
-            LOGGER.exception("quota_backend_unavailable", extra={"subject": subject, "path": request.url.path})
-            return JSONResponse(status_code=503, content={"error": "quota_backend_unavailable"})
+            LOGGER.exception(
+                "quota_backend_unavailable",
+                extra={"subject": subject, "path": request.url.path},
+            )
+            return JSONResponse(
+                status_code=503, content={"error": "quota_backend_unavailable"}
+            )
         if not allowed:
             return JSONResponse(
                 status_code=429,
@@ -155,4 +180,3 @@ def install_quota(app: FastAPI, config: QuotaConfig | None = None) -> QuotaConfi
     active = config or QuotaConfig.from_env()
     app.add_middleware(QuotaMiddleware, config=active)
     return active
-

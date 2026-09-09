@@ -1,4 +1,4 @@
-﻿"""Streaming dataset validation for large Craftly training corpora."""
+"""Streaming dataset validation for large Craftly training corpora."""
 
 from __future__ import annotations
 
@@ -22,8 +22,12 @@ class DatasetValidationConfig(StrictModel):
     min_avg_chars: int = Field(default=80, ge=1)
     require_license: bool = True
     require_quality: bool = True
-    require_categories: list[str] = Field(default_factory=lambda: ["general", "code", "cybersecurity"])
-    holdout_policies: list[str] = Field(default_factory=lambda: ["eval_holdout", "benchmark_holdout"])
+    require_categories: list[str] = Field(
+        default_factory=lambda: ["general", "code", "cybersecurity"]
+    )
+    holdout_policies: list[str] = Field(
+        default_factory=lambda: ["eval_holdout", "benchmark_holdout"]
+    )
 
 
 class DatasetValidationIssue(StrictModel):
@@ -52,7 +56,9 @@ class DatasetValidationReport(StrictModel):
         root = Path(output_dir)
         root.mkdir(parents=True, exist_ok=True)
         target = root / "dataset_validation_report.json"
-        target.write_text(json.dumps(self.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+        target.write_text(
+            json.dumps(self.model_dump(), indent=2, sort_keys=True), encoding="utf-8"
+        )
         write_markdown(self, root / "dataset_validation_report.md")
         return target
 
@@ -64,11 +70,23 @@ def _row_text(row: dict[str, Any]) -> str:
 def _row_category(row: dict[str, Any]) -> str:
     metadata = row.get("metadata", {}) if isinstance(row.get("metadata"), dict) else {}
     quality = row.get("quality", {}) if isinstance(row.get("quality"), dict) else {}
-    category = str(row.get("category") or metadata.get("category") or quality.get("data_type") or "general").lower()
+    category = str(
+        row.get("category")
+        or metadata.get("category")
+        or quality.get("data_type")
+        or "general"
+    ).lower()
     labels = {str(item).lower() for item in quality.get("labels", [])}
     if "cyber" in category or "security" in category or "defensive_security" in labels:
         return "cybersecurity"
-    if "code" in category or "code" in labels or any(marker in _row_text(row) for marker in ("def ", "class ", "fn ", "function ")):
+    if (
+        "code" in category
+        or "code" in labels
+        or any(
+            marker in _row_text(row)
+            for marker in ("def ", "class ", "fn ", "function ")
+        )
+    ):
         return "code"
     if "agentic" in category or "agentic" in labels:
         return "agentic"
@@ -99,14 +117,20 @@ def validate_dataset(config: DatasetValidationConfig) -> DatasetValidationReport
                 seen.add(digest)
             category = _row_category(row)
             categories[category] += 1
-            license_name = str(row.get("license") or row.get("spdx_license") or "unknown").lower()
+            license_name = str(
+                row.get("license") or row.get("spdx_license") or "unknown"
+            ).lower()
             licenses[license_name] += 1
             if config.require_license and license_name in {"", "unknown", "none"}:
                 missing_license += 1
             if config.require_quality and not isinstance(row.get("quality"), dict):
                 missing_quality += 1
-            metadata = row.get("metadata", {}) if isinstance(row.get("metadata"), dict) else {}
-            policy = str(row.get("train_policy") or metadata.get("train_policy") or "").lower()
+            metadata = (
+                row.get("metadata", {}) if isinstance(row.get("metadata"), dict) else {}
+            )
+            policy = str(
+                row.get("train_policy") or metadata.get("train_policy") or ""
+            ).lower()
             if policy in holdout_policies:
                 holdout_rows += 1
             else:
@@ -128,7 +152,10 @@ def validate_dataset(config: DatasetValidationConfig) -> DatasetValidationReport
                 severity="fail",
                 code="duplicate_fraction_too_high",
                 message="duplicate fraction exceeds configured maximum",
-                metrics={"duplicate_fraction": duplicate_fraction, "limit": config.max_duplicate_fraction},
+                metrics={
+                    "duplicate_fraction": duplicate_fraction,
+                    "limit": config.max_duplicate_fraction,
+                },
             )
         )
     if avg_chars < config.min_avg_chars:
@@ -158,7 +185,11 @@ def validate_dataset(config: DatasetValidationConfig) -> DatasetValidationReport
                 metrics={"missing_quality": missing_quality},
             )
         )
-    missing_categories = [category for category in config.require_categories if categories.get(category, 0) == 0]
+    missing_categories = [
+        category
+        for category in config.require_categories
+        if categories.get(category, 0) == 0
+    ]
     if missing_categories:
         issues.append(
             DatasetValidationIssue(
@@ -207,7 +238,9 @@ def write_markdown(report: DatasetValidationReport, path: str | Path) -> Path:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Validate a large Craftly JSONL training corpus.")
+    parser = argparse.ArgumentParser(
+        description="Validate a large Craftly JSONL training corpus."
+    )
     parser.add_argument("--inputs", nargs="+", required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--min-records", type=int, default=100_000)
@@ -238,4 +271,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

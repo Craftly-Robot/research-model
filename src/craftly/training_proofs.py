@@ -28,9 +28,13 @@ import httpx
 from pydantic import Field
 
 from src.craftly.db.migration_runner import apply_migrations
-from src.craftly.learning.storage import ObjectStoreConfig, S3ObjectStore, verify_object_store_lifecycle
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.learning.storage import (
+    ObjectStoreConfig,
+    S3ObjectStore,
+    verify_object_store_lifecycle,
+)
 from src.craftly.shared.integrity import sha256_file
+from src.craftly.shared.schemas import StrictModel
 from src.craftly.training_workspace import (
     JobStatus,
     PostgresTrainingStore,
@@ -40,14 +44,13 @@ from src.craftly.training_workspace import (
     SchedulerBinding,
     TrainingAttempt,
     TrainingController,
-    TrainingJob,
     TrainingEventBatch,
     TrainingEventInput,
+    TrainingJob,
     TrainingJobCreateRequest,
     TrainingProfileRegistry,
     TrainingWorkspaceService,
 )
-
 
 ProofStatus = Literal["passed", "failed", "blocked"]
 
@@ -129,13 +132,17 @@ async def infrastructure_lifecycle_proof(
         migration = await apply_migrations(database_url)
         object_report = await asyncio.to_thread(
             verify_object_store_lifecycle,
-            config=ObjectStoreConfig(uri=object_store_uri, endpoint_url=object_store_endpoint_url),
+            config=ObjectStoreConfig(
+                uri=object_store_uri, endpoint_url=object_store_endpoint_url
+            ),
             work_dir=output_dir / "object-lifecycle",
             key=f"proofs/{uuid.uuid4()}/lifecycle.json",
         )
         store = PostgresTrainingStore(database_url)
         events = RedisEventBus(redis_url, retention_events=2_000_000)
-        object_store = S3ObjectStore(object_store_uri, endpoint_url=object_store_endpoint_url)
+        object_store = S3ObjectStore(
+            object_store_uri, endpoint_url=object_store_endpoint_url
+        )
         service = TrainingWorkspaceService(
             store=store,
             events=events,
@@ -193,10 +200,17 @@ async def infrastructure_lifecycle_proof(
         connection = await asyncpg.connect(database_url)
         try:
             database_evidence = {
-                "job_rows": await connection.fetchval("SELECT count(*) FROM training_jobs WHERE id=$1", uuid.UUID(job.job_id)),
-                "attempt_rows": await connection.fetchval("SELECT count(*) FROM training_attempts WHERE job_id=$1", uuid.UUID(job.job_id)),
+                "job_rows": await connection.fetchval(
+                    "SELECT count(*) FROM training_jobs WHERE id=$1",
+                    uuid.UUID(job.job_id),
+                ),
+                "attempt_rows": await connection.fetchval(
+                    "SELECT count(*) FROM training_attempts WHERE job_id=$1",
+                    uuid.UUID(job.job_id),
+                ),
                 "ingress_rows": await connection.fetchval(
-                    "SELECT count(*) FROM training_event_ingress WHERE attempt_id=$1", uuid.UUID(attempt.attempt_id)
+                    "SELECT count(*) FROM training_event_ingress WHERE attempt_id=$1",
+                    uuid.UUID(attempt.attempt_id),
                 ),
             }
         finally:
@@ -250,11 +264,15 @@ async def million_event_proof(
     service: TrainingWorkspaceService | None = None
     try:
         store = PostgresTrainingStore(database_url)
-        events = RedisEventBus(redis_url, retention_events=max(1_100_000, event_count + 1000))
+        events = RedisEventBus(
+            redis_url, retention_events=max(1_100_000, event_count + 1000)
+        )
         service = TrainingWorkspaceService(
             store=store,
             events=events,
-            object_store=S3ObjectStore(object_store_uri, endpoint_url=object_store_endpoint_url),
+            object_store=S3ObjectStore(
+                object_store_uri, endpoint_url=object_store_endpoint_url
+            ),
         )
         from src.craftly.training_workspace import TrainingJobCreateRequest
 
@@ -288,11 +306,19 @@ async def million_event_proof(
             )
             accepted = await service.ingest_events(running.job_id, batch)
             if len(accepted) != size:
-                raise RuntimeError(f"event batch loss at offset {offset}: accepted={len(accepted)}, expected={size}")
+                raise RuntimeError(
+                    f"event batch loss at offset {offset}: accepted={len(accepted)}, expected={size}"
+                )
         final_job = await service.get_job(job.job_id)
-        tail = await events.read(job.job_id, after_sequence=max(0, event_count - 1), limit=2)
+        tail = await events.read(
+            job.job_id, after_sequence=max(0, event_count - 1), limit=2
+        )
         duration = time.perf_counter() - started
-        passed = final_job.event_sequence == event_count and len(tail) == 1 and tail[0].sequence == event_count
+        passed = (
+            final_job.event_sequence == event_count
+            and len(tail) == 1
+            and tail[0].sequence == event_count
+        )
         await service.cancel_job(job.job_id, actor_id="proof-runner")
         return ProofResult(
             name=f"ordered_event_stress_{event_count}",
@@ -334,7 +360,12 @@ async def soak_proof(
     started_at = now_iso()
     checks = 0
     failures: list[str] = []
-    latencies: dict[str, list[float]] = {"postgres": [], "redis": [], "object_store": [], "cycle": []}
+    latencies: dict[str, list[float]] = {
+        "postgres": [],
+        "redis": [],
+        "object_store": [],
+        "cycle": [],
+    }
     consecutive_failures = 0
     maximum_consecutive_failures = 0
     try:
@@ -342,7 +373,9 @@ async def soak_proof(
         import redis.asyncio as redis
 
         redis_client = redis.from_url(redis_url, decode_responses=True)
-        object_store = S3ObjectStore(object_store_uri, endpoint_url=object_store_endpoint_url)
+        object_store = S3ObjectStore(
+            object_store_uri, endpoint_url=object_store_endpoint_url
+        )
         deadline = time.monotonic() + duration_seconds
         with tempfile.TemporaryDirectory(prefix="craftly-soak-") as temp_dir:
             download_path = Path(temp_dir) / "roundtrip.json"
@@ -365,17 +398,27 @@ async def soak_proof(
                                 json.dumps({"started_at": started_at}),
                             )
                             stored = await connection.fetchval(
-                                "SELECT count(*) FROM training_audit_events WHERE id=$1", audit_id
+                                "SELECT count(*) FROM training_audit_events WHERE id=$1",
+                                audit_id,
                             )
                             if stored != 1:
-                                raise RuntimeError("Postgres soak transaction was not readable")
-                            await connection.execute("DELETE FROM training_audit_events WHERE id=$1", audit_id)
+                                raise RuntimeError(
+                                    "Postgres soak transaction was not readable"
+                                )
+                            await connection.execute(
+                                "DELETE FROM training_audit_events WHERE id=$1",
+                                audit_id,
+                            )
                     finally:
                         await connection.close()
-                    latencies["postgres"].append(time.perf_counter() - operation_started)
+                    latencies["postgres"].append(
+                        time.perf_counter() - operation_started
+                    )
 
                     operation_started = time.perf_counter()
-                    await redis_client.set(redis_key, str(audit_id), ex=max(60, interval_seconds * 4))
+                    await redis_client.set(
+                        redis_key, str(audit_id), ex=max(60, interval_seconds * 4)
+                    )
                     if await redis_client.get(redis_key) != str(audit_id):
                         raise RuntimeError("Redis soak round-trip mismatch")
                     await redis_client.delete(redis_key)
@@ -383,25 +426,35 @@ async def soak_proof(
 
                     operation_started = time.perf_counter()
                     payload = {"proof_id": str(audit_id), "timestamp": now_iso()}
-                    stored_object = await asyncio.to_thread(object_store.put_json, payload, key=object_key)
-                    await asyncio.to_thread(object_store.get_file, object_key, download_path)
+                    stored_object = await asyncio.to_thread(
+                        object_store.put_json, payload, key=object_key
+                    )
+                    await asyncio.to_thread(
+                        object_store.get_file, object_key, download_path
+                    )
                     if sha256_file(download_path) != stored_object.sha256:
                         raise RuntimeError("object-store soak checksum mismatch")
                     await asyncio.to_thread(object_store.delete, object_key)
                     download_path.unlink(missing_ok=True)
-                    latencies["object_store"].append(time.perf_counter() - operation_started)
+                    latencies["object_store"].append(
+                        time.perf_counter() - operation_started
+                    )
                     checks += 1
                     consecutive_failures = 0
                 except Exception as exc:
                     failures.append(f"{now_iso()} {type(exc).__name__}: {exc}")
                     consecutive_failures += 1
-                    maximum_consecutive_failures = max(maximum_consecutive_failures, consecutive_failures)
+                    maximum_consecutive_failures = max(
+                        maximum_consecutive_failures, consecutive_failures
+                    )
                     with contextlib.suppress(Exception):
                         await redis_client.delete(redis_key)
                     with contextlib.suppress(Exception):
                         await asyncio.to_thread(object_store.delete, object_key)
                 latencies["cycle"].append(time.perf_counter() - cycle_started)
-                await asyncio.sleep(min(interval_seconds, max(0.0, deadline - time.monotonic())))
+                await asyncio.sleep(
+                    min(interval_seconds, max(0.0, deadline - time.monotonic()))
+                )
         await redis_client.aclose()
         measured = time.perf_counter() - started
         full_duration = measured >= duration_seconds * 0.99
@@ -416,7 +469,12 @@ async def soak_proof(
             }
             for name, values in latencies.items()
         }
-        passed = full_duration and checks > 0 and availability >= minimum_availability and maximum_consecutive_failures <= 1
+        passed = (
+            full_duration
+            and checks > 0
+            and availability >= minimum_availability
+            and maximum_consecutive_failures <= 1
+        )
         return ProofResult(
             name=f"infrastructure_soak_{duration_seconds}s",
             status="passed" if passed else "failed",
@@ -450,7 +508,10 @@ def external_scheduler_proofs() -> list[ProofResult]:
     try:
         cluster = command_evidence(["kubectl", "cluster-info"], timeout=20)
         nodes = command_evidence(["kubectl", "get", "nodes", "-o", "json"], timeout=20)
-        crd = command_evidence(["kubectl", "get", "crd", "pytorchjobs.kubeflow.org", "-o", "name"], timeout=20)
+        crd = command_evidence(
+            ["kubectl", "get", "crd", "pytorchjobs.kubeflow.org", "-o", "name"],
+            timeout=20,
+        )
         passed = all(item["exit_code"] == 0 for item in (cluster, nodes, crd))
         results.append(
             ProofResult(
@@ -459,7 +520,11 @@ def external_scheduler_proofs() -> list[ProofResult]:
                 started_at=started_at,
                 duration_seconds=time.perf_counter() - started,
                 evidence={"cluster": cluster, "nodes": nodes, "pytorchjob_crd": crd},
-                blockers=[] if passed else ["reachable Kubernetes cluster with Kubeflow PyTorchJob CRD is required"],
+                blockers=[]
+                if passed
+                else [
+                    "reachable Kubernetes cluster with Kubeflow PyTorchJob CRD is required"
+                ],
             )
         )
     except Exception as exc:
@@ -486,7 +551,11 @@ def external_scheduler_proofs() -> list[ProofResult]:
                 started_at=started_at,
                 duration_seconds=time.perf_counter() - started,
                 evidence={"sinfo": sinfo, "squeue": squeue},
-                blockers=[] if passed else ["reachable Slurm controller and authenticated account are required"],
+                blockers=[]
+                if passed
+                else [
+                    "reachable Slurm controller and authenticated account are required"
+                ],
             )
         )
     except Exception as exc:
@@ -531,14 +600,18 @@ async def live_scheduler_execution_proof(
         service = TrainingWorkspaceService(
             store=PostgresTrainingStore(database_url),
             events=RedisEventBus(redis_url, retention_events=2_000_000),
-            object_store=S3ObjectStore(object_store_uri, endpoint_url=object_store_endpoint_url),
+            object_store=S3ObjectStore(
+                object_store_uri, endpoint_url=object_store_endpoint_url
+            ),
             profiles=TrainingProfileRegistry.from_file(),
             campaigns=QualificationCampaignRegistry.from_file(),
             production_mode=True,
         )
         profile = service.profiles.latest(profile_id)
         if profile.scheduler not in {"kubernetes", "kubernetes_pytorch", "slurm"}:
-            raise ValueError("live scheduler proof requires a cluster scheduler profile")
+            raise ValueError(
+                "live scheduler proof requires a cluster scheduler profile"
+            )
         request = TrainingJobCreateRequest(
             profile_id=profile_id,
             idempotency_key=f"live-proof-{profile_id}-{uuid.uuid4().hex[:16]}",
@@ -548,7 +621,10 @@ async def live_scheduler_execution_proof(
             tokenizer_sha256=tokenizer_sha256,
             git_commit=git_commit,
             container_digest=container_digest,
-            metadata={"dataset_promotion": "promoted", "proof": "live-scheduler-execution"},
+            metadata={
+                "dataset_promotion": "promoted",
+                "proof": "live-scheduler-execution",
+            },
         )
         job = await service.create_job(request, owner_id="production-proof")
         controller = TrainingController(service)
@@ -560,13 +636,31 @@ async def live_scheduler_execution_proof(
                 observed.append(job.status.value)
             if job.status.value in {"succeeded", "failed", "blocked", "cancelled"}:
                 break
-            if inject_worker_loss and not failure_injected and job.status == JobStatus.RUNNING:
+            if (
+                inject_worker_loss
+                and not failure_injected
+                and job.status == JobStatus.RUNNING
+            ):
                 committed = await service.list_checkpoints(job.job_id)
-                checkpoint_ready = bool(committed and any(item.reload_verified for item in committed))
+                checkpoint_ready = bool(
+                    committed and any(item.reload_verified for item in committed)
+                )
                 if profile.distributed_strategy == "megatron":
-                    shared_root_value = os.environ.get("CRAFTLY_SHARED_CHECKPOINT_ROOT", "")
-                    checkpoint_root = Path(shared_root_value).expanduser().resolve() / "jobs" / job.job_id / "training" / "checkpoints"
-                    megatron_checkpoint_files = sum(1 for item in checkpoint_root.rglob("*") if item.is_file()) if checkpoint_root.is_dir() else 0
+                    shared_root_value = os.environ.get(
+                        "CRAFTLY_SHARED_CHECKPOINT_ROOT", ""
+                    )
+                    checkpoint_root = (
+                        Path(shared_root_value).expanduser().resolve()
+                        / "jobs"
+                        / job.job_id
+                        / "training"
+                        / "checkpoints"
+                    )
+                    megatron_checkpoint_files = (
+                        sum(1 for item in checkpoint_root.rglob("*") if item.is_file())
+                        if checkpoint_root.is_dir()
+                        else 0
+                    )
                     checkpoint_ready = megatron_checkpoint_files > 1
                 if checkpoint_ready:
                     binding = SchedulerBinding.model_validate(job.scheduler_binding)
@@ -586,7 +680,9 @@ async def live_scheduler_execution_proof(
                             timeout=30,
                         )
                         if pods["exit_code"] != 0:
-                            raise RuntimeError("Kubernetes worker inventory failed before chaos injection")
+                            raise RuntimeError(
+                                "Kubernetes worker inventory failed before chaos injection"
+                            )
                         pod_payload = json.loads(pods["stdout"])
                         candidates = [
                             item["metadata"]["name"]
@@ -594,7 +690,9 @@ async def live_scheduler_execution_proof(
                             if item.get("status", {}).get("phase") == "Running"
                         ]
                         if not candidates:
-                            raise RuntimeError("no running Kubernetes worker pod is available for chaos injection")
+                            raise RuntimeError(
+                                "no running Kubernetes worker pod is available for chaos injection"
+                            )
                         deleted = command_evidence(
                             [
                                 "kubectl",
@@ -611,9 +709,13 @@ async def live_scheduler_execution_proof(
                         if deleted["exit_code"] != 0:
                             raise RuntimeError("Kubernetes worker deletion failed")
                     else:
-                        requeued = command_evidence(["scontrol", "requeue", binding.external_id], timeout=30)
+                        requeued = command_evidence(
+                            ["scontrol", "requeue", binding.external_id], timeout=30
+                        )
                         if requeued["exit_code"] != 0:
-                            raise RuntimeError("Slurm job requeue failed during chaos injection")
+                            raise RuntimeError(
+                                "Slurm job requeue failed during chaos injection"
+                            )
                     current = await service.get_job(job.job_id)
                     injection_sequence = current.event_sequence
                     failure_injected = True
@@ -624,11 +726,15 @@ async def live_scheduler_execution_proof(
                 scheduler=controller.schedulers.get(job.spec.scheduler),
                 actor_id="production-proof-timeout",
             )
-            raise TimeoutError(f"live scheduler proof exceeded {timeout_seconds} seconds")
+            raise TimeoutError(
+                f"live scheduler proof exceeded {timeout_seconds} seconds"
+            )
         events = []
         cursor = 0
         while True:
-            page = await service.events.read(job.job_id, after_sequence=cursor, limit=1000)
+            page = await service.events.read(
+                job.job_id, after_sequence=cursor, limit=1000
+            )
             if not page:
                 break
             events.extend(page)
@@ -637,8 +743,18 @@ async def live_scheduler_execution_proof(
         attempts = await service.store.list_attempts(job.job_id)
         if profile.distributed_strategy == "megatron":
             shared_root_value = os.environ.get("CRAFTLY_SHARED_CHECKPOINT_ROOT", "")
-            checkpoint_root = Path(shared_root_value).expanduser().resolve() / "jobs" / job.job_id / "training" / "checkpoints"
-            megatron_checkpoint_files = sum(1 for item in checkpoint_root.rglob("*") if item.is_file()) if checkpoint_root.is_dir() else 0
+            checkpoint_root = (
+                Path(shared_root_value).expanduser().resolve()
+                / "jobs"
+                / job.job_id
+                / "training"
+                / "checkpoints"
+            )
+            megatron_checkpoint_files = (
+                sum(1 for item in checkpoint_root.rglob("*") if item.is_file())
+                if checkpoint_root.is_dir()
+                else 0
+            )
         checkpoint_proven = (
             megatron_checkpoint_files > 1
             if profile.distributed_strategy == "megatron"
@@ -649,7 +765,13 @@ async def live_scheduler_execution_proof(
             and bool(attempts)
             and any(event.kind == "heartbeat" for event in events)
             and checkpoint_proven
-            and (not inject_worker_loss or (failure_injected and any(event.sequence > injection_sequence for event in events)))
+            and (
+                not inject_worker_loss
+                or (
+                    failure_injected
+                    and any(event.sequence > injection_sequence for event in events)
+                )
+            )
         )
         return ProofResult(
             name=f"live_{profile.scheduler}_{profile_id}",
@@ -665,18 +787,34 @@ async def live_scheduler_execution_proof(
                 "events": len(events),
                 "heartbeats": sum(event.kind == "heartbeat" for event in events),
                 "checkpoints": len(checkpoints),
-                "reload_verified_checkpoints": sum(item.reload_verified for item in checkpoints),
+                "reload_verified_checkpoints": sum(
+                    item.reload_verified for item in checkpoints
+                ),
                 "megatron_checkpoint_files": megatron_checkpoint_files,
                 "terminal_status": job.status.value,
                 "worker_loss_requested": inject_worker_loss,
                 "worker_loss_injected": failure_injected,
-                "post_injection_events": sum(event.sequence > injection_sequence for event in events),
+                "post_injection_events": sum(
+                    event.sequence > injection_sequence for event in events
+                ),
             },
-            blockers=[] if passed else ["job did not finish with heartbeat and reload-verified checkpoint evidence"],
+            blockers=[]
+            if passed
+            else [
+                "job did not finish with heartbeat and reload-verified checkpoint evidence"
+            ],
         )
     except (FileNotFoundError, ConnectionError, TimeoutError, RuntimeError) as exc:
         message = f"{type(exc).__name__}: {exc}"
-        dependency_markers = ["required", "unavailable", "missing", "cluster", "topology", "connection", "timed out"]
+        dependency_markers = [
+            "required",
+            "unavailable",
+            "missing",
+            "cluster",
+            "topology",
+            "connection",
+            "timed out",
+        ]
         blocked = any(marker in message.lower() for marker in dependency_markers)
         return ProofResult(
             name=f"live_scheduler_{profile_id}",
@@ -729,7 +867,9 @@ def docker_disaster_recovery_proof(
                 },
             )
             if len(matches) != 1:
-                raise RuntimeError(f"expected one {service} proof container, found {len(matches)}")
+                raise RuntimeError(
+                    f"expected one {service} proof container, found {len(matches)}"
+                )
             return matches[0]
 
         postgres = service_container("postgres")
@@ -751,25 +891,57 @@ def docker_disaster_recovery_proof(
             result = container.exec_run(command)
             output = result.output.decode("utf-8", "replace")
             if result.exit_code != 0:
-                raise RuntimeError(f"container command failed ({container.name}): {output[-2000:]}")
+                raise RuntimeError(
+                    f"container command failed ({container.name}): {output[-2000:]}"
+                )
             return output
 
         dump_path = f"/var/lib/postgresql/data/craftly-proof-dr-{uuid.uuid4().hex}.dump"
         try:
             exec_checked(
                 postgres,
-                ["pg_dump", "-U", "craftly", "-d", "craftly_proof", "-Fc", "-f", dump_path],
+                [
+                    "pg_dump",
+                    "-U",
+                    "craftly",
+                    "-d",
+                    "craftly_proof",
+                    "-Fc",
+                    "-f",
+                    dump_path,
+                ],
             )
-            exec_checked(postgres, ["dropdb", "-U", "craftly", "--if-exists", "craftly_proof_restore"])
-            exec_checked(postgres, ["createdb", "-U", "craftly", "craftly_proof_restore"])
             exec_checked(
                 postgres,
-                ["pg_restore", "-U", "craftly", "-d", "craftly_proof_restore", "--no-owner", dump_path],
+                ["dropdb", "-U", "craftly", "--if-exists", "craftly_proof_restore"],
+            )
+            exec_checked(
+                postgres, ["createdb", "-U", "craftly", "craftly_proof_restore"]
+            )
+            exec_checked(
+                postgres,
+                [
+                    "pg_restore",
+                    "-U",
+                    "craftly",
+                    "-d",
+                    "craftly_proof_restore",
+                    "--no-owner",
+                    dump_path,
+                ],
             )
             restored_count = int(
                 exec_checked(
                     postgres,
-                    ["psql", "-U", "craftly", "-d", "craftly_proof_restore", "-Atc", "SELECT count(*) FROM schema_migrations"],
+                    [
+                        "psql",
+                        "-U",
+                        "craftly",
+                        "-d",
+                        "craftly_proof_restore",
+                        "-Atc",
+                        "SELECT count(*) FROM schema_migrations",
+                    ],
                 ).strip()
             )
         finally:
@@ -782,7 +954,10 @@ def docker_disaster_recovery_proof(
         redis_client.set(redis_key, "persisted")
         redis_client.bgsave()
         deadline = time.monotonic() + 30
-        while redis_client.info("persistence").get("rdb_bgsave_in_progress") and time.monotonic() < deadline:
+        while (
+            redis_client.info("persistence").get("rdb_bgsave_in_progress")
+            and time.monotonic() < deadline
+        ):
             time.sleep(0.2)
         redis_container.restart(timeout=15)
         deadline = time.monotonic() + 60
@@ -793,7 +968,9 @@ def docker_disaster_recovery_proof(
             except Exception:
                 time.sleep(0.5)
         else:
-            raise RuntimeError("Redis did not recover the persisted proof key after restart")
+            raise RuntimeError(
+                "Redis did not recover the persisted proof key after restart"
+            )
         redis_client.delete(redis_key)
 
         bucket = urlparse(object_store_uri).netloc
@@ -802,7 +979,9 @@ def docker_disaster_recovery_proof(
         s3 = boto3.client("s3", endpoint_url=object_store_endpoint_url)
         body = json.dumps({"proof": "minio-restart"}, sort_keys=True).encode()
         digest = hashlib.sha256(body).hexdigest()
-        s3.put_object(Bucket=bucket, Key=object_key, Body=body, Metadata={"sha256": digest})
+        s3.put_object(
+            Bucket=bucket, Key=object_key, Body=body, Metadata={"sha256": digest}
+        )
         minio.restart(timeout=15)
         deadline = time.monotonic() + 60
         while time.monotonic() < deadline:
@@ -970,20 +1149,29 @@ async def kubernetes_disaster_recovery_proof(
     evidence: dict[str, Any] = {"workloads": workloads, "restarts": []}
     try:
         if shutil.which("kubectl") is None:
-            raise FileNotFoundError("kubectl is required for the Kubernetes disaster-recovery proof")
+            raise FileNotFoundError(
+                "kubectl is required for the Kubernetes disaster-recovery proof"
+            )
         parsed = [parse_dr_workload(value) for value in workloads]
         if not parsed:
             raise ValueError("at least one Kubernetes DR workload is required")
 
         for namespace, kind, name in parsed:
-            preflight = command_evidence(["kubectl", "get", kind, name, "-n", namespace, "-o", "name"], timeout=30)
+            preflight = command_evidence(
+                ["kubectl", "get", kind, name, "-n", namespace, "-o", "name"],
+                timeout=30,
+            )
             if preflight["exit_code"] != 0:
-                raise RuntimeError(f"Kubernetes DR preflight failed for {namespace}:{kind}:{name}: {preflight['stderr'][-500:]}")
+                raise RuntimeError(
+                    f"Kubernetes DR preflight failed for {namespace}:{kind}:{name}: {preflight['stderr'][-500:]}"
+                )
 
         service = TrainingWorkspaceService(
             store=PostgresTrainingStore(database_url),
             events=RedisEventBus(redis_url, retention_events=2_000_000),
-            object_store=S3ObjectStore(object_store_uri, endpoint_url=object_store_endpoint_url),
+            object_store=S3ObjectStore(
+                object_store_uri, endpoint_url=object_store_endpoint_url
+            ),
             profiles=TrainingProfileRegistry.from_file(),
             campaigns=QualificationCampaignRegistry.from_file(),
         )
@@ -1013,7 +1201,9 @@ async def kubernetes_disaster_recovery_proof(
                 ],
             ),
         )
-        marker = json.dumps({"job_id": job.job_id, "attempt_id": attempt.attempt_id}, sort_keys=True).encode("utf-8")
+        marker = json.dumps(
+            {"job_id": job.job_id, "attempt_id": attempt.attempt_id}, sort_keys=True
+        ).encode("utf-8")
         marker_digest = hashlib.sha256(marker).hexdigest()
         marker_dir = Path(tempfile.mkdtemp(prefix="craftly-cluster-dr-"))
         marker_path = marker_dir / "marker.json"
@@ -1030,11 +1220,23 @@ async def kubernetes_disaster_recovery_proof(
 
         for namespace, kind, name in parsed:
             target = f"{kind}/{name}"
-            restarted = command_evidence(["kubectl", "rollout", "restart", target, "-n", namespace], timeout=30)
+            restarted = command_evidence(
+                ["kubectl", "rollout", "restart", target, "-n", namespace], timeout=30
+            )
             if restarted["exit_code"] != 0:
-                raise RuntimeError(f"failed to restart {namespace}:{target}: {restarted['stderr'][-500:]}")
+                raise RuntimeError(
+                    f"failed to restart {namespace}:{target}: {restarted['stderr'][-500:]}"
+                )
             recovered = command_evidence(
-                ["kubectl", "rollout", "status", target, "-n", namespace, f"--timeout={rollout_timeout_seconds}s"],
+                [
+                    "kubectl",
+                    "rollout",
+                    "status",
+                    target,
+                    "-n",
+                    namespace,
+                    f"--timeout={rollout_timeout_seconds}s",
+                ],
                 timeout=rollout_timeout_seconds + 30,
             )
             evidence["restarts"].append(
@@ -1046,19 +1248,27 @@ async def kubernetes_disaster_recovery_proof(
                 }
             )
             if recovered["exit_code"] != 0:
-                raise RuntimeError(f"rollout recovery failed for {namespace}:{target}: {recovered['stderr'][-500:]}")
+                raise RuntimeError(
+                    f"rollout recovery failed for {namespace}:{target}: {recovered['stderr'][-500:]}"
+                )
 
         service = TrainingWorkspaceService(
             store=PostgresTrainingStore(database_url),
             events=RedisEventBus(redis_url, retention_events=2_000_000),
-            object_store=S3ObjectStore(object_store_uri, endpoint_url=object_store_endpoint_url),
+            object_store=S3ObjectStore(
+                object_store_uri, endpoint_url=object_store_endpoint_url
+            ),
             profiles=TrainingProfileRegistry.from_file(),
             campaigns=QualificationCampaignRegistry.from_file(),
         )
         recovered_job = await service.get_job(job.job_id)
-        recovered_events = await service.events.read(job.job_id, after_sequence=0, limit=10)
+        recovered_events = await service.events.read(
+            job.job_id, after_sequence=0, limit=10
+        )
         marker_download = marker_path.with_name("recovered-marker.json")
-        await asyncio.to_thread(service.object_store.get_file, marker_key, marker_download)
+        await asyncio.to_thread(
+            service.object_store.get_file, marker_key, marker_download
+        )
         recovered_digest = sha256_file(marker_download)
         passed = (
             recovered_job.job_id == job.job_id
@@ -1085,11 +1295,18 @@ async def kubernetes_disaster_recovery_proof(
             started_at=started_at,
             duration_seconds=time.perf_counter() - started,
             evidence=evidence,
-            blockers=[] if passed else ["one or more durable records did not survive the Kubernetes recovery drill"],
+            blockers=[]
+            if passed
+            else [
+                "one or more durable records did not survive the Kubernetes recovery drill"
+            ],
         )
     except (FileNotFoundError, ConnectionError, TimeoutError, RuntimeError) as exc:
         message = f"{type(exc).__name__}: {exc}"
-        dependency_failure = any(term in message.lower() for term in ("required", "preflight", "connect", "not found", "unavailable"))
+        dependency_failure = any(
+            term in message.lower()
+            for term in ("required", "preflight", "connect", "not found", "unavailable")
+        )
         return ProofResult(
             name="kubernetes_control_plane_disaster_recovery",
             status="blocked" if dependency_failure else "failed",
@@ -1136,7 +1353,9 @@ async def worker_loss_recovery_proof(
             async def validate(self, spec: Any) -> dict[str, Any]:
                 return {"status": "ready", "proof_scheduler": "docker-process"}
 
-            async def submit(self, job: TrainingJob, attempt: TrainingAttempt) -> SchedulerBinding:
+            async def submit(
+                self, job: TrainingJob, attempt: TrainingAttempt
+            ) -> SchedulerBinding:
                 nonlocal container
                 container = await asyncio.to_thread(
                     docker_client.containers.run,
@@ -1147,7 +1366,10 @@ async def worker_loss_recovery_proof(
                     read_only=True,
                     mem_limit="64m",
                     nano_cpus=100_000_000,
-                    labels={"craftly.proof": "worker-loss", "craftly.job-id": job.job_id},
+                    labels={
+                        "craftly.proof": "worker-loss",
+                        "craftly.job-id": job.job_id,
+                    },
                 )
                 return SchedulerBinding(
                     scheduler=self.name,
@@ -1163,7 +1385,9 @@ async def worker_loss_recovery_proof(
                 if active.status == "running":
                     return "running"
                 result = await asyncio.to_thread(active.wait)
-                return "succeeded" if int(result.get("StatusCode", 1)) == 0 else "failed"
+                return (
+                    "succeeded" if int(result.get("StatusCode", 1)) == 0 else "failed"
+                )
 
             async def cancel(self, binding: SchedulerBinding) -> None:
                 active = docker_client.containers.get(binding.external_id)
@@ -1172,7 +1396,9 @@ async def worker_loss_recovery_proof(
         service = TrainingWorkspaceService(
             store=PostgresTrainingStore(database_url),
             events=RedisEventBus(redis_url),
-            object_store=S3ObjectStore(object_store_uri, endpoint_url=object_store_endpoint_url),
+            object_store=S3ObjectStore(
+                object_store_uri, endpoint_url=object_store_endpoint_url
+            ),
         )
         from src.craftly.training_workspace import TrainingJobCreateRequest
 
@@ -1185,11 +1411,15 @@ async def worker_loss_recovery_proof(
             ),
             owner_id=f"worker-loss-{uuid.uuid4()}",
         )
-        controller = TrainingController(service, schedulers={"kubernetes": DockerLossScheduler()})
+        controller = TrainingController(
+            service, schedulers={"kubernetes": DockerLossScheduler()}
+        )
         submitted = await controller.reconcile_job(job)
         running = await controller.reconcile_job(submitted)
         if running.status != JobStatus.RUNNING or container is None:
-            raise RuntimeError(f"proof worker did not reach running state: {running.status.value}")
+            raise RuntimeError(
+                f"proof worker did not reach running state: {running.status.value}"
+            )
         await asyncio.to_thread(container.kill)
         requeued = await controller.reconcile_job(running)
         attempts = await service.store.list_attempts(job.job_id)
@@ -1197,7 +1427,8 @@ async def worker_loss_recovery_proof(
             requeued.status == JobStatus.QUEUED
             and len(attempts) == 1
             and requeued.scheduler_binding.get("retry_failure_class") == "node_loss"
-            and float(requeued.scheduler_binding.get("retry_not_before_unix", 0)) > time.time()
+            and float(requeued.scheduler_binding.get("retry_not_before_unix", 0))
+            > time.time()
         )
         return ProofResult(
             name="worker_loss_retry_recovery",
@@ -1208,8 +1439,12 @@ async def worker_loss_recovery_proof(
                 "job_id": job.job_id,
                 "status_after_loss": requeued.status.value,
                 "attempt_count": len(attempts),
-                "retry_failure_class": requeued.scheduler_binding.get("retry_failure_class"),
-                "retry_not_before_unix": requeued.scheduler_binding.get("retry_not_before_unix"),
+                "retry_failure_class": requeued.scheduler_binding.get(
+                    "retry_failure_class"
+                ),
+                "retry_not_before_unix": requeued.scheduler_binding.get(
+                    "retry_not_before_unix"
+                ),
             },
         )
     except Exception as exc:
@@ -1241,17 +1476,26 @@ def distributed_gpu_proofs() -> list[ProofResult]:
         evidence = {
             "cuda_available": torch.cuda.is_available(),
             "gpu_count": torch.cuda.device_count(),
-            "gpu_names": [torch.cuda.get_device_name(index) for index in range(torch.cuda.device_count())],
+            "gpu_names": [
+                torch.cuda.get_device_name(index)
+                for index in range(torch.cuda.device_count())
+            ],
             "torch_version": torch.__version__,
         }
         if torch.cuda.device_count() < 2:
-            blockers.append("at least two visible CUDA GPUs are required for multi-GPU FSDP proof")
+            blockers.append(
+                "at least two visible CUDA GPUs are required for multi-GPU FSDP proof"
+            )
         if shutil.which("deepspeed") is None:
             blockers.append("DeepSpeed executable is required for ZeRO-3 proof")
         megatron_root = os.environ.get("CRAFTLY_MEGATRON_ROOT", "")
         if not megatron_root or not Path(megatron_root).is_dir():
-            blockers.append("CRAFTLY_MEGATRON_ROOT must point to a validated Megatron-LM checkout")
-        blockers.append("multi-node and 60B checkpoint/resume require a real scheduler allocation and promoted dataset")
+            blockers.append(
+                "CRAFTLY_MEGATRON_ROOT must point to a validated Megatron-LM checkout"
+            )
+        blockers.append(
+            "multi-node and 60B checkpoint/resume require a real scheduler allocation and promoted dataset"
+        )
     except Exception as exc:
         blockers.append(f"{type(exc).__name__}: {exc}")
     return [
@@ -1267,14 +1511,23 @@ def distributed_gpu_proofs() -> list[ProofResult]:
 
 
 def build_report(results: list[ProofResult]) -> ProductionProofReport:
-    counts = {status: sum(item.status == status for item in results) for status in ("passed", "failed", "blocked")}
-    status: ProofStatus = "failed" if counts["failed"] else "blocked" if counts["blocked"] else "passed"
+    counts = {
+        status: sum(item.status == status for item in results)
+        for status in ("passed", "failed", "blocked")
+    }
+    status: ProofStatus = (
+        "failed" if counts["failed"] else "blocked" if counts["blocked"] else "passed"
+    )
     return ProductionProofReport(
         generated_at=now_iso(),
         environment={
-            "hostname": os.environ.get("HOSTNAME") or os.environ.get("COMPUTERNAME") or "unknown",
+            "hostname": os.environ.get("HOSTNAME")
+            or os.environ.get("COMPUTERNAME")
+            or "unknown",
             "python": os.sys.version,
-            "git_commit": command_evidence(["git", "rev-parse", "HEAD"])["stdout"].strip(),
+            "git_commit": command_evidence(["git", "rev-parse", "HEAD"])[
+                "stdout"
+            ].strip(),
         },
         proofs=results,
         passed=counts["passed"],
@@ -1285,18 +1538,56 @@ def build_report(results: list[ProofResult]) -> ProductionProofReport:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run measured Craftly training-workspace production proofs.")
-    parser.add_argument("--database-url", default=os.environ.get("CRAFTLY_DATABASE_URL", "postgresql://craftly:craftly_proof_only_change_me@127.0.0.1:55432/craftly_proof"))
-    parser.add_argument("--redis-url", default=os.environ.get("CRAFTLY_REDIS_URL", "redis://127.0.0.1:56379/0"))
-    parser.add_argument("--object-store-uri", default=os.environ.get("CRAFTLY_OBJECT_STORE_URI", "s3://craftly-proof/training-workspace"))
-    parser.add_argument("--object-store-endpoint-url", default=os.environ.get("CRAFTLY_OBJECT_STORE_ENDPOINT_URL", "http://127.0.0.1:59000"))
-    parser.add_argument("--qdrant-url", default=os.environ.get("CRAFTLY_QDRANT_URL", "http://127.0.0.1:56333"))
+    parser = argparse.ArgumentParser(
+        description="Run measured Craftly training-workspace production proofs."
+    )
+    parser.add_argument(
+        "--database-url",
+        default=os.environ.get(
+            "CRAFTLY_DATABASE_URL",
+            "postgresql://craftly:craftly_proof_only_change_me@127.0.0.1:55432/craftly_proof",
+        ),
+    )
+    parser.add_argument(
+        "--redis-url",
+        default=os.environ.get("CRAFTLY_REDIS_URL", "redis://127.0.0.1:56379/0"),
+    )
+    parser.add_argument(
+        "--object-store-uri",
+        default=os.environ.get(
+            "CRAFTLY_OBJECT_STORE_URI", "s3://craftly-proof/training-workspace"
+        ),
+    )
+    parser.add_argument(
+        "--object-store-endpoint-url",
+        default=os.environ.get(
+            "CRAFTLY_OBJECT_STORE_ENDPOINT_URL", "http://127.0.0.1:59000"
+        ),
+    )
+    parser.add_argument(
+        "--qdrant-url",
+        default=os.environ.get("CRAFTLY_QDRANT_URL", "http://127.0.0.1:56333"),
+    )
     parser.add_argument("--output-dir", default="artifacts/craftly/production-proofs")
-    parser.add_argument("--event-count", type=int, default=0, help="Set to 1000000 for the full ordered-event proof.")
-    parser.add_argument("--soak-seconds", type=int, default=0, help="Set to 86400 for the required 24-hour proof.")
+    parser.add_argument(
+        "--event-count",
+        type=int,
+        default=0,
+        help="Set to 1000000 for the full ordered-event proof.",
+    )
+    parser.add_argument(
+        "--soak-seconds",
+        type=int,
+        default=0,
+        help="Set to 86400 for the required 24-hour proof.",
+    )
     parser.add_argument("--soak-interval-seconds", type=int, default=30)
     parser.add_argument("--skip-infrastructure", action="store_true")
-    parser.add_argument("--skip-capability-probes", action="store_true", help="Omit unrelated scheduler/GPU probes from a targeted proof report.")
+    parser.add_argument(
+        "--skip-capability-probes",
+        action="store_true",
+        help="Omit unrelated scheduler/GPU probes from a targeted proof report.",
+    )
     parser.add_argument("--docker-project", default="craftly-proof")
     parser.add_argument("--skip-disaster-recovery", action="store_true")
     parser.add_argument(
@@ -1311,16 +1602,30 @@ def parse_args() -> argparse.Namespace:
         help="Kubernetes workload as namespace:kind:name; repeat for each control-plane dependency.",
     )
     parser.add_argument("--dr-rollout-timeout-seconds", type=int, default=600)
-    parser.add_argument("--live-profile", action="append", default=[], help="Submit and watch this real cluster profile; repeatable.")
+    parser.add_argument(
+        "--live-profile",
+        action="append",
+        default=[],
+        help="Submit and watch this real cluster profile; repeatable.",
+    )
     parser.add_argument("--dataset-manifest-uri")
     parser.add_argument("--dataset-manifest-sha256")
     parser.add_argument("--tokenizer-uri")
     parser.add_argument("--tokenizer-sha256")
-    parser.add_argument("--git-commit", default=os.environ.get("CRAFTLY_TRAINING_GIT_COMMIT", ""))
-    parser.add_argument("--container-digest", default=os.environ.get("CRAFTLY_TRAINING_IMAGE_DIGEST", ""))
+    parser.add_argument(
+        "--git-commit", default=os.environ.get("CRAFTLY_TRAINING_GIT_COMMIT", "")
+    )
+    parser.add_argument(
+        "--container-digest",
+        default=os.environ.get("CRAFTLY_TRAINING_IMAGE_DIGEST", ""),
+    )
     parser.add_argument("--live-timeout-seconds", type=int, default=86400)
     parser.add_argument("--live-poll-seconds", type=int, default=15)
-    parser.add_argument("--inject-worker-loss", action="store_true", help="After a verified checkpoint, kill/requeue one real worker and require recovery.")
+    parser.add_argument(
+        "--inject-worker-loss",
+        action="store_true",
+        help="After a verified checkpoint, kill/requeue one real worker and require recovery.",
+    )
     return parser.parse_args()
 
 
@@ -1410,7 +1715,9 @@ async def async_main() -> int:
         }
         missing_live = [name for name, value in required_live.items() if not value]
         if missing_live:
-            raise ValueError("live scheduler proofs require: " + ", ".join(missing_live))
+            raise ValueError(
+                "live scheduler proofs require: " + ", ".join(missing_live)
+            )
         for profile_id in args.live_profile:
             results.append(
                 await live_scheduler_execution_proof(
@@ -1435,8 +1742,13 @@ async def async_main() -> int:
         results.extend(distributed_gpu_proofs())
     report = build_report(results)
     report_path = output_dir / "production_proof_report.json"
-    report_path.write_text(json.dumps(report.model_dump(mode="json"), indent=2, sort_keys=True), encoding="utf-8")
-    print(json.dumps(report.model_dump(mode="json"), indent=2, sort_keys=True), flush=True)
+    report_path.write_text(
+        json.dumps(report.model_dump(mode="json"), indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
+    print(
+        json.dumps(report.model_dump(mode="json"), indent=2, sort_keys=True), flush=True
+    )
     return 2 if report.failed else 0
 
 

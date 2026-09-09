@@ -1,4 +1,4 @@
-﻿"""Shared strict schemas for the consolidated Craftly runtime."""
+"""Shared strict schemas for the consolidated Craftly runtime."""
 
 from __future__ import annotations
 
@@ -62,5 +62,3 @@ class SystemHealth(StrictModel):
     ok: bool
     modules: list[ModuleHealth]
     created_at_unix: float = Field(default_factory=time.time)
-
-

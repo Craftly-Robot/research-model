@@ -25,7 +25,8 @@ from src.craftly.indexing import ContextBuilder, RepositoryIndexer
 from src.craftly.model_ops.backends import ModelBackend, build_active_backend
 from src.craftly.patches import FileEdit, PatchPreviewRequest, PatchService
 from src.craftly.planning.engine import IntentPlanningEngine, PlanningResult
-from src.craftly.runtime.collaboration import CriticScore as CriticArtifact, FailureIntelligence
+from src.craftly.runtime.collaboration import CriticScore as CriticArtifact
+from src.craftly.runtime.collaboration import FailureIntelligence
 from src.craftly.runtime.taskgraph import AgentRunCreateRequest, TaskGraphRuntime
 from src.craftly.shared.schemas import StrictModel
 from src.craftly.tools import (
@@ -77,7 +78,8 @@ def stage_repository_copy(source: Path, destination: Path) -> None:
         directories[:] = [
             name
             for name in directories
-            if name not in IGNORED_STAGE_DIRECTORIES and not (root_path / name).is_symlink()
+            if name not in IGNORED_STAGE_DIRECTORIES
+            and not (root_path / name).is_symlink()
         ]
         relative_root = root_path.relative_to(source)
         target_root = destination / relative_root
@@ -124,19 +126,32 @@ class AgentExecutionRequest(StrictModel):
     def validate_commands(cls, commands: list[list[str]]) -> list[list[str]]:
         for command in commands:
             if not command or len(command) > 100:
-                raise ValueError("each verification command must contain 1-100 argv items")
-            if any(not isinstance(item, str) or not item or "\x00" in item or len(item) > 4096 for item in command):
+                raise ValueError(
+                    "each verification command must contain 1-100 argv items"
+                )
+            if any(
+                not isinstance(item, str)
+                or not item
+                or "\x00" in item
+                or len(item) > 4096
+                for item in command
+            ):
                 raise ValueError("verification command contains an invalid argv item")
         return commands
 
     @field_validator("sandbox_image")
     @classmethod
     def validate_image(cls, value: str) -> str:
-        allowed = os.environ.get("CRAFTLY_SANDBOX_IMAGES", "python:3.12-slim,ubuntu:24.04")
+        allowed = os.environ.get(
+            "CRAFTLY_SANDBOX_IMAGES", "python:3.12-slim,ubuntu:24.04"
+        )
         allowlist = {item.strip() for item in allowed.split(",") if item.strip()}
         if value not in allowlist:
             raise ValueError(f"sandbox image is not allowlisted: {value}")
-        if "@sha256:" not in value and os.environ.get("CRAFTLY_REQUIRE_PINNED_SANDBOX_IMAGE", "0") == "1":
+        if (
+            "@sha256:" not in value
+            and os.environ.get("CRAFTLY_REQUIRE_PINNED_SANDBOX_IMAGE", "0") == "1"
+        ):
             raise ValueError("production sandbox image must be pinned by sha256 digest")
         return value
 
@@ -146,9 +161,13 @@ class AgentExecutionRequest(StrictModel):
             if not self.require_sandbox:
                 raise ValueError("strict execution requires the Docker sandbox")
             if self.allow_local_test_fallback:
-                raise ValueError("strict execution cannot fall back to host test execution")
+                raise ValueError(
+                    "strict execution cannot fall back to host test execution"
+                )
             if not self.run_semgrep and not self.run_codeql:
-                raise ValueError("strict execution requires at least one defensive scanner")
+                raise ValueError(
+                    "strict execution requires at least one defensive scanner"
+                )
         return self
 
 
@@ -232,9 +251,13 @@ class JsonModelClient:
         temperature: float = 0.0,
     ) -> StrictModel:
         async with self._lock:
-            raw = await self.backend.generate(prompt, temperature=temperature, max_tokens=self.max_tokens)
+            raw = await self.backend.generate(
+                prompt, temperature=temperature, max_tokens=self.max_tokens
+            )
         if raw.lstrip().startswith("```"):
-            raise ValueError("model returned a Markdown fence; strict workers require raw JSON")
+            raise ValueError(
+                "model returned a Markdown fence; strict workers require raw JSON"
+            )
         try:
             payload = json.loads(raw)
         except json.JSONDecodeError as exc:
@@ -293,11 +316,15 @@ class ProductionRoleWorkers:
         timeout = self.state.request.task_timeout_seconds
         pool.register("understand", self.understand, timeout_seconds=timeout)
         pool.register("planner", self.plan, timeout_seconds=timeout)
-        pool.register("retrieve_context", self.retrieve_context, timeout_seconds=timeout)
+        pool.register(
+            "retrieve_context", self.retrieve_context, timeout_seconds=timeout
+        )
         pool.register("edit", self.edit, timeout_seconds=timeout)
         pool.register("test", self.test, timeout_seconds=timeout)
         pool.register("security_review", self.security_review, timeout_seconds=timeout)
-        pool.register("performance_review", self.performance_review, timeout_seconds=timeout)
+        pool.register(
+            "performance_review", self.performance_review, timeout_seconds=timeout
+        )
         pool.register("critic_review", self.critic_review, timeout_seconds=timeout)
         pool.register("verify", self.verify, timeout_seconds=timeout)
         pool.register("summarize", self.summarize, timeout_seconds=timeout)
@@ -305,7 +332,11 @@ class ProductionRoleWorkers:
     async def understand(self, _task: dict[str, Any]) -> dict[str, Any]:
         return {
             "intent": self.state.request.mode,
-            "requirements": ["minimal repository patch", "measured tests", "defensive security verification"],
+            "requirements": [
+                "minimal repository patch",
+                "measured tests",
+                "defensive security verification",
+            ],
             "constraints": {
                 "original_workspace_mutation_before_accept": False,
                 "max_revisions": self.state.request.max_revisions,
@@ -349,7 +380,9 @@ class ProductionRoleWorkers:
     async def edit(self, _task: dict[str, Any]) -> dict[str, Any]:
         if self.state.plan is None or not self.state.context_prompt:
             raise RuntimeError("coder requires completed plan and repository context")
-        feedback = "\n".join(f"- {item}" for item in self.state.previous_feedback) or "- none"
+        feedback = (
+            "\n".join(f"- {item}" for item in self.state.previous_feedback) or "- none"
+        )
         prompt = (
             "You are the Craftly Coder worker. Return only JSON matching:\n"
             '{"summary":"string","edits":[{"path":"relative/path","new_content":"complete file content"}],'
@@ -359,7 +392,9 @@ class ProductionRoleWorkers:
             f"PREVIOUS VERIFIED FEEDBACK:\n{feedback}\n"
             f"REPOSITORY CONTEXT:\n{self.state.context_prompt}"
         )
-        proposal = await self.state.model.generate_model(prompt, PatchProposal, temperature=0.1)
+        proposal = await self.state.model.generate_model(
+            prompt, PatchProposal, temperature=0.1
+        )
         if not isinstance(proposal, PatchProposal):
             raise TypeError("coder schema validation failed")
         self._validate_patch(proposal)
@@ -383,7 +418,10 @@ class ProductionRoleWorkers:
         )
         await asyncio.to_thread(PatchService(self.store).apply, stage_patch.patch_id)
         self.state.stage_patch_id = stage_patch.patch_id
-        await asyncio.to_thread(RepositoryIndexer(self.store).index_project, project_id=self.state.stage_project_id)
+        await asyncio.to_thread(
+            RepositoryIndexer(self.store).index_project,
+            project_id=self.state.stage_project_id,
+        )
         return {
             "summary": proposal.summary,
             "patch_id": original_patch.patch_id,
@@ -396,7 +434,9 @@ class ProductionRoleWorkers:
     async def test(self, _task: dict[str, Any]) -> dict[str, Any]:
         if self.state.patch is None:
             raise RuntimeError("tester requires a staged patch")
-        commands = self.state.request.verification_commands or self.state.patch.test_commands
+        commands = (
+            self.state.request.verification_commands or self.state.patch.test_commands
+        )
         if not commands:
             self.state.test_evidence = {
                 "passed": False,
@@ -427,7 +467,10 @@ class ProductionRoleWorkers:
                 results = await self._run_local_tests(commands)
         else:
             results = await self._run_local_tests(commands)
-        passed = bool(results) and all(item.get("status") in {"ok", "passed"} and item.get("exit_code") == 0 for item in results)
+        passed = bool(results) and all(
+            item.get("status") in {"ok", "passed"} and item.get("exit_code") == 0
+            for item in results
+        )
         refs = [str(uuid.uuid4()) for _ in results]
         self.state.test_evidence = {
             "passed": passed,
@@ -467,7 +510,9 @@ class ProductionRoleWorkers:
             f"PATCH:\n{json.dumps(self.state.patch.model_dump() if self.state.patch else {}, sort_keys=True)}\n"
             f"SCANS:\n{json.dumps(scans, sort_keys=True)[:80_000]}"
         )
-        review = await self.state.model.generate_model(model_prompt, SecurityReviewArtifact)
+        review = await self.state.model.generate_model(
+            model_prompt, SecurityReviewArtifact
+        )
         if not isinstance(review, SecurityReviewArtifact):
             raise TypeError("security reviewer schema validation failed")
         scanner_gate = not new_findings and not (
@@ -498,7 +543,9 @@ class ProductionRoleWorkers:
             "Reject unnecessary complexity, obvious unbounded work, resource leaks, and incompatible public API changes.\n\n"
             f"PATCH:\n{json.dumps(self.state.patch.model_dump() if self.state.patch else {}, sort_keys=True)[:80_000]}"
         )
-        review = await self.state.model.generate_model(prompt, PerformanceReviewArtifact)
+        review = await self.state.model.generate_model(
+            prompt, PerformanceReviewArtifact
+        )
         if not isinstance(review, PerformanceReviewArtifact):
             raise TypeError("performance reviewer schema validation failed")
         self.state.performance_review = review.model_dump()
@@ -512,7 +559,8 @@ class ProductionRoleWorkers:
                 "index_revision": self.state.context_report.get("index_revision"),
                 "degraded": self.state.context_report.get("degraded"),
                 "evidence_ids": [
-                    chunk.get("evidence_id") for chunk in self.state.context_report.get("chunks", [])
+                    chunk.get("evidence_id")
+                    for chunk in self.state.context_report.get("chunks", [])
                 ],
             },
             "test": self.state.test_evidence,
@@ -589,7 +637,9 @@ class ProductionRoleWorkers:
             raise TypeError("summary schema validation failed")
         expected_status = "accepted" if accepted else "rejected"
         if summary.verification_status != expected_status:
-            raise ValueError("summary verification status contradicts verifier evidence")
+            raise ValueError(
+                "summary verification status contradicts verifier evidence"
+            )
         self.state.final_answer = summary.summary
         return {
             "accepted": accepted,
@@ -600,7 +650,9 @@ class ProductionRoleWorkers:
     def _validate_patch(self, proposal: PatchProposal) -> None:
         if len(proposal.edits) > self.state.request.max_patch_files:
             raise ValueError("patch exceeds configured file count")
-        total_bytes = sum(len(edit.new_content.encode("utf-8")) for edit in proposal.edits)
+        total_bytes = sum(
+            len(edit.new_content.encode("utf-8")) for edit in proposal.edits
+        )
         if total_bytes > self.state.request.max_patch_bytes:
             raise ValueError("patch exceeds configured byte limit")
         paths = [edit.path for edit in proposal.edits]
@@ -628,7 +680,10 @@ class ProductionRoleWorkers:
         scanner = SecurityScanner(root)
         output: dict[str, list[dict[str, Any]]] = {}
         if self.state.request.run_semgrep:
-            result = await asyncio.to_thread(scanner.run_semgrep, timeout_ms=int(self.state.request.task_timeout_seconds * 1000))
+            result = await asyncio.to_thread(
+                scanner.run_semgrep,
+                timeout_ms=int(self.state.request.task_timeout_seconds * 1000),
+            )
             output["semgrep"] = [result.model_dump()]
         if self.state.request.run_codeql:
             result = await asyncio.to_thread(
@@ -666,13 +721,17 @@ class ProductionRoleWorkers:
             "line": finding.get("line"),
             "message": finding.get("message") or "",
         }
-        return hashlib.sha256(json.dumps(stable, sort_keys=True).encode("utf-8")).hexdigest()
+        return hashlib.sha256(
+            json.dumps(stable, sort_keys=True).encode("utf-8")
+        ).hexdigest()
 
 
 class AgentExecutionService:
     """One-command, bounded, verified coding-agent execution service."""
 
-    def __init__(self, store: LocalStore | None = None, backend: ModelBackend | None = None) -> None:
+    def __init__(
+        self, store: LocalStore | None = None, backend: ModelBackend | None = None
+    ) -> None:
         self.store = store or LocalStore()
         self.backend = backend
         self._owns_backend = backend is None
@@ -683,12 +742,16 @@ class AgentExecutionService:
         if project is None:
             raise KeyError(f"unknown project: {request.project_id}")
         original_root = project_root(self.store, request.project_id)
-        await asyncio.to_thread(RepositoryIndexer(self.store).index_project, project_id=request.project_id)
+        await asyncio.to_thread(
+            RepositoryIndexer(self.store).index_project, project_id=request.project_id
+        )
         backend = self.backend or build_active_backend()
         if request.policy_mode == "strict" and backend.name == "mock":
             if self._owns_backend:
                 await backend.aclose()
-            raise RuntimeError("strict agent execution requires a non-mock Craftly scratch model backend")
+            raise RuntimeError(
+                "strict agent execution requires a non-mock Craftly scratch model backend"
+            )
         await asyncio.to_thread(self._preflight, request, original_root)
         model = JsonModelClient(backend, max_tokens=request.model_max_tokens)
         attempts: list[AgentExecutionAttempt] = []
@@ -725,9 +788,13 @@ class AgentExecutionService:
                 )
                 final_run_id = run.run_id
                 final_graph_id = run.task_graph_id
-                with tempfile.TemporaryDirectory(prefix=f"craftly-agent-{run.run_id[:8]}-") as stage_dir:
+                with tempfile.TemporaryDirectory(
+                    prefix=f"craftly-agent-{run.run_id[:8]}-"
+                ) as stage_dir:
                     stage_root = Path(stage_dir) / "repo"
-                    await asyncio.to_thread(stage_repository_copy, original_root, stage_root)
+                    await asyncio.to_thread(
+                        stage_repository_copy, original_root, stage_root
+                    )
                     stage_project = self.store.create_project(
                         name=f"stage-{run.run_id}",
                         repo_path=str(stage_root),
@@ -754,11 +821,15 @@ class AgentExecutionService:
                         pool = AgentWorkerPool(
                             TaskGraphRuntime(self.store),
                             concurrency=request.concurrency,
-                            lease_seconds=min(600.0, request.task_timeout_seconds + 60.0),
+                            lease_seconds=min(
+                                600.0, request.task_timeout_seconds + 60.0
+                            ),
                         )
                         workers = ProductionRoleWorkers(self.store, state)
                         workers.register(pool)
-                        pool_report = await pool.run_until_blocked_or_complete(run.task_graph_id)
+                        pool_report = await pool.run_until_blocked_or_complete(
+                            run.task_graph_id
+                        )
                         verify_task = next(
                             (
                                 task
@@ -768,9 +839,14 @@ class AgentExecutionService:
                             None,
                         )
                         verifier = (verify_task or {}).get("outputs") or state.verifier
-                        accepted = bool(verifier.get("accepted")) and pool_report.status == "completed"
+                        accepted = (
+                            bool(verifier.get("accepted"))
+                            and pool_report.status == "completed"
+                        )
                         final_confidence = float(verifier.get("confidence") or 0.0)
-                        final_answer = state.final_answer or self._failure_summary(pool_report.status, state)
+                        final_answer = state.final_answer or self._failure_summary(
+                            pool_report.status, state
+                        )
                         final_patch_id = state.original_patch_id
                         failure_ids = self._record_attempt_failures(request, state)
                         unresolved_failures.extend(failure_ids)
@@ -790,7 +866,12 @@ class AgentExecutionService:
                                 self._resolve_failures(
                                     unresolved_failures,
                                     state,
-                                    verification_ref=str((verify_task or {}).get("outputs", {}).get("agent_message_id") or run.run_id),
+                                    verification_ref=str(
+                                        (verify_task or {})
+                                        .get("outputs", {})
+                                        .get("agent_message_id")
+                                        or run.run_id
+                                    ),
                                 )
                             elif accepted:
                                 patch_status = "preview"
@@ -820,14 +901,18 @@ class AgentExecutionService:
                                 patch_id=state.original_patch_id,
                                 patch_status=patch_status,
                                 test_passed=state.test_evidence.get("passed") is True,
-                                security_passed=state.security_evidence.get("accepted") is True,
-                                verifier_reasons=list(state.verifier.get("criteria_failed", [])),
+                                security_passed=state.security_evidence.get("accepted")
+                                is True,
+                                verifier_reasons=list(
+                                    state.verifier.get("criteria_failed", [])
+                                ),
                                 failure_record_ids=failure_ids,
                                 test_evidence=state.test_evidence,
                                 security_evidence=state.security_evidence,
                                 critic_review=state.critic,
                                 verifier_decision=state.verifier,
-                                duration_ms=(time.perf_counter() - attempt_started) * 1000,
+                                duration_ms=(time.perf_counter() - attempt_started)
+                                * 1000,
                             )
                         )
                     finally:
@@ -899,16 +984,24 @@ class AgentExecutionService:
             try:
                 import docker
             except ImportError as exc:
-                raise RuntimeError("strict agent execution requires the Docker Python SDK") from exc
+                raise RuntimeError(
+                    "strict agent execution requires the Docker Python SDK"
+                ) from exc
             try:
                 client = docker.from_env()
                 client.ping()
             except Exception as exc:
-                raise RuntimeError(f"strict agent execution requires a reachable Docker engine: {exc}") from exc
+                raise RuntimeError(
+                    f"strict agent execution requires a reachable Docker engine: {exc}"
+                ) from exc
             finally:
                 if "client" in locals():
                     client.close()
-        if request.fail_on_scanner_unavailable and request.run_semgrep and shutil.which("semgrep") is None:
+        if (
+            request.fail_on_scanner_unavailable
+            and request.run_semgrep
+            and shutil.which("semgrep") is None
+        ):
             raise RuntimeError("strict agent execution requires the Semgrep CLI")
         if (
             request.fail_on_scanner_unavailable
@@ -917,12 +1010,16 @@ class AgentExecutionService:
         ):
             raise RuntimeError("strict agent execution requires the CodeQL CLI")
 
-    def _record_attempt_failures(self, request: AgentExecutionRequest, state: _AttemptState) -> list[str]:
+    def _record_attempt_failures(
+        self, request: AgentExecutionRequest, state: _AttemptState
+    ) -> list[str]:
         failures = []
         details = []
         for result in state.test_evidence.get("results", []):
             if result.get("status") not in {"ok", "passed"}:
-                details.append(str(result.get("stderr") or result.get("reason") or "test failed"))
+                details.append(
+                    str(result.get("stderr") or result.get("reason") or "test failed")
+                )
         details.extend(str(item) for item in state.security_evidence.get("issues", []))
         details.extend(str(item) for item in state.critic.get("flaws", []))
         intelligence = FailureIntelligence(self.store)
@@ -970,12 +1067,21 @@ class AgentExecutionService:
         feedback.extend(str(item) for item in state.critic.get("assumptions_wrong", []))
         feedback.extend(str(item) for item in state.critic.get("failure_modes", []))
         feedback.extend(str(item) for item in state.critic.get("security_risks", []))
-        feedback.extend(str(item) for item in state.critic.get("unverified_evidence", []))
+        feedback.extend(
+            str(item) for item in state.critic.get("unverified_evidence", [])
+        )
         feedback.extend(str(item) for item in state.security_evidence.get("issues", []))
-        feedback.extend(f"verification failed: {item}" for item in state.verifier.get("criteria_failed", []))
+        feedback.extend(
+            f"verification failed: {item}"
+            for item in state.verifier.get("criteria_failed", [])
+        )
         return feedback[:100]
 
     @staticmethod
     def _failure_summary(pool_status: str, state: _AttemptState) -> str:
-        reasons = state.verifier.get("criteria_failed") or state.critic.get("flaws") or ["worker execution failed"]
+        reasons = (
+            state.verifier.get("criteria_failed")
+            or state.critic.get("flaws")
+            or ["worker execution failed"]
+        )
         return f"Craftly rejected the patch ({pool_status}): {', '.join(str(item) for item in reasons)}"

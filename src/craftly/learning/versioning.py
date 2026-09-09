@@ -1,4 +1,4 @@
-﻿"""Dataset version manifests and append-only local ledger."""
+"""Dataset version manifests and append-only local ledger."""
 
 from __future__ import annotations
 
@@ -51,7 +51,9 @@ class DatasetVersionManifest(StrictModel):
     def write(self, path: str | Path) -> Path:
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(self.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+        target.write_text(
+            json.dumps(self.model_dump(), indent=2, sort_keys=True), encoding="utf-8"
+        )
         return target
 
 
@@ -68,18 +70,29 @@ class DatasetLedger:
         if not self.path.exists():
             return None
         latest_payload: dict[str, Any] | None = None
-        for line in self.path.read_text(encoding="utf-8", errors="replace").splitlines():
+        for line in self.path.read_text(
+            encoding="utf-8", errors="replace"
+        ).splitlines():
             if not line.strip():
                 continue
             payload = json.loads(line)
             if dataset_id is None or payload.get("dataset_id") == dataset_id:
                 latest_payload = payload
-        return DatasetVersionManifest.model_validate(latest_payload) if latest_payload else None
+        return (
+            DatasetVersionManifest.model_validate(latest_payload)
+            if latest_payload
+            else None
+        )
 
 
 def artifact_from_path(path: str | Path, *, role: str) -> DatasetArtifact:
     source = Path(path)
-    return DatasetArtifact(path=str(source), role=role, size_bytes=source.stat().st_size, sha256=file_sha256(source))
+    return DatasetArtifact(
+        path=str(source),
+        role=role,
+        size_bytes=source.stat().st_size,
+        sha256=file_sha256(source),
+    )
 
 
 def build_version_id(dataset_id: str, artifact_hashes: list[str]) -> str:
@@ -90,4 +103,3 @@ def build_version_id(dataset_id: str, artifact_hashes: list[str]) -> str:
     for item in sorted(artifact_hashes):
         digest.update(item.encode("utf-8"))
     return digest.hexdigest()[:16]
-

@@ -1,4 +1,4 @@
-﻿"""SQLite-backed local store for the Craftly MVP.
+"""SQLite-backed local store for the Craftly MVP.
 
 The production contract is Postgres. This local store mirrors the MVP tables so
 the gateway, indexer, context builder, and tests can run immediately on a
@@ -18,7 +18,6 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Iterator
-
 
 SQLITE_SCHEMA = """
 PRAGMA foreign_keys = ON;
@@ -329,7 +328,9 @@ CREATE INDEX IF NOT EXISTS idx_rag_outbox_pending ON rag_outbox_events(status, a
 
 
 def default_store_path() -> Path:
-    return Path(os.environ.get("CRAFTLY_SQLITE_PATH", "artifacts/craftly/craftly.sqlite3"))
+    return Path(
+        os.environ.get("CRAFTLY_SQLITE_PATH", "artifacts/craftly/craftly.sqlite3")
+    )
 
 
 def now_unix() -> float:
@@ -366,34 +367,72 @@ class LocalStore:
             return self._connection
 
     def _ensure_runtime_columns(self, connection: sqlite3.Connection) -> None:
-        task_columns = {row["name"] for row in connection.execute("PRAGMA table_info(tasks)").fetchall()}
+        task_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(tasks)").fetchall()
+        }
         if "attempt" not in task_columns:
-            connection.execute("ALTER TABLE tasks ADD COLUMN attempt INTEGER NOT NULL DEFAULT 0")
+            connection.execute(
+                "ALTER TABLE tasks ADD COLUMN attempt INTEGER NOT NULL DEFAULT 0"
+            )
         if "max_attempts" not in task_columns:
-            connection.execute("ALTER TABLE tasks ADD COLUMN max_attempts INTEGER NOT NULL DEFAULT 2")
+            connection.execute(
+                "ALTER TABLE tasks ADD COLUMN max_attempts INTEGER NOT NULL DEFAULT 2"
+            )
         if "lease_owner" not in task_columns:
             connection.execute("ALTER TABLE tasks ADD COLUMN lease_owner TEXT")
         if "lease_expires_at" not in task_columns:
             connection.execute("ALTER TABLE tasks ADD COLUMN lease_expires_at REAL")
         if "cancel_requested" not in task_columns:
-            connection.execute("ALTER TABLE tasks ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0")
-        project_columns = {row["name"] for row in connection.execute("PRAGMA table_info(projects)").fetchall()}
+            connection.execute(
+                "ALTER TABLE tasks ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0"
+            )
+        project_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(projects)").fetchall()
+        }
         if "organization_id" not in project_columns:
-            connection.execute("ALTER TABLE projects ADD COLUMN organization_id TEXT NOT NULL DEFAULT 'local'")
+            connection.execute(
+                "ALTER TABLE projects ADD COLUMN organization_id TEXT NOT NULL DEFAULT 'local'"
+            )
         if "active_index_revision" not in project_columns:
-            connection.execute("ALTER TABLE projects ADD COLUMN active_index_revision TEXT")
+            connection.execute(
+                "ALTER TABLE projects ADD COLUMN active_index_revision TEXT"
+            )
         if "index_error" not in project_columns:
             connection.execute("ALTER TABLE projects ADD COLUMN index_error TEXT")
-        memory_columns = {row["name"] for row in connection.execute("PRAGMA table_info(memory_entries)").fetchall()}
+        memory_columns = {
+            row["name"]
+            for row in connection.execute(
+                "PRAGMA table_info(memory_entries)"
+            ).fetchall()
+        }
         if "organization_id" not in memory_columns:
-            connection.execute("ALTER TABLE memory_entries ADD COLUMN organization_id TEXT NOT NULL DEFAULT 'local'")
-        file_columns = {row["name"] for row in connection.execute("PRAGMA table_info(workspace_files)").fetchall()}
+            connection.execute(
+                "ALTER TABLE memory_entries ADD COLUMN organization_id TEXT NOT NULL DEFAULT 'local'"
+            )
+        file_columns = {
+            row["name"]
+            for row in connection.execute(
+                "PRAGMA table_info(workspace_files)"
+            ).fetchall()
+        }
         if "index_revision" not in file_columns:
-            connection.execute("ALTER TABLE workspace_files ADD COLUMN index_revision TEXT")
-        chunk_columns = {row["name"] for row in connection.execute("PRAGMA table_info(code_chunks)").fetchall()}
+            connection.execute(
+                "ALTER TABLE workspace_files ADD COLUMN index_revision TEXT"
+            )
+        chunk_columns = {
+            row["name"]
+            for row in connection.execute("PRAGMA table_info(code_chunks)").fetchall()
+        }
         if "index_revision" not in chunk_columns:
             connection.execute("ALTER TABLE code_chunks ADD COLUMN index_revision TEXT")
-        job_columns = {row["name"] for row in connection.execute("PRAGMA table_info(rag_index_jobs)").fetchall()}
+        job_columns = {
+            row["name"]
+            for row in connection.execute(
+                "PRAGMA table_info(rag_index_jobs)"
+            ).fetchall()
+        }
         for column, declaration in {
             "request_json": "TEXT NOT NULL DEFAULT '{}'",
             "result_json": "TEXT NOT NULL DEFAULT '{}'",
@@ -403,8 +442,15 @@ class LocalStore:
             "finished_at": "REAL",
         }.items():
             if column not in job_columns:
-                connection.execute(f"ALTER TABLE rag_index_jobs ADD COLUMN {column} {declaration}")
-        outbox_columns = {row["name"] for row in connection.execute("PRAGMA table_info(rag_outbox_events)").fetchall()}
+                connection.execute(
+                    f"ALTER TABLE rag_index_jobs ADD COLUMN {column} {declaration}"
+                )
+        outbox_columns = {
+            row["name"]
+            for row in connection.execute(
+                "PRAGMA table_info(rag_outbox_events)"
+            ).fetchall()
+        }
         for column, declaration in {
             "max_attempts": "INTEGER NOT NULL DEFAULT 5",
             "lease_owner": "TEXT",
@@ -412,7 +458,9 @@ class LocalStore:
             "error": "TEXT",
         }.items():
             if column not in outbox_columns:
-                connection.execute(f"ALTER TABLE rag_outbox_events ADD COLUMN {column} {declaration}")
+                connection.execute(
+                    f"ALTER TABLE rag_outbox_events ADD COLUMN {column} {declaration}"
+                )
 
     def close(self) -> None:
         with self._lock:
@@ -426,7 +474,9 @@ class LocalStore:
     def __exit__(self, *_exc: object) -> None:
         self.close()
 
-    def ensure_organization(self, organization_id: str, *, name: str | None = None) -> dict[str, Any]:
+    def ensure_organization(
+        self, organization_id: str, *, name: str | None = None
+    ) -> dict[str, Any]:
         if not organization_id or len(organization_id) > 128:
             raise ValueError("organization_id must contain 1-128 characters")
         self.connection.execute(
@@ -434,13 +484,17 @@ class LocalStore:
             (organization_id, name or organization_id, now_unix()),
         )
         self.connection.commit()
-        row = self.connection.execute("SELECT * FROM organizations WHERE id = ?", (organization_id,)).fetchone()
+        row = self.connection.execute(
+            "SELECT * FROM organizations WHERE id = ?", (organization_id,)
+        ).fetchone()
         result = row_to_dict(row)
         if result is None:
             raise RuntimeError("organization insert did not round-trip")
         return result
 
-    def add_organization_member(self, organization_id: str, user_id: str, *, role: str = "member") -> None:
+    def add_organization_member(
+        self, organization_id: str, user_id: str, *, role: str = "member"
+    ) -> None:
         if role not in {"owner", "admin", "member", "viewer"}:
             raise ValueError("unsupported organization role")
         self.ensure_organization(organization_id)
@@ -474,7 +528,15 @@ class LocalStore:
             INSERT INTO projects(id, organization_id, name, repo_path, default_branch, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (project_id, organization_id, name, str(Path(repo_path).resolve()), default_branch, timestamp, timestamp),
+            (
+                project_id,
+                organization_id,
+                name,
+                str(Path(repo_path).resolve()),
+                default_branch,
+                timestamp,
+                timestamp,
+            ),
         )
         self.connection.commit()
         if owner_user_id:
@@ -489,7 +551,9 @@ class LocalStore:
         return project
 
     def get_project(self, project_id: str) -> dict[str, Any] | None:
-        row = self.connection.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+        row = self.connection.execute(
+            "SELECT * FROM projects WHERE id = ?", (project_id,)
+        ).fetchone()
         return row_to_dict(row)
 
     def require_project_access(
@@ -516,11 +580,15 @@ class LocalStore:
         return project
 
     def delete_project(self, project_id: str) -> bool:
-        cursor = self.connection.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+        cursor = self.connection.execute(
+            "DELETE FROM projects WHERE id = ?", (project_id,)
+        )
         self.connection.commit()
         return cursor.rowcount == 1
 
-    def update_project_index_status(self, project_id: str, status: str, *, indexed_at: float | None = None) -> None:
+    def update_project_index_status(
+        self, project_id: str, status: str, *, indexed_at: float | None = None
+    ) -> None:
         self.connection.execute(
             """
             UPDATE projects
@@ -544,7 +612,9 @@ class LocalStore:
             (session_id, project_id, title, timestamp, timestamp),
         )
         self.connection.commit()
-        row = self.connection.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()
+        row = self.connection.execute(
+            "SELECT * FROM sessions WHERE id = ?", (session_id,)
+        ).fetchone()
         result = row_to_dict(row)
         if result is None:
             raise RuntimeError("session insert did not round-trip")
@@ -569,10 +639,21 @@ class LocalStore:
             INSERT INTO runs(id, project_id, session_id, prompt, mode, status, model_profile, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (run_id, project_id, session_id, prompt, mode, status, model_profile, timestamp),
+            (
+                run_id,
+                project_id,
+                session_id,
+                prompt,
+                mode,
+                status,
+                model_profile,
+                timestamp,
+            ),
         )
         self.connection.commit()
-        row = self.connection.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
+        row = self.connection.execute(
+            "SELECT * FROM runs WHERE id = ?", (run_id,)
+        ).fetchone()
         result = row_to_dict(row)
         if result is None:
             raise RuntimeError("run insert did not round-trip")
@@ -616,7 +697,16 @@ class LocalStore:
             INSERT INTO task_graphs(id, project_id, run_id, goal, status, graph_json, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (graph_id, project_id, run_id, goal, status, json.dumps(graph, sort_keys=True), timestamp, timestamp),
+            (
+                graph_id,
+                project_id,
+                run_id,
+                goal,
+                status,
+                json.dumps(graph, sort_keys=True),
+                timestamp,
+                timestamp,
+            ),
         )
         for node in graph.get("nodes", []):
             self.connection.execute(
@@ -649,7 +739,9 @@ class LocalStore:
         return result
 
     def get_task_graph(self, task_graph_id: str) -> dict[str, Any] | None:
-        graph_row = self.connection.execute("SELECT * FROM task_graphs WHERE id = ?", (task_graph_id,)).fetchone()
+        graph_row = self.connection.execute(
+            "SELECT * FROM task_graphs WHERE id = ?", (task_graph_id,)
+        ).fetchone()
         graph = row_to_dict(graph_row)
         if graph is None:
             return None
@@ -691,7 +783,9 @@ class LocalStore:
         self.connection.commit()
 
     def get_task(self, task_id: str) -> dict[str, Any] | None:
-        row = self.connection.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        row = self.connection.execute(
+            "SELECT * FROM tasks WHERE id = ?", (task_id,)
+        ).fetchone()
         data = row_to_dict(row)
         if data is None:
             return None
@@ -757,7 +851,14 @@ class LocalStore:
         )
         self.connection.commit()
 
-    def update_task_attempt(self, task_id: str, *, attempt: int, outputs: dict[str, Any] | None = None, error: str | None = None) -> None:
+    def update_task_attempt(
+        self,
+        task_id: str,
+        *,
+        attempt: int,
+        outputs: dict[str, Any] | None = None,
+        error: str | None = None,
+    ) -> None:
         self.connection.execute(
             """
             UPDATE tasks
@@ -834,7 +935,9 @@ class LocalStore:
             except Exception:
                 connection.rollback()
                 raise
-        return [task for task_id in claimed if (task := self.get_task(task_id)) is not None]
+        return [
+            task for task_id in claimed if (task := self.get_task(task_id)) is not None
+        ]
 
     def recover_expired_task_leases(self, task_graph_id: str) -> int:
         timestamp = now_unix()
@@ -855,7 +958,9 @@ class LocalStore:
         self.connection.commit()
         return cursor.rowcount
 
-    def renew_task_lease(self, task_id: str, *, worker_id: str, lease_seconds: float) -> bool:
+    def renew_task_lease(
+        self, task_id: str, *, worker_id: str, lease_seconds: float
+    ) -> bool:
         if not 1.0 <= lease_seconds <= 86_400.0:
             raise ValueError("lease_seconds must be between 1 and 86400")
         cursor = self.connection.execute(
@@ -926,7 +1031,9 @@ class LocalStore:
         return result
 
     def get_agent_message(self, message_id: str) -> dict[str, Any] | None:
-        row = self.connection.execute("SELECT * FROM agent_messages WHERE id = ?", (message_id,)).fetchone()
+        row = self.connection.execute(
+            "SELECT * FROM agent_messages WHERE id = ?", (message_id,)
+        ).fetchone()
         return self._agent_message_row(row)
 
     def list_agent_messages(
@@ -952,7 +1059,9 @@ class LocalStore:
                 "SELECT * FROM agent_messages WHERE run_id = ? ORDER BY created_at, rowid LIMIT ?",
                 (run_id, limit),
             ).fetchall()
-        return [item for row in rows if (item := self._agent_message_row(row)) is not None]
+        return [
+            item for row in rows if (item := self._agent_message_row(row)) is not None
+        ]
 
     def _agent_message_row(self, row: sqlite3.Row | None) -> dict[str, Any] | None:
         data = row_to_dict(row)
@@ -989,7 +1098,9 @@ class LocalStore:
                 ).fetchone()
                 if current is None:
                     if expected_version not in {None, 0}:
-                        raise RuntimeError("blackboard version conflict: entry does not exist")
+                        raise RuntimeError(
+                            "blackboard version conflict: entry does not exist"
+                        )
                     connection.execute(
                         """
                         INSERT INTO blackboard_entries(
@@ -1014,7 +1125,9 @@ class LocalStore:
                 else:
                     current_version = int(current["version"])
                     if bool(current["immutable"]):
-                        raise RuntimeError("immutable blackboard evidence cannot be changed")
+                        raise RuntimeError(
+                            "immutable blackboard evidence cannot be changed"
+                        )
                     if expected_version is None or expected_version != current_version:
                         raise RuntimeError(
                             f"blackboard version conflict: expected {expected_version}, current {current_version}"
@@ -1046,14 +1159,18 @@ class LocalStore:
             raise RuntimeError("blackboard write did not round-trip")
         return result
 
-    def get_blackboard_entry(self, run_id: str, entry_key: str) -> dict[str, Any] | None:
+    def get_blackboard_entry(
+        self, run_id: str, entry_key: str
+    ) -> dict[str, Any] | None:
         row = self.connection.execute(
             "SELECT * FROM blackboard_entries WHERE run_id = ? AND entry_key = ?",
             (run_id, entry_key),
         ).fetchone()
         return self._blackboard_row(row)
 
-    def list_blackboard_entries(self, run_id: str, *, kind: str | None = None) -> list[dict[str, Any]]:
+    def list_blackboard_entries(
+        self, run_id: str, *, kind: str | None = None
+    ) -> list[dict[str, Any]]:
         if kind:
             rows = self.connection.execute(
                 "SELECT * FROM blackboard_entries WHERE run_id = ? AND kind = ? ORDER BY created_at, rowid",
@@ -1173,14 +1290,18 @@ class LocalStore:
         return result
 
     def get_failure(self, failure_id: str) -> dict[str, Any] | None:
-        row = self.connection.execute("SELECT * FROM failure_records WHERE id = ?", (failure_id,)).fetchone()
+        row = self.connection.execute(
+            "SELECT * FROM failure_records WHERE id = ?", (failure_id,)
+        ).fetchone()
         data = row_to_dict(row)
         if data is None:
             return None
         data["metadata"] = json.loads(data.pop("metadata_json") or "{}")
         return data
 
-    def list_failure_clusters(self, project_id: str | None = None) -> list[dict[str, Any]]:
+    def list_failure_clusters(
+        self, project_id: str | None = None
+    ) -> list[dict[str, Any]]:
         rows = self.connection.execute(
             """
             SELECT cluster_key, signature, SUM(occurrence_count) AS occurrence_count,
@@ -1229,7 +1350,9 @@ class LocalStore:
             ),
         )
         self.connection.commit()
-        row = self.connection.execute("SELECT * FROM learning_candidates WHERE id = ?", (candidate_id,)).fetchone()
+        row = self.connection.execute(
+            "SELECT * FROM learning_candidates WHERE id = ?", (candidate_id,)
+        ).fetchone()
         result = row_to_dict(row)
         if result is None:
             raise RuntimeError("learning candidate insert did not round-trip")
@@ -1244,7 +1367,9 @@ class LocalStore:
         self.connection.commit()
 
     def get_run(self, run_id: str) -> dict[str, Any] | None:
-        row = self.connection.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
+        row = self.connection.execute(
+            "SELECT * FROM runs WHERE id = ?", (run_id,)
+        ).fetchone()
         return row_to_dict(row)
 
     def create_patch_record(
@@ -1284,7 +1409,9 @@ class LocalStore:
         return patch
 
     def get_patch(self, patch_id: str) -> dict[str, Any] | None:
-        row = self.connection.execute("SELECT * FROM patches WHERE id = ?", (patch_id,)).fetchone()
+        row = self.connection.execute(
+            "SELECT * FROM patches WHERE id = ?", (patch_id,)
+        ).fetchone()
         data = row_to_dict(row)
         if data is None:
             return None
@@ -1292,7 +1419,14 @@ class LocalStore:
         data["backup"] = json.loads(data.pop("backup_json") or "{}")
         return data
 
-    def update_patch_status(self, patch_id: str, status: str, *, applied: bool = False, rolled_back: bool = False) -> None:
+    def update_patch_status(
+        self,
+        patch_id: str,
+        status: str,
+        *,
+        applied: bool = False,
+        rolled_back: bool = False,
+    ) -> None:
         timestamp = now_unix()
         self.connection.execute(
             """
@@ -1307,8 +1441,12 @@ class LocalStore:
         self.connection.commit()
 
     def clear_index(self, project_id: str) -> None:
-        self.connection.execute("DELETE FROM code_chunks WHERE project_id = ?", (project_id,))
-        self.connection.execute("DELETE FROM workspace_files WHERE project_id = ?", (project_id,))
+        self.connection.execute(
+            "DELETE FROM code_chunks WHERE project_id = ?", (project_id,)
+        )
+        self.connection.execute(
+            "DELETE FROM workspace_files WHERE project_id = ?", (project_id,)
+        )
         self.connection.commit()
 
     def list_workspace_file_hashes(self, project_id: str) -> dict[str, str]:
@@ -1358,7 +1496,9 @@ class LocalStore:
                     ),
                 )
             except sqlite3.IntegrityError as exc:
-                raise RuntimeError("another index generation is already building for this project") from exc
+                raise RuntimeError(
+                    "another index generation is already building for this project"
+                ) from exc
             self.connection.execute(
                 "UPDATE projects SET index_status = 'indexing', index_error = NULL, updated_at = ? WHERE id = ?",
                 (timestamp, project_id),
@@ -1445,11 +1585,17 @@ class LocalStore:
                 if revision is None:
                     raise KeyError(f"unknown index revision: {revision_id}")
                 if revision["status"] != "building":
-                    raise RuntimeError("only a building index revision can be committed")
+                    raise RuntimeError(
+                        "only a building index revision can be committed"
+                    )
                 project_id = str(revision["project_id"])
                 timestamp = now_unix()
-                self.connection.execute("DELETE FROM code_chunks WHERE project_id = ?", (project_id,))
-                self.connection.execute("DELETE FROM workspace_files WHERE project_id = ?", (project_id,))
+                self.connection.execute(
+                    "DELETE FROM code_chunks WHERE project_id = ?", (project_id,)
+                )
+                self.connection.execute(
+                    "DELETE FROM workspace_files WHERE project_id = ?", (project_id,)
+                )
                 self.connection.executemany(
                     """
                     INSERT INTO workspace_files(
@@ -1459,8 +1605,14 @@ class LocalStore:
                     """,
                     [
                         (
-                            item["id"], project_id, item["path"], item.get("language"),
-                            item["content_hash"], item["size_bytes"], revision_id, timestamp,
+                            item["id"],
+                            project_id,
+                            item["path"],
+                            item.get("language"),
+                            item["content_hash"],
+                            item["size_bytes"],
+                            revision_id,
+                            timestamp,
                         )
                         for item in file_rows
                     ],
@@ -1475,10 +1627,21 @@ class LocalStore:
                     """,
                     [
                         (
-                            item["id"], project_id, item["file_id"], item["path"], item.get("language"),
-                            item["start_line"], item["end_line"], item.get("symbol_name"), item["kind"],
-                            item["chunk_hash"], item["token_count"], item["content"],
-                            json.dumps(item.get("metadata", {}), sort_keys=True), revision_id, timestamp,
+                            item["id"],
+                            project_id,
+                            item["file_id"],
+                            item["path"],
+                            item.get("language"),
+                            item["start_line"],
+                            item["end_line"],
+                            item.get("symbol_name"),
+                            item["kind"],
+                            item["chunk_hash"],
+                            item["token_count"],
+                            item["content"],
+                            json.dumps(item.get("metadata", {}), sort_keys=True),
+                            revision_id,
+                            timestamp,
                         )
                         for item in chunk_rows
                     ],
@@ -1520,7 +1683,10 @@ class LocalStore:
                         revision["organization_id"],
                         project_id,
                         revision_id,
-                        json.dumps({"revision_id": revision_id, "manifest": manifest}, sort_keys=True),
+                        json.dumps(
+                            {"revision_id": revision_id, "manifest": manifest},
+                            sort_keys=True,
+                        ),
                         timestamp,
                         timestamp,
                     ),
@@ -1578,8 +1744,14 @@ class LocalStore:
             ).fetchone()
             if existing is not None:
                 job = self._rag_job_row(existing)
-                if job is None or json.dumps(job["request"], sort_keys=True, separators=(",", ":")) != encoded:
-                    raise ValueError("idempotency key is already bound to a different request")
+                if (
+                    job is None
+                    or json.dumps(job["request"], sort_keys=True, separators=(",", ":"))
+                    != encoded
+                ):
+                    raise ValueError(
+                        "idempotency key is already bound to a different request"
+                    )
                 return job
             self.connection.execute(
                 """
@@ -1590,8 +1762,15 @@ class LocalStore:
                 ) VALUES (?, ?, ?, ?, 'queued', ?, ?, '{}', ?, ?, ?)
                 """,
                 (
-                    job_id, organization_id, project_id, idempotency_key,
-                    max_attempts, encoded, timestamp, timestamp, timestamp,
+                    job_id,
+                    organization_id,
+                    project_id,
+                    idempotency_key,
+                    max_attempts,
+                    encoded,
+                    timestamp,
+                    timestamp,
+                    timestamp,
                 ),
             )
             self.connection.commit()
@@ -1600,7 +1779,9 @@ class LocalStore:
             raise RuntimeError("index job insert did not round-trip")
         return job
 
-    def get_index_job(self, job_id: str, *, organization_id: str | None = None) -> dict[str, Any] | None:
+    def get_index_job(
+        self, job_id: str, *, organization_id: str | None = None
+    ) -> dict[str, Any] | None:
         sql = "SELECT * FROM rag_index_jobs WHERE id = ?"
         parameters: list[Any] = [job_id]
         if organization_id is not None:
@@ -1623,9 +1804,14 @@ class LocalStore:
             parameters.append(project_id)
         sql += " ORDER BY created_at DESC LIMIT ?"
         parameters.append(limit)
-        return [self._rag_job_row(row) for row in self.connection.execute(sql, parameters).fetchall()]  # type: ignore[misc]
+        return [
+            self._rag_job_row(row)
+            for row in self.connection.execute(sql, parameters).fetchall()
+        ]  # type: ignore[misc]
 
-    def claim_index_job(self, *, worker_id: str, lease_seconds: int = 60) -> dict[str, Any] | None:
+    def claim_index_job(
+        self, *, worker_id: str, lease_seconds: int = 60
+    ) -> dict[str, Any] | None:
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{2,127}", worker_id):
             raise ValueError("worker_id contains unsafe characters")
         lease_seconds = min(max(lease_seconds, 10), 900)
@@ -1665,14 +1851,21 @@ class LocalStore:
                 raise
         return self.get_index_job(str(row["id"]))
 
-    def heartbeat_index_job(self, job_id: str, *, worker_id: str, lease_seconds: int = 60) -> bool:
+    def heartbeat_index_job(
+        self, job_id: str, *, worker_id: str, lease_seconds: int = 60
+    ) -> bool:
         timestamp = now_unix()
         cursor = self.connection.execute(
             """
             UPDATE rag_index_jobs SET lease_expires_at = ?, updated_at = ?
             WHERE id = ? AND status = 'running' AND lease_owner = ? AND cancel_requested = 0
             """,
-            (timestamp + min(max(lease_seconds, 10), 900), timestamp, job_id, worker_id),
+            (
+                timestamp + min(max(lease_seconds, 10), 900),
+                timestamp,
+                job_id,
+                worker_id,
+            ),
         )
         self.connection.commit()
         return cursor.rowcount == 1
@@ -1682,9 +1875,13 @@ class LocalStore:
             "SELECT cancel_requested, status FROM rag_index_jobs WHERE id = ?",
             (job_id,),
         ).fetchone()
-        return row is None or bool(row["cancel_requested"]) or row["status"] == "cancelled"
+        return (
+            row is None or bool(row["cancel_requested"]) or row["status"] == "cancelled"
+        )
 
-    def request_index_job_cancel(self, job_id: str, *, organization_id: str) -> dict[str, Any]:
+    def request_index_job_cancel(
+        self, job_id: str, *, organization_id: str
+    ) -> dict[str, Any]:
         timestamp = now_unix()
         cursor = self.connection.execute(
             """
@@ -1701,7 +1898,12 @@ class LocalStore:
         job = self.get_index_job(job_id, organization_id=organization_id)
         if job is None:
             raise KeyError("index job not found")
-        if cursor.rowcount == 0 and job["status"] not in {"cancelled", "succeeded", "failed", "dead_letter"}:
+        if cursor.rowcount == 0 and job["status"] not in {
+            "cancelled",
+            "succeeded",
+            "failed",
+            "dead_letter",
+        }:
             raise RuntimeError("index job cannot be cancelled from its current state")
         return job
 
@@ -1753,8 +1955,16 @@ class LocalStore:
                     raise RuntimeError("index job lease was lost")
                 cancelled = bool(row["cancel_requested"])
                 exhausted = int(row["attempt"]) >= int(row["max_attempts"])
-                status = "cancelled" if cancelled else "dead_letter" if permanent or exhausted else "queued"
-                finished_at = timestamp if status in {"cancelled", "dead_letter"} else None
+                status = (
+                    "cancelled"
+                    if cancelled
+                    else "dead_letter"
+                    if permanent or exhausted
+                    else "queued"
+                )
+                finished_at = (
+                    timestamp if status in {"cancelled", "dead_letter"} else None
+                )
                 self.connection.execute(
                     """
                     UPDATE rag_index_jobs
@@ -1763,8 +1973,12 @@ class LocalStore:
                     WHERE id = ?
                     """,
                     (
-                        status, error[:4096], timestamp + max(0.0, retry_delay_seconds),
-                        timestamp, finished_at, job_id,
+                        status,
+                        error[:4096],
+                        timestamp + max(0.0, retry_delay_seconds),
+                        timestamp,
+                        finished_at,
+                        job_id,
                     ),
                 )
                 self.connection.commit()
@@ -1775,7 +1989,9 @@ class LocalStore:
         assert job is not None
         return job
 
-    def claim_rag_outbox(self, *, worker_id: str, lease_seconds: int = 60) -> dict[str, Any] | None:
+    def claim_rag_outbox(
+        self, *, worker_id: str, lease_seconds: int = 60
+    ) -> dict[str, Any] | None:
         timestamp = now_unix()
         with self._lock:
             self.connection.commit()
@@ -1802,14 +2018,20 @@ class LocalStore:
                         lease_expires_at = ?, error = NULL
                     WHERE id = ?
                     """,
-                    (worker_id, timestamp + min(max(lease_seconds, 10), 900), row["id"]),
+                    (
+                        worker_id,
+                        timestamp + min(max(lease_seconds, 10), 900),
+                        row["id"],
+                    ),
                 )
                 self.connection.commit()
             except Exception:
                 self.connection.rollback()
                 raise
         return self._rag_outbox_row(
-            self.connection.execute("SELECT * FROM rag_outbox_events WHERE id = ?", (row["id"],)).fetchone()
+            self.connection.execute(
+                "SELECT * FROM rag_outbox_events WHERE id = ?", (row["id"],)
+            ).fetchone()
         )
 
     def complete_rag_outbox(self, event_id: str, *, worker_id: str) -> None:
@@ -1826,7 +2048,9 @@ class LocalStore:
         if cursor.rowcount != 1:
             raise RuntimeError("RAG outbox lease was lost")
 
-    def fail_rag_outbox(self, event_id: str, *, worker_id: str, error: str, retry_delay_seconds: float) -> None:
+    def fail_rag_outbox(
+        self, event_id: str, *, worker_id: str, error: str, retry_delay_seconds: float
+    ) -> None:
         timestamp = now_unix()
         with self._lock:
             row = self.connection.execute(
@@ -1835,14 +2059,23 @@ class LocalStore:
             ).fetchone()
             if row is None:
                 raise RuntimeError("RAG outbox lease was lost")
-            status = "dead_letter" if int(row["attempt"]) >= int(row["max_attempts"]) else "pending"
+            status = (
+                "dead_letter"
+                if int(row["attempt"]) >= int(row["max_attempts"])
+                else "pending"
+            )
             self.connection.execute(
                 """
                 UPDATE rag_outbox_events SET status = ?, error = ?, available_at = ?,
                   lease_owner = NULL, lease_expires_at = NULL
                 WHERE id = ?
                 """,
-                (status, error[:4096], timestamp + max(0.0, retry_delay_seconds), event_id),
+                (
+                    status,
+                    error[:4096],
+                    timestamp + max(0.0, retry_delay_seconds),
+                    event_id,
+                ),
             )
             self.connection.commit()
 
@@ -1923,7 +2156,9 @@ class LocalStore:
         ).fetchall()
         return [self._chunk_row(row) for row in rows]
 
-    def get_chunk(self, chunk_id: str, *, project_id: str | None = None) -> dict[str, Any] | None:
+    def get_chunk(
+        self, chunk_id: str, *, project_id: str | None = None
+    ) -> dict[str, Any] | None:
         sql = """
             SELECT c.*, f.content_hash AS file_hash
             FROM code_chunks c JOIN workspace_files f ON f.id = c.file_id
@@ -2016,7 +2251,9 @@ class LocalStore:
         return result
 
     def get_memory_entry(self, entry_id: str) -> dict[str, Any] | None:
-        row = self.connection.execute("SELECT * FROM memory_entries WHERE id = ?", (entry_id,)).fetchone()
+        row = self.connection.execute(
+            "SELECT * FROM memory_entries WHERE id = ?", (entry_id,)
+        ).fetchone()
         data = row_to_dict(row)
         if data is None:
             return None
@@ -2024,7 +2261,9 @@ class LocalStore:
         data["metadata"] = json.loads(data.pop("metadata_json") or "{}")
         return data
 
-    def list_memory_entries(self, project_id: str | None = None, *, kinds: list[str] | None = None) -> list[dict[str, Any]]:
+    def list_memory_entries(
+        self, project_id: str | None = None, *, kinds: list[str] | None = None
+    ) -> list[dict[str, Any]]:
         params: list[Any] = []
         if project_id is not None:
             project = self.get_project(project_id)
@@ -2090,7 +2329,9 @@ class PostgresRAGStore:
             from psycopg.rows import dict_row
             from psycopg_pool import ConnectionPool
         except ImportError as exc:  # pragma: no cover - readiness handles it.
-            raise RuntimeError("psycopg and psycopg_pool are required for Postgres RAG persistence") from exc
+            raise RuntimeError(
+                "psycopg and psycopg_pool are required for Postgres RAG persistence"
+            ) from exc
         normalized_dsn = dsn.replace("postgresql+psycopg://", "postgresql://", 1)
         self._pool = ConnectionPool(
             conninfo=normalized_dsn,
@@ -2152,7 +2393,9 @@ class PostgresRAGStore:
         result["id"] = str(result["id"])
         result["project_id"] = str(result["project_id"])
         result["file_id"] = str(result["file_id"])
-        result["index_revision"] = str(result["index_revision"]) if result.get("index_revision") else None
+        result["index_revision"] = (
+            str(result["index_revision"]) if result.get("index_revision") else None
+        )
         result["metadata"] = cls._json(result.pop("metadata", {}) or {})
         return result
 
@@ -2178,7 +2421,9 @@ class PostgresRAGStore:
         result["payload"] = cls._json(result.pop("payload", {}) or {})
         return result
 
-    def ensure_organization(self, organization_id: str, *, name: str | None = None) -> dict[str, Any]:
+    def ensure_organization(
+        self, organization_id: str, *, name: str | None = None
+    ) -> dict[str, Any]:
         if str(uuid.UUID(organization_id)) != self.organization_id:
             raise PermissionError("organization binding mismatch")
         with self._connection() as connection:
@@ -2193,7 +2438,9 @@ class PostgresRAGStore:
         assert row is not None
         return dict(row)
 
-    def add_organization_member(self, organization_id: str, user_id: str, *, role: str = "member") -> None:
+    def add_organization_member(
+        self, organization_id: str, user_id: str, *, role: str = "member"
+    ) -> None:
         if organization_id != self.organization_id:
             raise PermissionError("organization binding mismatch")
         if role not in {"owner", "admin", "member", "viewer"}:
@@ -2230,7 +2477,13 @@ class PostgresRAGStore:
                 INSERT INTO projects(id,organization_id,name,repo_path,default_branch,index_status)
                 VALUES (%s::uuid,%s::uuid,%s,%s,%s,'not_indexed') RETURNING *
                 """,
-                (identifier, organization_id, name, str(Path(repo_path).resolve()), default_branch),
+                (
+                    identifier,
+                    organization_id,
+                    name,
+                    str(Path(repo_path).resolve()),
+                    default_branch,
+                ),
             ).fetchone()
             if owner_user_id:
                 connection.execute(
@@ -2312,8 +2565,13 @@ class PostgresRAGStore:
                 ) VALUES (%s::uuid,%s::uuid,%s::uuid,%s,%s,%s,'building',%s) RETURNING *
                 """,
                 (
-                    revision_id, self.organization_id, kwargs["project_id"], kwargs["source_revision"],
-                    kwargs["source_snapshot_sha256"], kwargs["chunker_version"], Jsonb(kwargs["manifest"]),
+                    revision_id,
+                    self.organization_id,
+                    kwargs["project_id"],
+                    kwargs["source_revision"],
+                    kwargs["source_snapshot_sha256"],
+                    kwargs["chunker_version"],
+                    Jsonb(kwargs["manifest"]),
                 ),
             ).fetchone()
             connection.execute(
@@ -2370,7 +2628,9 @@ class PostgresRAGStore:
         file_rows = list(files)
         chunk_rows = list(chunks)
         file_ids = {str(item["id"]) for item in file_rows}
-        if len(file_ids) != len(file_rows) or len({str(item["id"]) for item in chunk_rows}) != len(chunk_rows):
+        if len(file_ids) != len(file_rows) or len(
+            {str(item["id"]) for item in chunk_rows}
+        ) != len(chunk_rows):
             raise ValueError("index revision contains duplicate IDs")
         if any(str(item["file_id"]) not in file_ids for item in chunk_rows):
             raise ValueError("index revision chunk references an unknown file")
@@ -2386,8 +2646,12 @@ class PostgresRAGStore:
             if revision is None or revision["status"] != "building":
                 raise RuntimeError("only a building revision can be committed")
             project_id = str(revision["project_id"])
-            connection.execute("DELETE FROM code_chunks WHERE project_id=%s::uuid", (project_id,))
-            connection.execute("DELETE FROM workspace_files WHERE project_id=%s::uuid", (project_id,))
+            connection.execute(
+                "DELETE FROM code_chunks WHERE project_id=%s::uuid", (project_id,)
+            )
+            connection.execute(
+                "DELETE FROM workspace_files WHERE project_id=%s::uuid", (project_id,)
+            )
             with connection.cursor().copy(
                 """
                 COPY workspace_files(id,project_id,path,language,content_hash,size_bytes,index_revision,indexed_at)
@@ -2397,8 +2661,14 @@ class PostgresRAGStore:
                 for item in file_rows:
                     copy.write_row(
                         (
-                            item["id"], project_id, item["path"], item.get("language"), item["content_hash"],
-                            item["size_bytes"], revision_id, datetime.now(timezone.utc),
+                            item["id"],
+                            project_id,
+                            item["path"],
+                            item.get("language"),
+                            item["content_hash"],
+                            item["size_bytes"],
+                            revision_id,
+                            datetime.now(timezone.utc),
                         )
                     )
             with connection.cursor().copy(
@@ -2412,10 +2682,21 @@ class PostgresRAGStore:
                 for item in chunk_rows:
                     copy.write_row(
                         (
-                            item["id"], project_id, item["file_id"], item["path"], item.get("language"),
-                            item["start_line"], item["end_line"], item.get("symbol_name"), item["kind"],
-                            item["chunk_hash"], item["token_count"], item["content"], Jsonb(item.get("metadata", {})),
-                            revision_id, datetime.now(timezone.utc),
+                            item["id"],
+                            project_id,
+                            item["file_id"],
+                            item["path"],
+                            item.get("language"),
+                            item["start_line"],
+                            item["end_line"],
+                            item.get("symbol_name"),
+                            item["kind"],
+                            item["chunk_hash"],
+                            item["token_count"],
+                            item["content"],
+                            Jsonb(item.get("metadata", {})),
+                            revision_id,
+                            datetime.now(timezone.utc),
                         )
                     )
             connection.execute(
@@ -2441,7 +2722,13 @@ class PostgresRAGStore:
                 INSERT INTO rag_outbox_events(id,organization_id,project_id,revision_id,kind,payload)
                 VALUES (%s::uuid,%s::uuid,%s::uuid,%s::uuid,'vector_sync_required',%s)
                 """,
-                (str(uuid.uuid4()), self.organization_id, project_id, revision_id, Jsonb({"revision_id": revision_id, "manifest": manifest})),
+                (
+                    str(uuid.uuid4()),
+                    self.organization_id,
+                    project_id,
+                    revision_id,
+                    Jsonb({"revision_id": revision_id, "manifest": manifest}),
+                ),
             )
         result = self._revision_row(row)
         assert result is not None
@@ -2459,7 +2746,9 @@ class PostgresRAGStore:
             ).fetchall()
         return [self._chunk_row(row) for row in rows]  # type: ignore[misc]
 
-    def get_chunk(self, chunk_id: str, *, project_id: str | None = None) -> dict[str, Any] | None:
+    def get_chunk(
+        self, chunk_id: str, *, project_id: str | None = None
+    ) -> dict[str, Any] | None:
         sql = """
           SELECT c.*,f.content_hash AS file_hash FROM code_chunks c
           JOIN workspace_files f ON f.id=c.file_id WHERE c.id=%s::uuid
@@ -2491,7 +2780,9 @@ class PostgresRAGStore:
         return {
             "project_id": project_id,
             "status": project["index_status"],
-            "active_index_revision": str(project["active_index_revision"]) if project.get("active_index_revision") else None,
+            "active_index_revision": str(project["active_index_revision"])
+            if project.get("active_index_revision")
+            else None,
             "index_error": project.get("index_error"),
             "file_count": int(counts["file_count"]),
             "chunk_count": int(counts["chunk_count"]),
@@ -2518,8 +2809,12 @@ class PostgresRAGStore:
                 ON CONFLICT(organization_id,idempotency_key) DO NOTHING RETURNING *
                 """,
                 (
-                    str(uuid.uuid4()), self.organization_id, kwargs["project_id"], key,
-                    kwargs.get("max_attempts", 3), Jsonb(kwargs.get("request") or {}),
+                    str(uuid.uuid4()),
+                    self.organization_id,
+                    kwargs["project_id"],
+                    key,
+                    kwargs.get("max_attempts", 3),
+                    Jsonb(kwargs.get("request") or {}),
                 ),
             ).fetchone()
             if row is None:
@@ -2528,21 +2823,29 @@ class PostgresRAGStore:
                     (self.organization_id, key),
                 ).fetchone()
                 existing = self._job_row(row)
-                if existing is None or existing["request"] != (kwargs.get("request") or {}):
+                if existing is None or existing["request"] != (
+                    kwargs.get("request") or {}
+                ):
                     raise ValueError("idempotency key is bound to a different request")
                 return existing
         result = self._job_row(row)
         assert result is not None
         return result
 
-    def get_index_job(self, job_id: str, *, organization_id: str | None = None) -> dict[str, Any] | None:
+    def get_index_job(
+        self, job_id: str, *, organization_id: str | None = None
+    ) -> dict[str, Any] | None:
         if organization_id is not None and organization_id != self.organization_id:
             return None
         with self._connection() as connection:
-            row = connection.execute("SELECT * FROM rag_index_jobs WHERE id=%s::uuid", (job_id,)).fetchone()
+            row = connection.execute(
+                "SELECT * FROM rag_index_jobs WHERE id=%s::uuid", (job_id,)
+            ).fetchone()
         return self._job_row(row)
 
-    def list_index_jobs(self, *, organization_id: str, project_id: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+    def list_index_jobs(
+        self, *, organization_id: str, project_id: str | None = None, limit: int = 100
+    ) -> list[dict[str, Any]]:
         if organization_id != self.organization_id:
             raise PermissionError("organization binding mismatch")
         sql = "SELECT * FROM rag_index_jobs WHERE organization_id=%s::uuid"
@@ -2556,7 +2859,9 @@ class PostgresRAGStore:
             rows = connection.execute(sql, parameters).fetchall()
         return [self._job_row(row) for row in rows]  # type: ignore[misc]
 
-    def claim_index_job(self, *, worker_id: str, lease_seconds: int = 60) -> dict[str, Any] | None:
+    def claim_index_job(
+        self, *, worker_id: str, lease_seconds: int = 60
+    ) -> dict[str, Any] | None:
         with self._connection() as connection:
             row = connection.execute(
                 """
@@ -2575,7 +2880,9 @@ class PostgresRAGStore:
             ).fetchone()
         return self._job_row(row)
 
-    def heartbeat_index_job(self, job_id: str, *, worker_id: str, lease_seconds: int = 60) -> bool:
+    def heartbeat_index_job(
+        self, job_id: str, *, worker_id: str, lease_seconds: int = 60
+    ) -> bool:
         with self._connection() as connection:
             row = connection.execute(
                 """
@@ -2592,9 +2899,13 @@ class PostgresRAGStore:
                 "SELECT cancel_requested,status FROM rag_index_jobs WHERE id=%s::uuid",
                 (job_id,),
             ).fetchone()
-        return row is None or bool(row["cancel_requested"]) or row["status"] == "cancelled"
+        return (
+            row is None or bool(row["cancel_requested"]) or row["status"] == "cancelled"
+        )
 
-    def request_index_job_cancel(self, job_id: str, *, organization_id: str) -> dict[str, Any]:
+    def request_index_job_cancel(
+        self, job_id: str, *, organization_id: str
+    ) -> dict[str, Any]:
         if organization_id != self.organization_id:
             raise PermissionError("organization binding mismatch")
         with self._connection() as connection:
@@ -2628,7 +2939,12 @@ class PostgresRAGStore:
                   error=NULL,lease_owner=NULL,lease_expires_at=NULL,updated_at=now(),finished_at=now()
                 WHERE id=%s::uuid AND status='running' AND lease_owner=%s AND cancel_requested=false RETURNING *
                 """,
-                (kwargs["revision_id"], Jsonb(kwargs.get("result") or {}), job_id, kwargs["worker_id"]),
+                (
+                    kwargs["revision_id"],
+                    Jsonb(kwargs.get("result") or {}),
+                    job_id,
+                    kwargs["worker_id"],
+                ),
             ).fetchone()
         if row is None:
             raise RuntimeError("index job lease was lost or cancellation was requested")
@@ -2646,7 +2962,13 @@ class PostgresRAGStore:
                 raise RuntimeError("index job lease was lost")
             cancelled = bool(current["cancel_requested"])
             exhausted = int(current["attempt"]) >= int(current["max_attempts"])
-            status = "cancelled" if cancelled else "dead_letter" if kwargs.get("permanent") or exhausted else "queued"
+            status = (
+                "cancelled"
+                if cancelled
+                else "dead_letter"
+                if kwargs.get("permanent") or exhausted
+                else "queued"
+            )
             row = connection.execute(
                 """
                 UPDATE rag_index_jobs SET status=%s,error=%s,lease_owner=NULL,lease_expires_at=NULL,
@@ -2654,13 +2976,21 @@ class PostgresRAGStore:
                   finished_at=CASE WHEN %s IN ('cancelled','dead_letter') THEN now() ELSE NULL END
                 WHERE id=%s::uuid RETURNING *
                 """,
-                (status, str(kwargs["error"])[:4096], max(0.0, kwargs["retry_delay_seconds"]), status, job_id),
+                (
+                    status,
+                    str(kwargs["error"])[:4096],
+                    max(0.0, kwargs["retry_delay_seconds"]),
+                    status,
+                    job_id,
+                ),
             ).fetchone()
         result = self._job_row(row)
         assert result is not None
         return result
 
-    def claim_rag_outbox(self, *, worker_id: str, lease_seconds: int = 60) -> dict[str, Any] | None:
+    def claim_rag_outbox(
+        self, *, worker_id: str, lease_seconds: int = 60
+    ) -> dict[str, Any] | None:
         with self._connection() as connection:
             row = connection.execute(
                 """
@@ -2699,13 +3029,22 @@ class PostgresRAGStore:
             ).fetchone()
             if current is None:
                 raise RuntimeError("RAG outbox lease was lost")
-            status = "dead_letter" if int(current["attempt"]) >= int(current["max_attempts"]) else "pending"
+            status = (
+                "dead_letter"
+                if int(current["attempt"]) >= int(current["max_attempts"])
+                else "pending"
+            )
             connection.execute(
                 """
                 UPDATE rag_outbox_events SET status=%s,error=%s,available_at=now()+(%s*interval '1 second'),
                   lease_owner=NULL,lease_expires_at=NULL WHERE id=%s::uuid
                 """,
-                (status, str(kwargs["error"])[:4096], max(0.0, kwargs["retry_delay_seconds"]), event_id),
+                (
+                    status,
+                    str(kwargs["error"])[:4096],
+                    max(0.0, kwargs["retry_delay_seconds"]),
+                    event_id,
+                ),
             )
 
     def insert_memory_entry(self, **kwargs: Any) -> dict[str, Any]:
@@ -2724,9 +3063,15 @@ class PostgresRAGStore:
                 ) VALUES (%s::uuid,%s::uuid,%s::uuid,%s,%s,%s::uuid,%s,%s,%s) RETURNING *
                 """,
                 (
-                    str(uuid.uuid4()), self.organization_id, project_id, kwargs["kind"],
-                    json.dumps(kwargs["content"], sort_keys=True), kwargs.get("source_run_id"),
-                    kwargs.get("relevance", 0.5), kwargs.get("success_rate", 0.5), Jsonb(kwargs.get("metadata") or {}),
+                    str(uuid.uuid4()),
+                    self.organization_id,
+                    project_id,
+                    kwargs["kind"],
+                    json.dumps(kwargs["content"], sort_keys=True),
+                    kwargs.get("source_run_id"),
+                    kwargs.get("relevance", 0.5),
+                    kwargs.get("success_rate", 0.5),
+                    Jsonb(kwargs.get("metadata") or {}),
                 ),
             ).fetchone()
         result = dict(row)
@@ -2735,7 +3080,9 @@ class PostgresRAGStore:
         result["metadata"] = self._json(result["metadata"])
         return result
 
-    def list_memory_entries(self, project_id: str | None = None, *, kinds: list[str] | None = None) -> list[dict[str, Any]]:
+    def list_memory_entries(
+        self, project_id: str | None = None, *, kinds: list[str] | None = None
+    ) -> list[dict[str, Any]]:
         sql = "SELECT * FROM memory_entries WHERE organization_id=%s::uuid"
         parameters: list[Any] = [self.organization_id]
         if project_id:
@@ -2751,7 +3098,9 @@ class PostgresRAGStore:
         for row in rows:
             item = dict(row)
             item["id"] = str(item["id"])
-            item["project_id"] = str(item["project_id"]) if item.get("project_id") else None
+            item["project_id"] = (
+                str(item["project_id"]) if item.get("project_id") else None
+            )
             item["content"] = self._json(item["content"])
             item["metadata"] = self._json(item["metadata"])
             results.append(item)
@@ -2778,7 +3127,9 @@ class PostgresRAGStore:
 class PostgresRAGStoreFactory:
     """One bounded connection pool serving immutable tenant-scoped facades."""
 
-    def __init__(self, dsn: str, *, min_pool_size: int = 1, max_pool_size: int = 20) -> None:
+    def __init__(
+        self, dsn: str, *, min_pool_size: int = 1, max_pool_size: int = 20
+    ) -> None:
         if not dsn.startswith(("postgresql://", "postgresql+psycopg://")):
             raise ValueError("PostgresRAGStoreFactory requires a postgresql:// DSN")
         if min_pool_size < 1 or max_pool_size < min_pool_size or max_pool_size > 100:
@@ -2787,7 +3138,9 @@ class PostgresRAGStoreFactory:
             from psycopg.rows import dict_row
             from psycopg_pool import ConnectionPool
         except ImportError as exc:  # pragma: no cover - readiness handles it.
-            raise RuntimeError("psycopg and psycopg_pool are required for Postgres RAG persistence") from exc
+            raise RuntimeError(
+                "psycopg and psycopg_pool are required for Postgres RAG persistence"
+            ) from exc
         self.dsn = dsn.replace("postgresql+psycopg://", "postgresql://", 1)
         self._pool = ConnectionPool(
             conninfo=self.dsn,
@@ -2799,7 +3152,9 @@ class PostgresRAGStoreFactory:
         )
 
     def for_organization(self, organization_id: str) -> PostgresRAGStore:
-        return PostgresRAGStore.from_shared_pool(self._pool, organization_id=organization_id)
+        return PostgresRAGStore.from_shared_pool(
+            self._pool, organization_id=organization_id
+        )
 
     def check(self) -> None:
         self._pool.check()
@@ -2831,7 +3186,9 @@ class PostgresRAGDispatcher:
             from psycopg.rows import dict_row
             from psycopg_pool import ConnectionPool
         except ImportError as exc:  # pragma: no cover - readiness handles it.
-            raise RuntimeError("psycopg and psycopg_pool are required for RAG dispatch") from exc
+            raise RuntimeError(
+                "psycopg and psycopg_pool are required for RAG dispatch"
+            ) from exc
         self._pool = ConnectionPool(
             conninfo=dsn.replace("postgresql+psycopg://", "postgresql://", 1),
             min_size=1,
@@ -2846,7 +3203,9 @@ class PostgresRAGDispatcher:
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{2,127}", worker_id):
             raise ValueError("worker_id contains unsafe characters")
 
-    def claim_index_job(self, *, worker_id: str, lease_seconds: int = 120) -> dict[str, Any] | None:
+    def claim_index_job(
+        self, *, worker_id: str, lease_seconds: int = 120
+    ) -> dict[str, Any] | None:
         self._validate_worker(worker_id)
         lease_seconds = min(max(lease_seconds, 10), 900)
         with self._pool.connection() as connection, connection.transaction():
@@ -2856,7 +3215,9 @@ class PostgresRAGDispatcher:
             ).fetchone()
         return PostgresRAGStore._job_row(row)
 
-    def claim_outbox(self, *, worker_id: str, lease_seconds: int = 120) -> dict[str, Any] | None:
+    def claim_outbox(
+        self, *, worker_id: str, lease_seconds: int = 120
+    ) -> dict[str, Any] | None:
         self._validate_worker(worker_id)
         lease_seconds = min(max(lease_seconds, 10), 900)
         with self._pool.connection() as connection, connection.transaction():
@@ -2874,4 +3235,3 @@ class PostgresRAGDispatcher:
 
     def __exit__(self, *_exc: object) -> None:
         self.close()
-

@@ -19,7 +19,6 @@ from pydantic import Field
 from src.craftly.learning.quality import iter_jsonl, stable_hash
 from src.craftly.shared.schemas import StrictModel
 
-
 TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|0x[0-9A-Fa-f]+|\d+")
 COMMENT_RE = re.compile(r"(?m)(^\s*#.*$|//.*$|/\*.*?\*/)", re.DOTALL)
 LSH_BANDS = 4
@@ -97,7 +96,10 @@ def _fingerprint_tokens(text: str) -> list[str]:
 def simhash64(text: str) -> int:
     weights = [0] * 64
     for token in _fingerprint_tokens(text):
-        digest = int.from_bytes(hashlib.blake2b(token.encode("utf-8", "replace"), digest_size=8).digest(), "big")
+        digest = int.from_bytes(
+            hashlib.blake2b(token.encode("utf-8", "replace"), digest_size=8).digest(),
+            "big",
+        )
         for bit in range(64):
             weights[bit] += 1 if digest & (1 << bit) else -1
     value = 0
@@ -122,7 +124,18 @@ def normalized_structure_hash(text: str, language_hint: str | None) -> str | Non
             return None
         payload = ast.dump(tree, annotate_fields=True, include_attributes=False)
         return stable_hash(f"python-ast:{payload}")
-    if normalized_language in {"c", "cpp", "c_cpp", "c_cpp_header", "go", "java", "javascript", "rust", "solidity", "typescript"}:
+    if normalized_language in {
+        "c",
+        "cpp",
+        "c_cpp",
+        "c_cpp_header",
+        "go",
+        "java",
+        "javascript",
+        "rust",
+        "solidity",
+        "typescript",
+    }:
         without_comments = COMMENT_RE.sub(" ", text)
         tokens = TOKEN_RE.findall(without_comments)
         if len(tokens) < 8:
@@ -133,22 +146,32 @@ def normalized_structure_hash(text: str, language_hint: str | None) -> str | Non
 
 def _lineage_hash(row: dict[str, Any]) -> str | None:
     metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
-    provenance = row.get("provenance") if isinstance(row.get("provenance"), dict) else {}
+    provenance = (
+        row.get("provenance") if isinstance(row.get("provenance"), dict) else {}
+    )
     values = {
         "patch_lineage": row.get("patch_lineage") or metadata.get("patch_lineage"),
         "task_signature": row.get("task_signature") or metadata.get("task_signature"),
         "generated_from": row.get("generated_from") or metadata.get("generated_from"),
-        "source_revision": provenance.get("immutable_revision") or metadata.get("source_revision"),
+        "source_revision": provenance.get("immutable_revision")
+        or metadata.get("source_revision"),
     }
-    material = {key: str(value) for key, value in values.items() if value not in {None, ""}}
-    if not any(key in material for key in ("patch_lineage", "task_signature", "generated_from")):
+    material = {
+        key: str(value) for key, value in values.items() if value not in {None, ""}
+    }
+    if not any(
+        key in material for key in ("patch_lineage", "task_signature", "generated_from")
+    ):
         return None
     return stable_hash(json.dumps(material, sort_keys=True, separators=(",", ":")))
 
 
 def _band_keys(value: int) -> list[str]:
     mask = (1 << LSH_BAND_BITS) - 1
-    return [f"{band}:{(value >> (band * LSH_BAND_BITS)) & mask:04x}" for band in range(LSH_BANDS)]
+    return [
+        f"{band}:{(value >> (band * LSH_BAND_BITS)) & mask:04x}"
+        for band in range(LSH_BANDS)
+    ]
 
 
 class SQLiteLSHDedupIndex:
@@ -181,14 +204,25 @@ class SQLiteLSHDedupIndex:
         if value is None:
             return True
         statements = {
-            ("exact_hashes", "content_hash"): "INSERT OR IGNORE INTO exact_hashes(content_hash) VALUES (?)",
-            ("structure_hashes", "structure_hash"): "INSERT OR IGNORE INTO structure_hashes(structure_hash) VALUES (?)",
-            ("lineage_hashes", "lineage_hash"): "INSERT OR IGNORE INTO lineage_hashes(lineage_hash) VALUES (?)",
+            (
+                "exact_hashes",
+                "content_hash",
+            ): "INSERT OR IGNORE INTO exact_hashes(content_hash) VALUES (?)",
+            (
+                "structure_hashes",
+                "structure_hash",
+            ): "INSERT OR IGNORE INTO structure_hashes(structure_hash) VALUES (?)",
+            (
+                "lineage_hashes",
+                "lineage_hash",
+            ): "INSERT OR IGNORE INTO lineage_hashes(lineage_hash) VALUES (?)",
         }
         try:
             statement = statements[(table, column)]
         except KeyError as exc:
-            raise ValueError(f"unsupported deduplication index: {table}.{column}") from exc
+            raise ValueError(
+                f"unsupported deduplication index: {table}.{column}"
+            ) from exc
         cursor = self.connection.execute(statement, (value,))
         return cursor.rowcount == 1
 
@@ -226,7 +260,9 @@ class SQLiteLSHDedupIndex:
         return False, comparisons
 
     def add_fingerprint(self, value: int) -> None:
-        cursor = self.connection.execute("INSERT INTO fingerprints(simhash_hex) VALUES (?)", (f"{value:016x}",))
+        cursor = self.connection.execute(
+            "INSERT INTO fingerprints(simhash_hex) VALUES (?)", (f"{value:016x}",)
+        )
         fingerprint_id = int(cursor.lastrowid)
         self.connection.executemany(
             "INSERT INTO fingerprint_bands(band_key,fingerprint_id) VALUES (?,?)",
@@ -271,7 +307,9 @@ class PostgresLSHDedupIndex:
             await self._pool.close()
             self._pool = None
 
-    async def check_and_add(self, row: dict[str, Any], *, hamming_threshold: int = 3) -> DistributedDedupDecision:
+    async def check_and_add(
+        self, row: dict[str, Any], *, hamming_threshold: int = 3
+    ) -> DistributedDedupDecision:
         if not 0 <= hamming_threshold <= 64:
             raise ValueError("hamming_threshold must be between 0 and 64")
         text = _row_text(row)
@@ -365,7 +403,10 @@ class PostgresLSHDedupIndex:
                 comparisons = 0
                 for candidate in candidates:
                     comparisons += 1
-                    if hamming_distance(fingerprint, int(candidate["simhash_hex"], 16)) <= hamming_threshold:
+                    if (
+                        hamming_distance(fingerprint, int(candidate["simhash_hex"], 16))
+                        <= hamming_threshold
+                    ):
                         await transaction.rollback()
                         return DistributedDedupDecision(
                             accepted=False,
@@ -426,9 +467,15 @@ def deduplicate_jsonl(
         raise ValueError("hamming_threshold must be between 0 and 64")
     target = Path(output_path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    resolved_index = Path(index_path) if index_path is not None else target.with_suffix(target.suffix + ".dedup.sqlite3")
+    resolved_index = (
+        Path(index_path)
+        if index_path is not None
+        else target.with_suffix(target.suffix + ".dedup.sqlite3")
+    )
     temporary_output = target.with_suffix(target.suffix + ".partial")
-    accepted = exact_duplicates = structural_duplicates = lineage_duplicates = near_duplicates = comparisons = 0
+    accepted = exact_duplicates = structural_duplicates = lineage_duplicates = (
+        near_duplicates
+    ) = comparisons = 0
     by_source: dict[str, dict[str, int]] = {}
     index = SQLiteLSHDedupIndex(resolved_index, reset=True)
     try:
@@ -483,7 +530,9 @@ def deduplicate_jsonl(
                         "lineage_hash": lineage,
                         "policy": "sqlite_lsh_v1",
                     }
-                    handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+                    handle.write(
+                        json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n"
+                    )
                     accepted += 1
                     stats["accepted"] += 1
                     if accepted % 5_000 == 0:
@@ -510,7 +559,9 @@ def deduplicate_jsonl(
 
 def iter_index_fingerprints(path: str | Path) -> Iterable[int]:
     with closing(sqlite3.connect(path)) as connection:
-        for (value,) in connection.execute("SELECT simhash_hex FROM fingerprints ORDER BY id"):
+        for (value,) in connection.execute(
+            "SELECT simhash_hex FROM fingerprints ORDER BY id"
+        ):
             yield int(value, 16)
 
 
@@ -576,7 +627,9 @@ def run_dedup_scale_validation(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Stream exact/structural/lineage/near deduplication into a SQLite LSH index.")
+    parser = argparse.ArgumentParser(
+        description="Stream exact/structural/lineage/near deduplication into a SQLite LSH index."
+    )
     parser.add_argument("--input", nargs="+")
     parser.add_argument("--output")
     parser.add_argument("--index")
@@ -593,7 +646,9 @@ def main() -> None:
         print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
         raise SystemExit(0 if report.status == "passed" else 2)
     if not args.input or not args.output:
-        parser.error("--input and --output are required unless --scale-dry-records is used")
+        parser.error(
+            "--input and --output are required unless --scale-dry-records is used"
+        )
     report = deduplicate_jsonl(
         args.input,
         args.output,

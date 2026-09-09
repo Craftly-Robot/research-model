@@ -40,7 +40,9 @@ class NativeCraftlyModelBackend(ModelBackend):
         self.raw_checkpoint_path = Path(checkpoint_path).resolve()
 
         # 1. Resolve weights and config
-        model_file, state_dict, config_dict = resolve_base_model_assets(self.raw_checkpoint_path)
+        model_file, state_dict, config_dict = resolve_base_model_assets(
+            self.raw_checkpoint_path
+        )
         self.config = ScratchDecoderConfig(**config_dict)
 
         # 2. Instantiate and load weights
@@ -57,7 +59,9 @@ class NativeCraftlyModelBackend(ModelBackend):
             if (parent / "tokenizer.json").exists():
                 tok_p = parent / "tokenizer.json"
             else:
-                tok_p = Path("artifacts/craftly/train_run/tokenizer/tokenizer.json").resolve()
+                tok_p = Path(
+                    "artifacts/craftly/train_run/tokenizer/tokenizer.json"
+                ).resolve()
 
         if not tok_p.exists():
             raise FileNotFoundError(f"Tokenizer not found at: {tok_p}")

@@ -1,4 +1,4 @@
-﻿"""Source reputation scoring for production data acquisition."""
+"""Source reputation scoring for production data acquisition."""
 
 from __future__ import annotations
 
@@ -59,7 +59,9 @@ def _wilson_lower_bound(approved: int, total: int, z: float = 1.96) -> float:
     proportion = approved / total
     denominator = 1 + (z * z / total)
     centre = proportion + (z * z / (2 * total))
-    margin = z * math.sqrt((proportion * (1 - proportion) + z * z / (4 * total)) / total)
+    margin = z * math.sqrt(
+        (proportion * (1 - proportion) + z * z / (4 * total)) / total
+    )
     return _clamp((centre - margin) / denominator)
 
 
@@ -95,14 +97,25 @@ def _duplicate_rate(dedup_report: dict[str, Any], source: str) -> float:
     accepted = int(item.get("accepted", 0))
     duplicates = sum(
         int(item.get(key, 0))
-        for key in ("exact_duplicates", "structural_duplicates", "lineage_duplicates", "near_duplicates")
+        for key in (
+            "exact_duplicates",
+            "structural_duplicates",
+            "lineage_duplicates",
+            "near_duplicates",
+        )
     )
     return _clamp(duplicates / max(1, accepted + duplicates))
 
 
-def _contamination_rate(contamination_report: dict[str, Any], source: str, rows: int) -> float:
+def _contamination_rate(
+    contamination_report: dict[str, Any], source: str, rows: int
+) -> float:
     hits = contamination_report.get("hits", []) if contamination_report else []
-    source_hits = sum(1 for hit in hits if str(hit.get("source") or hit.get("source_id") or "unknown") == source)
+    source_hits = sum(
+        1
+        for hit in hits
+        if str(hit.get("source") or hit.get("source_id") or "unknown") == source
+    )
     return _clamp(source_hits / max(1, rows))
 
 
@@ -132,15 +145,27 @@ def build_source_reputation_report(
     for item in source_quality.get("sources", []):
         source_name = str(item.get("source") or "unknown")
         rows = int(item.get("rows", 0))
-        security_coverage = _clamp(float(item.get("defensive_security_rows", 0)) / max(1, rows))
+        security_coverage = _clamp(
+            float(item.get("defensive_security_rows", 0)) / max(1, rows)
+        )
         code_coverage = _clamp(float(item.get("code_rows", 0)) / max(1, rows))
-        task_evidence = task_by_source.get(source_name, {}) if isinstance(task_by_source, dict) else {}
+        task_evidence = (
+            task_by_source.get(source_name, {})
+            if isinstance(task_by_source, dict)
+            else {}
+        )
         if isinstance(task_evidence, dict):
-            task_count = int(task_evidence.get("extracted", task_evidence.get("tasks", 0)))
+            task_count = int(
+                task_evidence.get("extracted", task_evidence.get("tasks", 0))
+            )
             task_coverage = _clamp(task_count / max(1, rows))
         else:
             task_coverage = 0.0
-        feedback_evidence = feedback_by_source.get(source_name, {}) if isinstance(feedback_by_source, dict) else {}
+        feedback_evidence = (
+            feedback_by_source.get(source_name, {})
+            if isinstance(feedback_by_source, dict)
+            else {}
+        )
         benchmark_feedback_score = _clamp(
             float(feedback_evidence.get("score", 0.0))
             if isinstance(feedback_evidence, dict)
@@ -158,10 +183,14 @@ def build_source_reputation_report(
             else 0.0
         )
         approved, reviewed_records = _review_counts(review_report, source_name)
-        review_approval_rate = _clamp(approved / reviewed_records) if reviewed_records else 0.0
+        review_approval_rate = (
+            _clamp(approved / reviewed_records) if reviewed_records else 0.0
+        )
         review_lower_bound = _wilson_lower_bound(approved, reviewed_records)
         duplicate_rate = _duplicate_rate(dedup_report, source_name)
-        contamination_rate = _contamination_rate(contamination_report, source_name, rows)
+        contamination_rate = _contamination_rate(
+            contamination_report, source_name, rows
+        )
         reputation = _clamp(
             (0.42 * avg_quality)
             + (0.20 * security_coverage)
@@ -193,7 +222,15 @@ def build_source_reputation_report(
         elif trust_tier == "quarantine" or reviewed_records < minimum_reviewed_records:
             action = "quarantine"
         else:
-            action = "promote" if reputation >= 0.82 else "watch" if reputation >= 0.64 else "throttle" if reputation >= 0.46 else "block"
+            action = (
+                "promote"
+                if reputation >= 0.82
+                else "watch"
+                if reputation >= 0.64
+                else "throttle"
+                if reputation >= 0.46
+                else "block"
+            )
         scores.append(
             SourceReputationScore(
                 source=source_name,
@@ -220,16 +257,22 @@ def build_source_reputation_report(
     return SourceReputationReport(sources=scores)
 
 
-def write_source_reputation_report(output_path: str | Path, **kwargs: object) -> SourceReputationReport:
+def write_source_reputation_report(
+    output_path: str | Path, **kwargs: object
+) -> SourceReputationReport:
     report = build_source_reputation_report(**kwargs)
     target = Path(output_path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+    target.write_text(
+        json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8"
+    )
     return report
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build Craftly source reputation report.")
+    parser = argparse.ArgumentParser(
+        description="Build Craftly source reputation report."
+    )
     parser.add_argument("--source-quality-report", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--task-report")
@@ -256,4 +299,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -15,7 +15,6 @@ from urllib.parse import urlparse
 
 import httpx
 
-
 TERMINAL_STATES = {"succeeded", "failed", "blocked", "cancelled"}
 
 
@@ -29,7 +28,11 @@ def _git_commit() -> str:
             timeout=5,
         )
         value = completed.stdout.strip().lower()
-        if completed.returncode == 0 and 7 <= len(value) <= 64 and all(character in "0123456789abcdef" for character in value):
+        if (
+            completed.returncode == 0
+            and 7 <= len(value) <= 64
+            and all(character in "0123456789abcdef" for character in value)
+        ):
             return value
     except (OSError, subprocess.SubprocessError):
         return "0000000"
@@ -47,7 +50,11 @@ def _validate_workspace_url(url: str) -> str:
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ValueError("CRAFTLY_WORKSPACE_URL must be an absolute HTTP(S) URL")
     local = parsed.hostname in {"127.0.0.1", "localhost", "::1"}
-    if parsed.scheme != "https" and not local and os.environ.get("CRAFTLY_ALLOW_INSECURE_WORKSPACE") != "1":
+    if (
+        parsed.scheme != "https"
+        and not local
+        and os.environ.get("CRAFTLY_ALLOW_INSECURE_WORKSPACE") != "1"
+    ):
         raise ValueError("non-local Craftly workspace URLs must use HTTPS")
     return normalized
 
@@ -75,8 +82,12 @@ class TrainingRun:
         self.payload = await self.workspace.get_job(self.job_id)
         return self.payload
 
-    async def follow(self, *, after_sequence: int = 0, print_events: bool = True) -> dict[str, Any]:
-        async for event in self.workspace.events(self.job_id, after_sequence=after_sequence):
+    async def follow(
+        self, *, after_sequence: int = 0, print_events: bool = True
+    ) -> dict[str, Any]:
+        async for event in self.workspace.events(
+            self.job_id, after_sequence=after_sequence
+        ):
             after_sequence = max(after_sequence, int(event.get("sequence", 0)))
             if print_events:
                 print(format_event(event), flush=True)
@@ -117,7 +128,9 @@ class Workspace:
         url = os.environ.get("CRAFTLY_WORKSPACE_URL", "")
         if not url:
             raise RuntimeError("CRAFTLY_WORKSPACE_URL is required")
-        token = os.environ.get("CRAFTLY_BOOTSTRAP_TOKEN") or os.environ.get("CRAFTLY_WORKSPACE_BOOTSTRAP_TOKEN")
+        token = os.environ.get("CRAFTLY_BOOTSTRAP_TOKEN") or os.environ.get(
+            "CRAFTLY_WORKSPACE_BOOTSTRAP_TOKEN"
+        )
         if not token:
             raise RuntimeError("CRAFTLY_BOOTSTRAP_TOKEN is required")
         verify_tls = os.environ.get("CRAFTLY_WORKSPACE_VERIFY_TLS", "1") != "0"
@@ -154,7 +167,10 @@ class Workspace:
             return
         response = await self.client.post(
             "/v1/training/token/refresh",
-            json={"session_id": self.tokens.session_id, "refresh_token": self.tokens.refresh_token},
+            json={
+                "session_id": self.tokens.session_id,
+                "refresh_token": self.tokens.refresh_token,
+            },
         )
         if response.status_code == 401:
             await self.authenticate()
@@ -162,7 +178,9 @@ class Workspace:
         response.raise_for_status()
         payload = response.json()
         self.tokens.access_token = payload["access_token"]
-        self.tokens.access_expires_at = time.time() + int(payload.get("expires_in", 900)) - 30
+        self.tokens.access_expires_at = (
+            time.time() + int(payload.get("expires_in", 900)) - 30
+        )
 
     async def _access_token(self) -> str:
         if not self.tokens:
@@ -181,7 +199,9 @@ class Workspace:
             await self._refresh()
             assert self.tokens is not None
             headers["Authorization"] = f"Bearer {self.tokens.access_token}"
-            response = await self.client.request(method, path, headers=headers, **kwargs)
+            response = await self.client.request(
+                method, path, headers=headers, **kwargs
+            )
         response.raise_for_status()
         return response
 
@@ -189,7 +209,9 @@ class Workspace:
         return (await self._request("GET", "/v1/training/profiles")).json()["profiles"]
 
     async def campaigns(self) -> list[dict[str, Any]]:
-        return (await self._request("GET", "/v1/training/campaigns")).json()["campaigns"]
+        return (await self._request("GET", "/v1/training/campaigns")).json()[
+            "campaigns"
+        ]
 
     async def train(
         self,
@@ -224,25 +246,36 @@ class Workspace:
         }
         response = await self._request("POST", "/v1/training/jobs", json=request)
         run = TrainingRun(self, response.json())
-        print(f"[craftly-workspace] job={run.job_id} status={run.status} profile={profile}", flush=True)
+        print(
+            f"[craftly-workspace] job={run.job_id} status={run.status} profile={profile}",
+            flush=True,
+        )
         if follow:
             await run.follow()
         return run
 
     async def jobs(self, *, limit: int = 100) -> list[dict[str, Any]]:
-        return (await self._request("GET", "/v1/training/jobs", params={"limit": limit})).json()["jobs"]
+        return (
+            await self._request("GET", "/v1/training/jobs", params={"limit": limit})
+        ).json()["jobs"]
 
     async def get_job(self, job_id: str) -> dict[str, Any]:
         return (await self._request("GET", f"/v1/training/jobs/{job_id}")).json()
 
     async def cancel(self, job_id: str) -> dict[str, Any]:
-        return (await self._request("POST", f"/v1/training/jobs/{job_id}/cancel")).json()
+        return (
+            await self._request("POST", f"/v1/training/jobs/{job_id}/cancel")
+        ).json()
 
     async def resume(self, job_id: str) -> dict[str, Any]:
-        return (await self._request("POST", f"/v1/training/jobs/{job_id}/resume")).json()
+        return (
+            await self._request("POST", f"/v1/training/jobs/{job_id}/resume")
+        ).json()
 
     async def artifacts(self, job_id: str) -> list[dict[str, Any]]:
-        return (await self._request("GET", f"/v1/training/jobs/{job_id}/artifacts")).json()["artifacts"]
+        return (
+            await self._request("GET", f"/v1/training/jobs/{job_id}/artifacts")
+        ).json()["artifacts"]
 
     async def audit(self, job_id: str, *, limit: int = 100) -> list[dict[str, Any]]:
         return (
@@ -259,12 +292,17 @@ class Workspace:
         response = await self._request(
             "POST",
             "/v1/training/token/revoke",
-            json={"session_id": self.tokens.session_id, "refresh_token": self.tokens.refresh_token},
+            json={
+                "session_id": self.tokens.session_id,
+                "refresh_token": self.tokens.refresh_token,
+            },
         )
         self.tokens = None
         return bool(response.json().get("revoked"))
 
-    async def presign_artifact(self, job_id: str, upload: dict[str, Any]) -> dict[str, Any]:
+    async def presign_artifact(
+        self, job_id: str, upload: dict[str, Any]
+    ) -> dict[str, Any]:
         return (
             await self._request(
                 "POST",
@@ -273,7 +311,9 @@ class Workspace:
             )
         ).json()
 
-    async def register_artifact(self, job_id: str, upload: dict[str, Any], uri: str) -> dict[str, Any]:
+    async def register_artifact(
+        self, job_id: str, upload: dict[str, Any], uri: str
+    ) -> dict[str, Any]:
         return (
             await self._request(
                 "POST",
@@ -282,19 +322,37 @@ class Workspace:
             )
         ).json()
 
-    async def commit_checkpoint(self, job_id: str, checkpoint: dict[str, Any]) -> dict[str, Any]:
-        return (await self._request("POST", f"/v1/training/jobs/{job_id}/checkpoints", json=checkpoint)).json()
+    async def commit_checkpoint(
+        self, job_id: str, checkpoint: dict[str, Any]
+    ) -> dict[str, Any]:
+        return (
+            await self._request(
+                "POST", f"/v1/training/jobs/{job_id}/checkpoints", json=checkpoint
+            )
+        ).json()
 
     async def checkpoints(self, job_id: str) -> list[dict[str, Any]]:
-        return (await self._request("GET", f"/v1/training/jobs/{job_id}/checkpoints")).json()["checkpoints"]
+        return (
+            await self._request("GET", f"/v1/training/jobs/{job_id}/checkpoints")
+        ).json()["checkpoints"]
 
-    async def commit_evaluation(self, job_id: str, evaluation: dict[str, Any]) -> dict[str, Any]:
-        return (await self._request("POST", f"/v1/training/jobs/{job_id}/evaluations", json=evaluation)).json()
+    async def commit_evaluation(
+        self, job_id: str, evaluation: dict[str, Any]
+    ) -> dict[str, Any]:
+        return (
+            await self._request(
+                "POST", f"/v1/training/jobs/{job_id}/evaluations", json=evaluation
+            )
+        ).json()
 
     async def evaluations(self, job_id: str) -> list[dict[str, Any]]:
-        return (await self._request("GET", f"/v1/training/jobs/{job_id}/evaluations")).json()["evaluations"]
+        return (
+            await self._request("GET", f"/v1/training/jobs/{job_id}/evaluations")
+        ).json()["evaluations"]
 
-    async def worker_token(self, job_id: str, *, ttl_seconds: int = 21_600) -> dict[str, Any]:
+    async def worker_token(
+        self, job_id: str, *, ttl_seconds: int = 21_600
+    ) -> dict[str, Any]:
         return (
             await self._request(
                 "POST",
@@ -306,7 +364,9 @@ class Workspace:
     async def claim_notebook_job(self, job_id: str) -> dict[str, Any]:
         return (await self._request("POST", f"/v1/training/jobs/{job_id}/claim")).json()
 
-    async def emit_events(self, job_id: str, attempt_id: str, events: list[dict[str, Any]]) -> dict[str, Any]:
+    async def emit_events(
+        self, job_id: str, attempt_id: str, events: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         return (
             await self._request(
                 "POST",
@@ -315,7 +375,9 @@ class Workspace:
             )
         ).json()
 
-    async def events(self, job_id: str, *, after_sequence: int = 0) -> AsyncIterator[dict[str, Any]]:
+    async def events(
+        self, job_id: str, *, after_sequence: int = 0
+    ) -> AsyncIterator[dict[str, Any]]:
         backoff = 1.0
         while True:
             token = await self._access_token()
@@ -374,7 +436,14 @@ def format_event(event: dict[str, Any]) -> str:
         f"stage={event.get('stage', '')}",
         f"status={event.get('status', '')}",
     ]
-    for key in ["step", "max_steps", "loss", "validation_loss", "tokens_per_second", "gpu_memory_bytes"]:
+    for key in [
+        "step",
+        "max_steps",
+        "loss",
+        "validation_loss",
+        "tokens_per_second",
+        "gpu_memory_bytes",
+    ]:
         if event.get(key) is not None:
             fields.append(f"{key}={event[key]}")
     if event.get("message"):
@@ -420,7 +489,10 @@ async def async_main() -> None:
             print(json.dumps(run.payload, indent=2, sort_keys=True), flush=True)
             return
         if args.command == "campaigns":
-            print(json.dumps(await workspace.campaigns(), indent=2, sort_keys=True), flush=True)
+            print(
+                json.dumps(await workspace.campaigns(), indent=2, sort_keys=True),
+                flush=True,
+            )
             return
         if args.action == "list":
             payload: Any = await workspace.jobs()

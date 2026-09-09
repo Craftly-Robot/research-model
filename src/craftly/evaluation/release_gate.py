@@ -1,4 +1,4 @@
-﻿"""Native release gate entrypoint for the final Craftly architecture."""
+"""Native release gate entrypoint for the final Craftly architecture."""
 
 from __future__ import annotations
 
@@ -27,7 +27,9 @@ def main() -> None:
     readiness = run_production_readiness(mode="dev").model_dump()
     architecture = run_architecture_integrity().model_dump(mode="json")
     completed = (
-        SimpleNamespace(returncode=0, stdout="tests reused from parent qualification", stderr="")
+        SimpleNamespace(
+            returncode=0, stdout="tests reused from parent qualification", stderr=""
+        )
         if args.skip_tests
         else subprocess.run(  # nosec B603
             [sys.executable, "-m", "unittest"],
@@ -55,4 +57,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -16,7 +16,6 @@ import subprocess  # nosec B404 - fixed scontrol argv, shell is never used
 import sys
 from pathlib import Path
 
-
 ALLOWED_MODULE = "src.craftly.model_ops.pretrain_loop"
 SAFE_HOST = re.compile(r"^[A-Za-z0-9._-]{1,253}$")
 
@@ -34,7 +33,9 @@ def _positive_int(value: str, *, name: str, maximum: int = 65536) -> int:
 def _required_env(name: str) -> str:
     value = os.environ.get(name, "").strip()
     if not value:
-        raise RuntimeError(f"scheduler did not provide required environment variable {name}")
+        raise RuntimeError(
+            f"scheduler did not provide required environment variable {name}"
+        )
     return value
 
 
@@ -57,8 +58,12 @@ def _slurm_master_address() -> str:
         check=False,
     )
     if completed.returncode != 0:
-        raise RuntimeError(f"scontrol hostname resolution failed: {completed.stderr[-1000:]}")
-    host = next((line.strip() for line in completed.stdout.splitlines() if line.strip()), "")
+        raise RuntimeError(
+            f"scontrol hostname resolution failed: {completed.stderr[-1000:]}"
+        )
+    host = next(
+        (line.strip() for line in completed.stdout.splitlines() if line.strip()), ""
+    )
     if not SAFE_HOST.fullmatch(host):
         raise RuntimeError("scontrol returned an invalid rendezvous hostname")
     return host
@@ -81,19 +86,25 @@ def normalize_slurm_environment() -> None:
     )
 
 
-def kubernetes_torchrun_argv(*, nodes: int, processes_per_node: int, training_args: list[str]) -> list[str]:
+def kubernetes_torchrun_argv(
+    *, nodes: int, processes_per_node: int, training_args: list[str]
+) -> list[str]:
     node_rank = _positive_int(_required_env("RANK"), name="RANK")
     if node_rank >= nodes:
         raise ValueError("Kubernetes replica rank exceeds configured node count")
     master_addr = _required_env("MASTER_ADDR")
     if not SAFE_HOST.fullmatch(master_addr):
         raise ValueError("MASTER_ADDR contains unsafe characters")
-    master_port = _positive_int(os.environ.get("MASTER_PORT", "29500"), name="MASTER_PORT", maximum=65535)
+    master_port = _positive_int(
+        os.environ.get("MASTER_PORT", "29500"), name="MASTER_PORT", maximum=65535
+    )
     if master_port < 1024:
         raise ValueError("MASTER_PORT must be an unprivileged port")
     torchrun = shutil.which("torchrun")
     if not torchrun:
-        raise RuntimeError("torchrun executable is required in the immutable training image")
+        raise RuntimeError(
+            "torchrun executable is required in the immutable training image"
+        )
     return [
         str(Path(torchrun).resolve()),
         "--nnodes",
@@ -113,7 +124,9 @@ def kubernetes_torchrun_argv(*, nodes: int, processes_per_node: int, training_ar
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Launch validated Craftly distributed workers.")
+    parser = argparse.ArgumentParser(
+        description="Launch validated Craftly distributed workers."
+    )
     parser.add_argument("--scheduler", choices=["kubernetes", "slurm"], required=True)
     parser.add_argument("--target", choices=["craftly", "megatron"], default="craftly")
     parser.add_argument("--nodes", type=int, required=True)
@@ -132,7 +145,9 @@ def parse_args() -> argparse.Namespace:
         if encoded_size > 8_192:
             parser.error("an individual training argument exceeds 8192 UTF-8 bytes")
         if "\x00" in value or any(character in value for character in ("\r", "\n")):
-            parser.error("training arguments cannot contain null bytes or line delimiters")
+            parser.error(
+                "training arguments cannot contain null bytes or line delimiters"
+            )
     if total_argument_bytes > 131_072:
         parser.error("training arguments exceed the 131072-byte aggregate limit")
     forbidden = {"--cluster-plan-only", "--scheduler", "--megatron-root"}
@@ -141,8 +156,13 @@ def parse_args() -> argparse.Namespace:
     if args.target == "megatron":
         root_value = os.environ.get("CRAFTLY_MEGATRON_ROOT", "")
         root = Path(root_value).expanduser().resolve() if root_value else None
-        if len(args.training_args) < 3 or args.training_args[:2] != ["-u", str((root / "pretrain_gpt.py").resolve()) if root else ""]:
-            parser.error("Megatron target must execute CRAFTLY_MEGATRON_ROOT/pretrain_gpt.py")
+        if len(args.training_args) < 3 or args.training_args[:2] != [
+            "-u",
+            str((root / "pretrain_gpt.py").resolve()) if root else "",
+        ]:
+            parser.error(
+                "Megatron target must execute CRAFTLY_MEGATRON_ROOT/pretrain_gpt.py"
+            )
     return args
 
 
@@ -187,7 +207,9 @@ def main() -> None:
 
     signal.signal(signal.SIGTERM, forward)
     signal.signal(signal.SIGINT, forward)
-    progress.emit("megatron_training", "running", message="Megatron rank process started")
+    progress.emit(
+        "megatron_training", "running", message="Megatron rank process started"
+    )
     returncode = child.wait()
     progress.emit(
         "megatron_training",

@@ -8,8 +8,8 @@ is attached.
 
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import os
 import tempfile
 import time
@@ -19,9 +19,8 @@ from typing import Any, Literal
 
 from pydantic import Field, model_validator
 
-from src.craftly.shared.schemas import StrictModel
 from src.craftly.shared.integrity import canonical_json_bytes, sha256_file
-
+from src.craftly.shared.schemas import StrictModel
 
 TRAINING_STEP_SEMANTICS = "optimizer_update_v2"
 
@@ -38,7 +37,11 @@ class TrainingBatchContract(StrictModel):
 
     @property
     def global_batch_sequences(self) -> int:
-        return self.micro_batch_size * self.gradient_accumulation_steps * self.data_parallel_size
+        return (
+            self.micro_batch_size
+            * self.gradient_accumulation_steps
+            * self.data_parallel_size
+        )
 
     @property
     def tokens_per_optimizer_step(self) -> int:
@@ -137,11 +140,18 @@ class ScratchDecoderConfig(StrictModel):
     def validate_shape(self) -> "ScratchDecoderConfig":
         if self.hidden_size % self.num_attention_heads != 0:
             raise ValueError("hidden_size must be divisible by num_attention_heads")
-        if self.effective_context_length is not None and self.effective_context_length < self.max_sequence_length:
-            raise ValueError("effective_context_length cannot be smaller than max_sequence_length")
+        if (
+            self.effective_context_length is not None
+            and self.effective_context_length < self.max_sequence_length
+        ):
+            raise ValueError(
+                "effective_context_length cannot be smaller than max_sequence_length"
+            )
         if self.attention_architecture == "gqa":
             if self.num_attention_heads % self.num_key_value_heads != 0:
-                raise ValueError("num_attention_heads must be divisible by num_key_value_heads")
+                raise ValueError(
+                    "num_attention_heads must be divisible by num_key_value_heads"
+                )
             if self.head_dim % 2 != 0:
                 raise ValueError("head_dim must be even for rotary embeddings")
         else:
@@ -157,7 +167,9 @@ class ScratchDecoderConfig(StrictModel):
                 raise ValueError("MLA requires " + ", ".join(missing))
             if int(self.qk_rope_head_dim or 0) % 2 != 0:
                 raise ValueError("qk_rope_head_dim must be even")
-        dense_layers = self.num_layers if self.num_dense_layers is None else self.num_dense_layers
+        dense_layers = (
+            self.num_layers if self.num_dense_layers is None else self.num_dense_layers
+        )
         if dense_layers > self.num_layers:
             raise ValueError("num_dense_layers cannot exceed num_layers")
         if self.feed_forward_architecture == "moe":
@@ -166,13 +178,23 @@ class ScratchDecoderConfig(StrictModel):
             if self.num_routed_experts < 2 or self.num_shared_experts < 1:
                 raise ValueError("MoE architecture requires routed and shared experts")
             if not 1 <= self.experts_per_token <= self.num_routed_experts:
-                raise ValueError("experts_per_token must be between one and num_routed_experts")
+                raise ValueError(
+                    "experts_per_token must be between one and num_routed_experts"
+                )
             if self.moe_intermediate_size is None:
                 raise ValueError("MoE architecture requires moe_intermediate_size")
         else:
             if dense_layers != self.num_layers:
-                raise ValueError("dense architecture must use dense feed-forward blocks in every layer")
-            if any((self.num_routed_experts, self.num_shared_experts, self.experts_per_token)):
+                raise ValueError(
+                    "dense architecture must use dense feed-forward blocks in every layer"
+                )
+            if any(
+                (
+                    self.num_routed_experts,
+                    self.num_shared_experts,
+                    self.experts_per_token,
+                )
+            ):
                 raise ValueError("dense architecture cannot configure MoE experts")
         return self
 
@@ -182,7 +204,9 @@ class ScratchDecoderConfig(StrictModel):
 
     @property
     def dense_layer_count(self) -> int:
-        return self.num_layers if self.num_dense_layers is None else self.num_dense_layers
+        return (
+            self.num_layers if self.num_dense_layers is None else self.num_dense_layers
+        )
 
     @property
     def moe_layer_count(self) -> int:
@@ -233,25 +257,63 @@ class ScratchDecoderConfig(StrictModel):
         embedding = self.vocab_size * self.hidden_size
         attention = self.num_layers * self._attention_parameters_per_layer()
         norms = self.num_layers * 2 * self.hidden_size + self.hidden_size
-        dense_mlp = self.dense_layer_count * 3 * self.hidden_size * self.intermediate_size
+        dense_mlp = (
+            self.dense_layer_count * 3 * self.hidden_size * self.intermediate_size
+        )
         expert_size = 0
         routed_experts = shared_experts = routers = active_experts = 0
         if self.moe_layer_count:
             expert_size = 3 * self.hidden_size * int(self.moe_intermediate_size or 0)
-            routed_experts = self.moe_layer_count * self.num_routed_experts * expert_size
-            shared_experts = self.moe_layer_count * self.num_shared_experts * expert_size
+            routed_experts = (
+                self.moe_layer_count * self.num_routed_experts * expert_size
+            )
+            shared_experts = (
+                self.moe_layer_count * self.num_shared_experts * expert_size
+            )
             routers = self.moe_layer_count * self.hidden_size * self.num_routed_experts
-            active_experts = self.moe_layer_count * (
-                self.experts_per_token + self.num_shared_experts
-            ) * expert_size
+            active_experts = (
+                self.moe_layer_count
+                * (self.experts_per_token + self.num_shared_experts)
+                * expert_size
+            )
         mtp = self.mtp_num_layers * self._mtp_parameters_per_layer()
         lm_head = 0 if self.tie_word_embeddings else embedding
-        total = embedding + attention + norms + dense_mlp + routed_experts + shared_experts + routers + mtp + lm_head
-        active = embedding + attention + norms + dense_mlp + active_experts + routers + mtp + lm_head
-        total_delta = None if self.target_total_parameters is None else (total - self.target_total_parameters) / self.target_total_parameters
-        active_delta = None if self.target_active_parameters is None else (active - self.target_active_parameters) / self.target_active_parameters
+        total = (
+            embedding
+            + attention
+            + norms
+            + dense_mlp
+            + routed_experts
+            + shared_experts
+            + routers
+            + mtp
+            + lm_head
+        )
+        active = (
+            embedding
+            + attention
+            + norms
+            + dense_mlp
+            + active_experts
+            + routers
+            + mtp
+            + lm_head
+        )
+        total_delta = (
+            None
+            if self.target_total_parameters is None
+            else (total - self.target_total_parameters) / self.target_total_parameters
+        )
+        active_delta = (
+            None
+            if self.target_active_parameters is None
+            else (active - self.target_active_parameters)
+            / self.target_active_parameters
+        )
         if self.attention_architecture == "mla":
-            compressed_cache_elements = int(self.kv_lora_rank or 0) + int(self.qk_rope_head_dim or 0)
+            compressed_cache_elements = int(self.kv_lora_rank or 0) + int(
+                self.qk_rope_head_dim or 0
+            )
             expanded_cache_elements = self.num_attention_heads * (
                 int(self.qk_nope_head_dim or 0)
                 + int(self.qk_rope_head_dim or 0)
@@ -260,7 +322,9 @@ class ScratchDecoderConfig(StrictModel):
         else:
             compressed_cache_elements = 2 * self.num_key_value_heads * self.head_dim
             expanded_cache_elements = 2 * self.num_attention_heads * self.head_dim
-        cache_compression_ratio = compressed_cache_elements / max(expanded_cache_elements, 1)
+        cache_compression_ratio = compressed_cache_elements / max(
+            expanded_cache_elements, 1
+        )
         return {
             "embedding": embedding,
             "attention": attention,
@@ -298,7 +362,9 @@ class ScratchDecoderConfig(StrictModel):
         return int(self.parameter_report()["total"])
 
     def contract_sha256(self) -> str:
-        return hashlib.sha256(canonical_json_bytes(self.model_dump(mode="json"))).hexdigest()
+        return hashlib.sha256(
+            canonical_json_bytes(self.model_dump(mode="json"))
+        ).hexdigest()
 
     def distributed_topology_report(
         self,
@@ -317,7 +383,11 @@ class ScratchDecoderConfig(StrictModel):
             "context_parallel": context_parallel,
             "expert_parallel": expert_parallel,
         }
-        failures = [f"{name} must be positive" for name, value in dimensions.items() if value < 1]
+        failures = [
+            f"{name} must be positive"
+            for name, value in dimensions.items()
+            if value < 1
+        ]
         if failures:
             return {"passed": False, "failures": failures, "dimensions": dimensions}
         if self.hidden_size % tensor_parallel:
@@ -330,12 +400,21 @@ class ScratchDecoderConfig(StrictModel):
             failures.append("data_parallel is not divisible by expert_parallel")
         if self.feed_forward_architecture == "dense" and expert_parallel != 1:
             failures.append("dense architecture cannot use expert_parallel > 1")
-        if self.feed_forward_architecture == "moe" and self.num_routed_experts % expert_parallel:
+        if (
+            self.feed_forward_architecture == "moe"
+            and self.num_routed_experts % expert_parallel
+        ):
             failures.append("num_routed_experts is not divisible by expert_parallel")
-        world_size = tensor_parallel * pipeline_parallel * context_parallel * data_parallel
+        world_size = (
+            tensor_parallel * pipeline_parallel * context_parallel * data_parallel
+        )
         if gpus_per_node is not None and gpus_per_node < 1:
             failures.append("gpus_per_node must be positive")
-        nodes = None if gpus_per_node is None else (world_size + gpus_per_node - 1) // gpus_per_node
+        nodes = (
+            None
+            if gpus_per_node is None
+            else (world_size + gpus_per_node - 1) // gpus_per_node
+        )
         return {
             "passed": not failures,
             "cluster_proven": False,
@@ -345,7 +424,8 @@ class ScratchDecoderConfig(StrictModel):
             "nodes_required": nodes,
             "gpus_per_node": gpus_per_node,
             "layers_per_pipeline_stage": self.num_layers // pipeline_parallel,
-            "attention_heads_per_tensor_rank": self.num_attention_heads // tensor_parallel,
+            "attention_heads_per_tensor_rank": self.num_attention_heads
+            // tensor_parallel,
             "routed_experts_per_expert_rank": (
                 self.num_routed_experts // expert_parallel
                 if self.feed_forward_architecture == "moe"
@@ -401,7 +481,12 @@ def context_curriculum() -> tuple[ContextCurriculumStage, ...]:
             sequence_length=262_144,
             training_mode="context_parallel",
             minimum_ruler_score=0.80,
-            required_evaluations=("ruler", "helmet", "repoqa", "cross_file_patch_localization"),
+            required_evaluations=(
+                "ruler",
+                "helmet",
+                "repoqa",
+                "cross_file_patch_localization",
+            ),
             production_claim="built_not_cluster_proven",
         ),
         ContextCurriculumStage(
@@ -409,7 +494,13 @@ def context_curriculum() -> tuple[ContextCurriculumStage, ...]:
             sequence_length=1_000_000,
             training_mode="context_parallel",
             minimum_ruler_score=0.80,
-            required_evaluations=("ruler", "helmet", "repoqa", "context_order", "unsupported_claims"),
+            required_evaluations=(
+                "ruler",
+                "helmet",
+                "repoqa",
+                "context_order",
+                "unsupported_claims",
+            ),
             production_claim="built_not_cluster_proven",
         ),
         ContextCurriculumStage(
@@ -417,7 +508,11 @@ def context_curriculum() -> tuple[ContextCurriculumStage, ...]:
             sequence_length=5_000_000,
             training_mode="evaluation",
             minimum_ruler_score=0.80,
-            required_evaluations=("hierarchical_retrieval", "evidence_recall", "unsupported_claims"),
+            required_evaluations=(
+                "hierarchical_retrieval",
+                "evidence_recall",
+                "unsupported_claims",
+            ),
             production_claim="hierarchical_effective_context_not_full_attention",
         ),
     )
@@ -478,17 +573,26 @@ class PretrainingRunSpec(StrictModel):
     @model_validator(mode="after")
     def validate_training_shape(self) -> "PretrainingRunSpec":
         if self.sequence_length > self.architecture.max_sequence_length:
-            raise ValueError("sequence_length cannot exceed architecture.max_sequence_length")
+            raise ValueError(
+                "sequence_length cannot exceed architecture.max_sequence_length"
+            )
         if self.min_learning_rate > self.learning_rate:
             raise ValueError("min_learning_rate cannot exceed learning_rate")
-        canonical_hashes = {profile.contract_sha256() for profile in model_profiles().values()}
+        canonical_hashes = {
+            profile.contract_sha256() for profile in model_profiles().values()
+        }
         if self.architecture.contract_sha256() not in canonical_hashes:
-            raise ValueError("architecture must match an immutable canonical Craftly model profile")
+            raise ValueError(
+                "architecture must match an immutable canonical Craftly model profile"
+            )
         return self
 
     def readiness_report(self) -> dict[str, Any]:
         missing_assets = []
-        for asset in [*self.tokenizer.required_asset_paths(), *self.data.required_asset_paths()]:
+        for asset in [
+            *self.tokenizer.required_asset_paths(),
+            *self.data.required_asset_paths(),
+        ]:
             if not asset.exists():
                 missing_assets.append(str(asset))
         policy_failures = []
@@ -558,7 +662,9 @@ class CheckpointManifest(StrictModel):
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
         payload = json.dumps(self.model_dump(), indent=2, sort_keys=True)
-        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=target.parent, delete=False) as handle:
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", dir=target.parent, delete=False
+        ) as handle:
             handle.write(payload)
             handle.write("\n")
             temp_name = handle.name
@@ -865,10 +971,12 @@ def architecture_presets() -> dict[str, ScratchDecoderConfig]:
         f"craftly-{key.replace('_', '-')}": model_profile(key)
         for key in ("7b", "7b_moe", "32b", "62b", "4t_moe")
     }
-    presets.update({
-        f"craftly-{key.replace('_', '-')}": model_profile(key)
-        for key in ("7b", "7b_moe", "32b", "62b", "4t_moe")
-    })
+    presets.update(
+        {
+            f"craftly-{key.replace('_', '-')}": model_profile(key)
+            for key in ("7b", "7b_moe", "32b", "62b", "4t_moe")
+        }
+    )
     return presets
 
 
@@ -886,7 +994,9 @@ def foundation_status() -> dict[str, Any]:
             "runtime_backend": final_profile.runtime_backend,
             "status": "built_not_cluster_proven",
         },
-        "context_curriculum": [stage.model_dump(mode="json") for stage in context_curriculum()],
+        "context_curriculum": [
+            stage.model_dump(mode="json") for stage in context_curriculum()
+        ],
         "required_before_training": [
             "tokenizer asset",
             "deduplicated dataset manifest",
@@ -897,4 +1007,3 @@ def foundation_status() -> dict[str, Any]:
             "evaluation baseline",
         ],
     }
-

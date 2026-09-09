@@ -1,4 +1,4 @@
-﻿"""Unified memory system for Craftly."""
+"""Unified memory system for Craftly."""
 
 from __future__ import annotations
 
@@ -12,9 +12,17 @@ from src.craftly.db import LocalStore
 from src.craftly.indexing.vector_index import cosine, hashed_embedding
 from src.craftly.shared.schemas import StrictModel
 
-
-MemoryLayer = Literal["working", "project", "episodic", "semantic", "user", "verified_fix"]
-ALLOWED_MEMORY_LAYERS: set[str] = {"working", "project", "episodic", "semantic", "user", "verified_fix"}
+MemoryLayer = Literal[
+    "working", "project", "episodic", "semantic", "user", "verified_fix"
+]
+ALLOWED_MEMORY_LAYERS: set[str] = {
+    "working",
+    "project",
+    "episodic",
+    "semantic",
+    "user",
+    "verified_fix",
+}
 ALLOWED_INGESTION_KINDS: set[str] = {
     "benchmark_pass",
     "project_fact",
@@ -69,7 +77,12 @@ class MemoryRetrievalReport(StrictModel):
     hits: list[MemoryRetrievalHit]
 
 
-def recency_weight(created_at: float, *, now: float | None = None, half_life_seconds: float = 30 * 24 * 60 * 60) -> float:
+def recency_weight(
+    created_at: float,
+    *,
+    now: float | None = None,
+    half_life_seconds: float = 30 * 24 * 60 * 60,
+) -> float:
     active_now = now or time.time()
     age = max(0.0, active_now - created_at)
     return 0.5 ** (age / half_life_seconds)
@@ -86,13 +99,24 @@ def memory_rank_score(
     recency: float,
     usage: float,
 ) -> float:
-    return (0.4 * vector_similarity) + (0.3 * success_rate) + (0.2 * recency) + (0.1 * usage)
+    return (
+        (0.4 * vector_similarity)
+        + (0.3 * success_rate)
+        + (0.2 * recency)
+        + (0.1 * usage)
+    )
 
 
 class UnifiedMemoryManager:
     """Typed memory manager with strict anti-pollution ingestion rules."""
 
-    def __init__(self, *, project_id: str | None = "default", store: LocalStore | None = None, dims: int = 384) -> None:
+    def __init__(
+        self,
+        *,
+        project_id: str | None = "default",
+        store: LocalStore | None = None,
+        dims: int = 384,
+    ) -> None:
         self.project_id = project_id
         self.store = store
         self.dims = dims
@@ -101,8 +125,13 @@ class UnifiedMemoryManager:
     def ingest(self, request: MemoryIngestRequest) -> MemoryEntry:
         if request.layer not in ALLOWED_MEMORY_LAYERS:
             raise ValueError(f"unsupported memory layer: {request.layer}")
-        if request.kind in REJECTED_INGESTION_KINDS or request.kind not in ALLOWED_INGESTION_KINDS:
-            raise ValueError(f"memory kind is not allowed for ingestion: {request.kind}")
+        if (
+            request.kind in REJECTED_INGESTION_KINDS
+            or request.kind not in ALLOWED_INGESTION_KINDS
+        ):
+            raise ValueError(
+                f"memory kind is not allowed for ingestion: {request.kind}"
+            )
         if request.layer == "working":
             # Working memory is session-local. Keep it in-process only.
             entry = self._entry_from_request(request)
@@ -116,14 +145,20 @@ class UnifiedMemoryManager:
                 source_run_id=request.source_run_id,
                 relevance=request.relevance,
                 success_rate=request.success_rate,
-                metadata={"layer": request.layer, "kind": request.kind, **request.metadata},
+                metadata={
+                    "layer": request.layer,
+                    "kind": request.kind,
+                    **request.metadata,
+                },
             )
             return self._entry_from_store(stored)
         entry = self._entry_from_request(request)
         self.entries.append(entry)
         return entry
 
-    def remember_verified_fix(self, failure: str, fix: str, context: str) -> dict[str, Any]:
+    def remember_verified_fix(
+        self, failure: str, fix: str, context: str
+    ) -> dict[str, Any]:
         entry = self.ingest(
             MemoryIngestRequest(
                 layer="verified_fix",
@@ -135,19 +170,27 @@ class UnifiedMemoryManager:
         )
         return entry.model_dump()
 
-    def remember_project_fact(self, module_name: str, path: str, tech_stack: str) -> dict[str, Any]:
+    def remember_project_fact(
+        self, module_name: str, path: str, tech_stack: str
+    ) -> dict[str, Any]:
         entry = self.ingest(
             MemoryIngestRequest(
                 layer="project",
                 kind="project_fact",
-                content={"module_name": module_name, "path": path, "tech_stack": tech_stack},
+                content={
+                    "module_name": module_name,
+                    "path": path,
+                    "tech_stack": tech_stack,
+                },
                 relevance=0.75,
                 success_rate=0.9,
             )
         )
         return entry.model_dump()
 
-    def remember_user_preference(self, preference: str, context: str = "") -> dict[str, Any]:
+    def remember_user_preference(
+        self, preference: str, context: str = ""
+    ) -> dict[str, Any]:
         entry = self.ingest(
             MemoryIngestRequest(
                 layer="user",
@@ -159,20 +202,38 @@ class UnifiedMemoryManager:
         )
         return entry.model_dump()
 
-    def retrieve(self, query: str, *, limit: int = 5, layers: list[MemoryLayer] | None = None) -> dict[str, Any]:
+    def retrieve(
+        self, query: str, *, limit: int = 5, layers: list[MemoryLayer] | None = None
+    ) -> dict[str, Any]:
         return self.retrieve_report(query, limit=limit, layers=layers).model_dump()
 
-    def retrieve_report(self, query: str, *, limit: int = 5, layers: list[MemoryLayer] | None = None) -> MemoryRetrievalReport:
-        active_layers = layers or ["verified_fix", "project", "episodic", "semantic", "user", "working"]
-        unknown_layers = [layer for layer in active_layers if layer not in ALLOWED_MEMORY_LAYERS]
+    def retrieve_report(
+        self, query: str, *, limit: int = 5, layers: list[MemoryLayer] | None = None
+    ) -> MemoryRetrievalReport:
+        active_layers = layers or [
+            "verified_fix",
+            "project",
+            "episodic",
+            "semantic",
+            "user",
+            "working",
+        ]
+        unknown_layers = [
+            layer for layer in active_layers if layer not in ALLOWED_MEMORY_LAYERS
+        ]
         if unknown_layers:
-            raise ValueError(f"unsupported memory layer(s): {', '.join(str(layer) for layer in unknown_layers)}")
+            raise ValueError(
+                f"unsupported memory layer(s): {', '.join(str(layer) for layer in unknown_layers)}"
+            )
         entries = self._load_entries(active_layers)
         query_vector = hashed_embedding(query, dims=self.dims)
         hits: list[MemoryRetrievalHit] = []
         now = time.time()
         for entry in entries:
-            vector_similarity = max(0.0, cosine(query_vector, hashed_embedding(entry.text(), dims=self.dims)))
+            vector_similarity = max(
+                0.0,
+                cosine(query_vector, hashed_embedding(entry.text(), dims=self.dims)),
+            )
             recency = recency_weight(entry.created_at_unix, now=now)
             usage = usage_count_weight(entry.usage_count)
             final_score = memory_rank_score(
@@ -214,11 +275,16 @@ class UnifiedMemoryManager:
             hits=selected,
         )
 
-    def archive_low_quality(self, *, min_success_rate: float = 0.25, min_usage_count: int = 0) -> list[MemoryEntry]:
+    def archive_low_quality(
+        self, *, min_success_rate: float = 0.25, min_usage_count: int = 0
+    ) -> list[MemoryEntry]:
         archived: list[MemoryEntry] = []
         kept: list[MemoryEntry] = []
         for entry in self.entries:
-            if entry.success_rate < min_success_rate and entry.usage_count <= min_usage_count:
+            if (
+                entry.success_rate < min_success_rate
+                and entry.usage_count <= min_usage_count
+            ):
                 entry.metadata["archived"] = True
                 archived.append(entry)
             else:
@@ -270,4 +336,3 @@ class UnifiedMemoryManager:
 
 
 CraftlyMemory = UnifiedMemoryManager
-
