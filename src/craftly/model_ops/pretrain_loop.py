@@ -1257,6 +1257,9 @@ def run_pretraining_loop(
     expected_python_version: str | None = None,
     expected_pytorch_version: str | None = None,
     expected_cuda_version: str | None = None,
+    # Elastic Weight Consolidation (EWC) anti-forgetting parameters
+    ewc_lambda: float = 0.0,
+    ewc_fisher_samples: int = 256,
 ) -> dict[str, Any]:
     require_torch()
     if steps < 1:
@@ -1276,6 +1279,10 @@ def run_pretraining_loop(
     resolved_warmup_steps = warmup_steps or int(steps * warmup_ratio)
     if resolved_warmup_steps >= steps:
         raise ValueError("warmup must be shorter than the training run")
+    if ewc_lambda < 0.0:
+        raise ValueError("ewc_lambda must be non-negative")
+    if ewc_lambda > 0.0 and ewc_fisher_samples < 1:
+        raise ValueError("ewc_fisher_samples must be >= 1 when EWC is enabled")
     selected = select_torch_device(device)
     runtime_versions = validate_runtime_versions(
         expected_python=expected_python_version,
@@ -1548,6 +1555,8 @@ def run_pretraining_loop(
         "batches_per_rank_per_epoch": available_batches_per_rank,
         "runtime_versions": runtime_versions,
         "environment": checkpoint_environment,
+        "ewc_lambda": ewc_lambda,
+        "ewc_fisher_samples": ewc_fisher_samples,
     }
     checkpoint_training_invariants = {
         name: checkpoint_args[name]
