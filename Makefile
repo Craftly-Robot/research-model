@@ -1,13 +1,21 @@
-.PHONY: install test lint compile clean gateway cli
+.PHONY: install test lint format check clean gateway cli
 
 install:
-	python3 -m venv .venv && .venv/bin/pip install -r requirements-local-dev.txt && .venv/bin/pip install -e . --no-deps
+	python3 -m venv .venv && .venv/bin/pip install -r requirements-local-dev.txt && .venv/bin/pip install -e . --no-deps && .venv/bin/pip install ruff
 
 test:
 	.venv/bin/python -m unittest
 
 lint:
-	.venv/bin/python -m compileall -q src/craftly tests deploy/gpu
+	.venv/bin/ruff check src/craftly --fix
+
+format:
+	.venv/bin/ruff format src/craftly
+	.venv/bin/ruff check src/craftly --fix
+
+check:
+	.venv/bin/ruff check src/craftly
+	.venv/bin/ruff format --check src/craftly
 
 compile:
 	.venv/bin/python -m compileall -q src/craftly tests deploy/gpu

@@ -1,4 +1,4 @@
-﻿"""Capacity planning for billion-scale Craftly data collection."""
+"""Capacity planning for billion-scale Craftly data collection."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import math
 
 from pydantic import Field
 
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import StrictModel, print_report
 
 
 class CapacityPlanConfig(StrictModel):
@@ -37,12 +37,20 @@ class CapacityPlan(StrictModel):
 def build_capacity_plan(config: CapacityPlanConfig) -> CapacityPlan:
     raw_bytes = config.target_documents * config.avg_document_bytes
     compressed_bytes = raw_bytes * config.compression_ratio
-    docs_per_minute = config.worker_replicas * config.async_workers_per_replica * config.docs_per_async_worker_per_minute
+    docs_per_minute = (
+        config.worker_replicas
+        * config.async_workers_per_replica
+        * config.docs_per_async_worker_per_minute
+    )
     estimated_days = config.target_documents / docs_per_minute / 60 / 24
     required_docs_per_second = config.target_documents / (config.target_days * 24 * 60 * 60)
     required_bandwidth_mbps = (required_docs_per_second * config.avg_document_bytes * 8) / 1_000_000
-    docs_per_replica_per_day = config.async_workers_per_replica * config.docs_per_async_worker_per_minute * 60 * 24
-    recommended_replicas = math.ceil(config.target_documents / (config.target_days * docs_per_replica_per_day))
+    docs_per_replica_per_day = (
+        config.async_workers_per_replica * config.docs_per_async_worker_per_minute * 60 * 24
+    )
+    recommended_replicas = math.ceil(
+        config.target_documents / (config.target_days * docs_per_replica_per_day)
+    )
     return CapacityPlan(
         target_documents=config.target_documents,
         raw_storage_tb=round(raw_bytes / 1_000_000_000_000, 3),
@@ -83,9 +91,8 @@ def main() -> None:
             target_days=args.target_days,
         )
     )
-    print(json.dumps(plan.model_dump(), indent=2, sort_keys=True))
+    print_report(plan)
 
 
 if __name__ == "__main__":
     main()
-

@@ -1,4 +1,4 @@
-﻿"""Native release gate entrypoint for the final Craftly architecture."""
+"""Native release gate entrypoint for the final Craftly architecture."""
 
 from __future__ import annotations
 
@@ -55,4 +55,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

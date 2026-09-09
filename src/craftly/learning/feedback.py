@@ -1,4 +1,4 @@
-﻿"""Benchmark feedback loop for dataset quality and task promotion."""
+"""Benchmark feedback loop for dataset quality and task promotion."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import Any
 
 from pydantic import Field
 
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import StrictModel, write_report, print_report
 
 
 class FeedbackRecommendation(StrictModel):
@@ -80,7 +80,14 @@ def build_feedback_report(
                 metadata={"automated_pass_by_type": automated_pass_by_type},
             )
         )
-    if components and max(float(components.get("security_signal", 0.0)), float(components.get("agentic_signal", 0.0))) < 0.2:
+    if (
+        components
+        and max(
+            float(components.get("security_signal", 0.0)),
+            float(components.get("agentic_signal", 0.0)),
+        )
+        < 0.2
+    ):
         recommendations.append(
             FeedbackRecommendation(
                 kind="signal_quality",
@@ -150,7 +157,7 @@ def write_feedback_report(
     )
     target = Path(output_path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+    write_report(report, target)
     return report
 
 
@@ -167,9 +174,8 @@ def main() -> None:
         quality_report_path=args.quality_report,
         review_report_path=args.review_report,
     )
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
 
 
 if __name__ == "__main__":
     main()
-

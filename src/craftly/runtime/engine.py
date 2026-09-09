@@ -12,6 +12,7 @@ from typing import Any
 from pydantic import Field
 
 from src.craftly.db import LocalStore
+from src.craftly.gateway.api import resolve_registered_repo_path
 from src.craftly.indexing import ContextBuilder, RepositoryIndexer
 from src.craftly.model_ops.backends import build_active_backend
 from src.craftly.planning.engine import IntentPlanningEngine
@@ -24,9 +25,13 @@ from src.craftly.runtime.collaboration import (
     FailureIntelligence,
     MessageKind,
 )
-from src.craftly.runtime.taskgraph import AgentRunCreateRequest, TaskCompleteRequest, TaskFailRequest, TaskGraphRuntime
+from src.craftly.runtime.taskgraph import (
+    AgentRunCreateRequest,
+    TaskCompleteRequest,
+    TaskFailRequest,
+    TaskGraphRuntime,
+)
 from src.craftly.shared.schemas import CraftlyRunReport, CraftlyRunRequest, StrictModel
-
 
 AgentWorker = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 
@@ -157,7 +162,9 @@ class AgentWorkerPool:
             if cancellation_event is not None and cancellation_event.is_set():
                 state = self.runtime.cancel(task_graph_id)
                 cancelled += sum(
-                    1 for task in self.runtime.store.list_tasks(task_graph_id) if task["status"] == "cancelled"
+                    1
+                    for task in self.runtime.store.list_tasks(task_graph_id)
+                    if task["status"] == "cancelled"
                 )
                 return self._report(
                     state.status,
@@ -209,7 +216,10 @@ class AgentWorkerPool:
                 )
             peak_parallelism = max(peak_parallelism, len(claimed))
             outcomes = await asyncio.gather(
-                *(self._execute_claimed(task, cancellation_event=cancellation_event) for task in claimed)
+                *(
+                    self._execute_claimed(task, cancellation_event=cancellation_event)
+                    for task in claimed
+                )
             )
             for outcome, task_kind in outcomes:
                 if outcome == "completed":
@@ -261,7 +271,9 @@ class AgentWorkerPool:
         heartbeat_task: asyncio.Task[None] | None = None
         cancellation_task: asyncio.Task[bool] | None = None
         try:
-            handler_task = asyncio.create_task(handler(task), name=f"craftly-agent-{kind}-{task['id']}")
+            handler_task = asyncio.create_task(
+                handler(task), name=f"craftly-agent-{kind}-{task['id']}"
+            )
             heartbeat_task = asyncio.create_task(
                 self._renew_lease(str(task["id"])),
                 name=f"craftly-lease-{task['id']}",
@@ -282,7 +294,7 @@ class AgentWorkerPool:
                     self.runtime.cancel(str(task["task_graph_id"]))
                     return "cancelled", kind
                 if handler_task not in done:
-                    raise asyncio.TimeoutError
+                    raise TimeoutError
                 outputs = handler_task.result()
             else:
                 outputs = await asyncio.wait_for(handler_task, timeout=registration.timeout_seconds)
@@ -295,7 +307,7 @@ class AgentWorkerPool:
                 claim_next=False,
             )
             return "completed", kind
-        except asyncio.TimeoutError:
+        except TimeoutError:
             if handler_task is not None and not handler_task.done():
                 handler_task.cancel()
                 await asyncio.gather(handler_task, return_exceptions=True)
@@ -376,14 +388,22 @@ class AgentWorkerPool:
             if message_kind == MessageKind.PROPOSAL
             else BlackboardKind.FACT
         )
-        verified = bool(payload.get("accepted") or payload.get("passed")) if board_kind == BlackboardKind.DECISION else False
+        verified = (
+            bool(payload.get("accepted") or payload.get("passed"))
+            if board_kind == BlackboardKind.DECISION
+            else False
+        )
         self.collaboration.write_blackboard(
             BlackboardWrite(
                 run_id=message.run_id,
                 task_graph_id=message.task_graph_id,
                 entry_key=f"task/{task['id']}/{board_kind.value}",
                 kind=board_kind,
-                value={"message_id": message.message_id, "task_kind": task_kind, "payload": message.payload},
+                value={
+                    "message_id": message.message_id,
+                    "task_kind": task_kind,
+                    "payload": message.payload,
+                },
                 expected_version=0,
                 verified=verified,
                 source_message_id=message.message_id,
@@ -436,7 +456,10 @@ class AgentRouter:
     def route(self, prompt: str, *, top_k: int = 4) -> dict[str, object]:
         lowered = prompt.lower()
         candidates: list[dict[str, object]] = []
-        if any(term in lowered for term in ["security", "vulnerability", "cve", "secret", "xss", "sql injection"]):
+        if any(
+            term in lowered
+            for term in ["security", "vulnerability", "cve", "secret", "xss", "sql injection"]
+        ):
             candidates.append({"role": "security", "score": 0.95})
         if any(term in lowered for term in ["test", "pytest", "fail", "bug", "regression"]):
             candidates.append({"role": "testing", "score": 0.9})
@@ -464,10 +487,12 @@ class CraftlyRuntime:
             )
             route = self.router.route(request.prompt, top_k=request.max_agent_nodes or 4)
             store = LocalStore()
-            workspace = str(Path(request.workspace).resolve())
+            workspace = str(resolve_registered_repo_path(request.workspace))
             project = store.create_project(name=f"runtime-{time.time_ns()}", repo_path=workspace)
             index_report = RepositoryIndexer(store).index_project(project_id=project["id"])
-            context = ContextBuilder(store).build(project_id=project["id"], query=request.prompt, token_budget=8000)
+            context = ContextBuilder(store).build(
+                project_id=project["id"], query=request.prompt, token_budget=8000
+            )
             agent_run = TaskGraphRuntime(store).create_agent_run(
                 AgentRunCreateRequest(
                     project_id=project["id"],

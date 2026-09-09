@@ -8,7 +8,6 @@ without requiring an external HTTP service or fallback to mock models.
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
 from typing import Any
 
@@ -36,7 +35,6 @@ class NativeCraftlyModelBackend(ModelBackend):
         device: str = "auto",
     ) -> None:
         require_torch()
-        import torch
 
         self.device = select_torch_device(device)
         self.raw_checkpoint_path = Path(checkpoint_path).resolve()

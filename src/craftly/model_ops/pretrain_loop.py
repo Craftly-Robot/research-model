@@ -18,7 +18,12 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Literal
 
-from src.craftly.model_ops.data_loader import ArtifactCache, TokenShardStream, count_batches, load_manifest
+from src.craftly.model_ops.data_loader import (
+    ArtifactCache,
+    TokenShardStream,
+    count_batches,
+    load_manifest,
+)
 from src.craftly.model_ops.foundation import (
     TRAINING_STEP_SEMANTICS,
     CheckpointManifest,
@@ -26,10 +31,16 @@ from src.craftly.model_ops.foundation import (
     model_profiles,
     sha256_file,
 )
-from src.craftly.model_ops.tokenizer_pipeline import ShardBuildConfig, ShardManifest, build_token_shards, load_tokenizer, read_uint32_tokens
+from src.craftly.model_ops.tokenizer_pipeline import (
+    ShardBuildConfig,
+    ShardManifest,
+    build_token_shards,
+    load_tokenizer,
+    read_uint32_tokens,
+)
 from src.craftly.model_ops.torch_decoder import (
-    DecoderBlock,
     CraftlyDecoderLM,
+    DecoderBlock,
     ScratchDecoderConfig,
     load_trusted_checkpoint,
     model_profile,
@@ -100,7 +111,9 @@ def validate_runtime_versions(
         if not expected_value:
             continue
         if name == "cuda" and device.type != "cuda":
-            raise RuntimeError(f"runtime contract requires CUDA {expected_value}, but selected device is {device.type}")
+            raise RuntimeError(
+                f"runtime contract requires CUDA {expected_value}, but selected device is {device.type}"
+            )
         if not actual[name].startswith(expected_value):
             raise RuntimeError(
                 f"runtime {name} mismatch: expected prefix {expected_value!r}, actual={actual[name]!r}"
@@ -176,7 +189,9 @@ def build_cluster_training_plan(
         raise ValueError("dtype must be one of bf16, fp16, fp32")
     if not Path(manifest).exists():
         raise FileNotFoundError(f"shard manifest not found: {manifest}")
-    profile = model_profile(model_profile_name) if model_profile_name != "tiny" else tiny_smoke_config()
+    profile = (
+        model_profile(model_profile_name) if model_profile_name != "tiny" else tiny_smoke_config()
+    )
     total_gpus = num_nodes * gpus_per_node
     global_sequences = total_gpus * batch_size * gradient_accumulation_steps
     tokens_per_optimizer_step = global_sequences * sequence_length
@@ -216,11 +231,17 @@ def build_cluster_training_plan(
         "PYTHONUNBUFFERED": "1",
     }
     if model_profile_name in {"32b", "62b"} and total_gpus < 8:
-        warnings.append("32B/62B profiles normally need >=8 high-memory GPUs; this plan may OOM on smaller clusters.")
+        warnings.append(
+            "32B/62B profiles normally need >=8 high-memory GPUs; this plan may OOM on smaller clusters."
+        )
     if sequence_length > 8192 and strategy not in {"deepspeed_zero3", "megatron"}:
-        warnings.append("Long-context runs above 8k tokens should usually use ZeRO-3/Megatron-style partitioning.")
+        warnings.append(
+            "Long-context runs above 8k tokens should usually use ZeRO-3/Megatron-style partitioning."
+        )
     if dtype == "fp32" and model_profile_name != "tiny":
-        warnings.append("fp32 is not practical for large-profile training; prefer bf16 on Ampere/Hopper or fp16 where required.")
+        warnings.append(
+            "fp32 is not practical for large-profile training; prefer bf16 on Ampere/Hopper or fp16 where required."
+        )
 
     if strategy == "fsdp":
         launcher = "torchrun"
@@ -246,7 +267,9 @@ def build_cluster_training_plan(
         launcher = "deepspeed"
         if deepspeed_config is None:
             stage = "2" if strategy == "deepspeed_zero2" else "3"
-            warnings.append(f"No DeepSpeed JSON path provided; generate/use a ZeRO-{stage} config before launching.")
+            warnings.append(
+                f"No DeepSpeed JSON path provided; generate/use a ZeRO-{stage} config before launching."
+            )
         elif not Path(deepspeed_config).exists():
             raise FileNotFoundError(f"DeepSpeed config not found: {deepspeed_config}")
         command = [
@@ -266,7 +289,9 @@ def build_cluster_training_plan(
     else:
         launcher = "megatron"
         if megatron_root is None:
-            warnings.append("Megatron root path is not set; set --megatron-root to the checked-out Megatron-LM repository.")
+            warnings.append(
+                "Megatron root path is not set; set --megatron-root to the checked-out Megatron-LM repository."
+            )
         elif not Path(megatron_root).exists():
             raise FileNotFoundError(f"Megatron root not found: {megatron_root}")
         command = [
@@ -344,7 +369,9 @@ def distributed_barrier() -> None:
         torch.distributed.barrier()
 
 
-def initialize_distributed_runtime(strategy: DistributedStrategy, requested_device: "torch.device") -> dict[str, Any]:
+def initialize_distributed_runtime(
+    strategy: DistributedStrategy, requested_device: torch.device
+) -> dict[str, Any]:
     require_torch()
     if strategy == "none":
         return {"enabled": False, "strategy": "none", "rank": 0, "world_size": 1, "local_rank": 0}
@@ -352,7 +379,9 @@ def initialize_distributed_runtime(strategy: DistributedStrategy, requested_devi
         try:
             import deepspeed
         except ImportError as exc:
-            raise RuntimeError("DeepSpeed strategy requested but deepspeed is not installed") from exc
+            raise RuntimeError(
+                "DeepSpeed strategy requested but deepspeed is not installed"
+            ) from exc
         if not torch.distributed.is_initialized():
             deepspeed.init_distributed()
         local_rank = int(os.environ.get("LOCAL_RANK", "0"))
@@ -364,7 +393,9 @@ def initialize_distributed_runtime(strategy: DistributedStrategy, requested_devi
             "rank": distributed_rank(),
             "world_size": distributed_world_size(),
             "local_rank": local_rank,
-            "backend": torch.distributed.get_backend() if torch.distributed.is_initialized() else "",
+            "backend": torch.distributed.get_backend()
+            if torch.distributed.is_initialized()
+            else "",
         }
     if strategy != "fsdp":
         raise RuntimeError(
@@ -390,12 +421,12 @@ def initialize_distributed_runtime(strategy: DistributedStrategy, requested_devi
 
 
 def wrap_for_distributed(
-    model: "CraftlyDecoderLM",
+    model: CraftlyDecoderLM,
     *,
     strategy: DistributedStrategy,
     dtype: str,
-    device: "torch.device",
-) -> "torch.nn.Module":
+    device: torch.device,
+) -> torch.nn.Module:
     require_torch()
     if strategy == "none":
         return model
@@ -408,17 +439,30 @@ def wrap_for_distributed(
     mixed_precision = None
     if device.type == "cuda" and dtype in {"bf16", "fp16"}:
         active_dtype = autocast_dtype(dtype)
-        mixed_precision = MixedPrecision(param_dtype=active_dtype, reduce_dtype=active_dtype, buffer_dtype=active_dtype)
+        mixed_precision = MixedPrecision(
+            param_dtype=active_dtype, reduce_dtype=active_dtype, buffer_dtype=active_dtype
+        )
     auto_wrap_policy = partial(transformer_auto_wrap_policy, transformer_layer_cls={DecoderBlock})
-    return FSDP(model, auto_wrap_policy=auto_wrap_policy, mixed_precision=mixed_precision, use_orig_params=True)
+    return FSDP(
+        model,
+        auto_wrap_policy=auto_wrap_policy,
+        mixed_precision=mixed_precision,
+        use_orig_params=True,
+    )
 
 
-def checkpoint_model_state_dict(model: "torch.nn.Module") -> dict[str, Any]:
+def checkpoint_model_state_dict(model: torch.nn.Module) -> dict[str, Any]:
     require_torch()
     if hasattr(model, "module") and model.__class__.__name__.lower().endswith("engine"):
         return model.module.state_dict()
     try:
-        from torch.distributed.fsdp import FullStateDictConfig, FullyShardedDataParallel as FSDP, StateDictType
+        from torch.distributed.fsdp import (
+            FullStateDictConfig,
+            StateDictType,
+        )
+        from torch.distributed.fsdp import (
+            FullyShardedDataParallel as FSDP,
+        )
     except ImportError:
         return model.state_dict()
     if isinstance(model, FSDP):
@@ -429,16 +473,16 @@ def checkpoint_model_state_dict(model: "torch.nn.Module") -> dict[str, Any]:
 
 
 def wrap_for_deepspeed(
-    model: "torch.nn.Module",
-    optimizer: "torch.optim.Optimizer",
-    scheduler: "torch.optim.lr_scheduler.LRScheduler",
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    scheduler: torch.optim.lr_scheduler.LRScheduler,
     *,
     strategy: DistributedStrategy,
     config_path: str | Path | None,
     batch_size: int,
     gradient_accumulation_steps: int,
     dtype: str,
-) -> tuple["torch.nn.Module", "torch.optim.Optimizer", "torch.optim.lr_scheduler.LRScheduler"]:
+) -> tuple[torch.nn.Module, torch.optim.Optimizer, torch.optim.lr_scheduler.LRScheduler]:
     if not is_deepspeed_strategy(strategy):
         return model, optimizer, scheduler
     try:
@@ -462,7 +506,7 @@ def wrap_for_deepspeed(
     return engine, active_optimizer, active_scheduler
 
 
-def autocast_dtype(name: str) -> "torch.dtype":
+def autocast_dtype(name: str) -> torch.dtype:
     if name == "bf16":
         return torch.bfloat16
     if name == "fp16":
@@ -506,7 +550,9 @@ def checkpoint_payload_from_manifest(manifest_path: str | Path) -> Path:
             raise ValueError(f"initial checkpoint integrity check failed: {relative}")
     payload = root / "model.pt"
     if not payload.is_file():
-        raise ValueError("external checkpoint initialization currently requires a single-process model.pt checkpoint")
+        raise ValueError(
+            "external checkpoint initialization currently requires a single-process model.pt checkpoint"
+        )
     return payload
 
 
@@ -545,7 +591,9 @@ def _validate_checkpoint_training_invariants(
     batches_per_epoch = int(expected["batches_per_rank_per_epoch"])
     expected_micro_batches = step * accumulation
     if int(dataloader_state.get("completed_micro_batches_per_rank", -1)) != expected_micro_batches:
-        raise ValueError("checkpoint dataloader cursor does not match optimizer step and accumulation contract")
+        raise ValueError(
+            "checkpoint dataloader cursor does not match optimizer step and accumulation contract"
+        )
     expected_cursor = {
         "semantics": expected["step_semantics"],
         "completed_optimizer_steps": step,
@@ -567,9 +615,9 @@ def _validate_checkpoint_training_invariants(
 def _save_dcp_checkpoint(
     *,
     checkpoint_dir: Path,
-    model: "torch.nn.Module",
-    optimizer: "torch.optim.Optimizer",
-    scheduler: "torch.optim.lr_scheduler.LRScheduler | None",
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    scheduler: torch.optim.lr_scheduler.LRScheduler | None,
     trainer_state: dict[str, Any],
 ) -> None:
     import torch.distributed.checkpoint as dcp
@@ -589,7 +637,9 @@ def _save_dcp_checkpoint(
         "rank": distributed_rank(),
         "world_size": distributed_world_size(),
         "torch_rng_state": torch.get_rng_state().tolist(),
-        "cuda_rng_states": [state.tolist() for state in torch.cuda.get_rng_state_all()] if torch.cuda.is_available() else [],
+        "cuda_rng_states": [state.tolist() for state in torch.cuda.get_rng_state_all()]
+        if torch.cuda.is_available()
+        else [],
     }
     (temporary / f"rank-{distributed_rank():05d}.json").write_text(
         json.dumps(rank_state, sort_keys=True), encoding="utf-8"
@@ -610,9 +660,9 @@ def _save_dcp_checkpoint(
 def _load_dcp_checkpoint(
     *,
     checkpoint_path: Path,
-    model: "torch.nn.Module",
-    optimizer: "torch.optim.Optimizer",
-    scheduler: "torch.optim.lr_scheduler.LRScheduler | None",
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    scheduler: torch.optim.lr_scheduler.LRScheduler | None,
     expected_config: ScratchDecoderConfig | None = None,
     expected_dataset_manifest_sha256: str | None = None,
     expected_tokenizer_sha256: str | None = None,
@@ -644,23 +694,37 @@ def _load_dcp_checkpoint(
                 for key, value in expected_config.model_dump().items()
                 if saved_config.model_dump().get(key) != value
             )
-            raise ValueError(f"distributed checkpoint architecture config is incompatible: {', '.join(mismatched)}")
+            raise ValueError(
+                f"distributed checkpoint architecture config is incompatible: {', '.join(mismatched)}"
+            )
     if expected_dataset_manifest_sha256 is not None:
-        if str(trainer_state.get("dataset_manifest_sha256") or "") != expected_dataset_manifest_sha256:
-            raise ValueError("distributed checkpoint dataset manifest hash does not match immutable training input")
+        if (
+            str(trainer_state.get("dataset_manifest_sha256") or "")
+            != expected_dataset_manifest_sha256
+        ):
+            raise ValueError(
+                "distributed checkpoint dataset manifest hash does not match immutable training input"
+            )
     if expected_tokenizer_sha256 is not None:
         if str(trainer_state.get("tokenizer_sha256") or "") != expected_tokenizer_sha256:
-            raise ValueError("distributed checkpoint tokenizer hash does not match immutable training input")
+            raise ValueError(
+                "distributed checkpoint tokenizer hash does not match immutable training input"
+            )
     if scheduler is not None and trainer_state.get("scheduler"):
         scheduler.load_state_dict(trainer_state["scheduler"])
     rank_path = root / f"rank-{distributed_rank():05d}.json"
     if not rank_path.is_file():
-        raise FileNotFoundError(f"distributed checkpoint has no RNG state for rank {distributed_rank()}")
+        raise FileNotFoundError(
+            f"distributed checkpoint has no RNG state for rank {distributed_rank()}"
+        )
     rank_state = json.loads(rank_path.read_text(encoding="utf-8"))
     torch.set_rng_state(torch.tensor(rank_state["torch_rng_state"], dtype=torch.uint8))
     if torch.cuda.is_available() and rank_state.get("cuda_rng_states"):
         torch.cuda.set_rng_state_all(
-            [torch.tensor(value, dtype=torch.uint8, device="cpu") for value in rank_state["cuda_rng_states"]]
+            [
+                torch.tensor(value, dtype=torch.uint8, device="cpu")
+                for value in rank_state["cuda_rng_states"]
+            ]
         )
     return int(trainer_state.get("step", 0)), int(trainer_state.get("trained_tokens", 0))
 
@@ -704,7 +768,9 @@ def publish_checkpoint_to_workspace(
             "relative_path": f"{prefix}/{relative_path}",
             "sha256": digest,
             "size_bytes": size_bytes,
-            "content_type": "application/json" if path.suffix == ".json" else "application/octet-stream",
+            "content_type": "application/json"
+            if path.suffix == ".json"
+            else "application/octet-stream",
         }
         with httpx.Client(timeout=httpx.Timeout(120.0, connect=15.0)) as client:
             response = client.post(
@@ -715,7 +781,9 @@ def publish_checkpoint_to_workspace(
             response.raise_for_status()
             presigned = response.json()
             with path.open("rb") as handle:
-                uploaded = client.put(presigned["url"], headers=presigned["headers"], content=handle)
+                uploaded = client.put(
+                    presigned["url"], headers=presigned["headers"], content=handle
+                )
             uploaded.raise_for_status()
             registered = client.post(
                 f"{workspace_url}/v1/training/jobs/{job_id}/artifacts/register",
@@ -740,8 +808,12 @@ def publish_checkpoint_to_workspace(
             raise ValueError("checkpoint manifest path escapes checkpoint directory")
         if not source.is_file() or sha256_file(source) != str(entry["sha256"]):
             raise ValueError(f"checkpoint file failed publication preflight: {relative}")
-        work.append((source, relative.replace("\\", "/"), str(entry["sha256"]), int(entry["size_bytes"])))
-    with concurrent.futures.ThreadPoolExecutor(max_workers=min(maximum_workers, len(work))) as executor:
+        work.append(
+            (source, relative.replace("\\", "/"), str(entry["sha256"]), int(entry["size_bytes"]))
+        )
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=min(maximum_workers, len(work))
+    ) as executor:
         futures = [executor.submit(upload, *item) for item in work]
         for future in concurrent.futures.as_completed(futures):
             future.result()
@@ -778,7 +850,9 @@ def git_commit(root: str | Path = ".") -> str:
     return completed.stdout.strip() if completed.returncode == 0 else "unknown"
 
 
-def training_environment_report(*, device: "torch.device", dtype: str, distributed_strategy: DistributedStrategy) -> dict[str, Any]:
+def training_environment_report(
+    *, device: torch.device, dtype: str, distributed_strategy: DistributedStrategy
+) -> dict[str, Any]:
     require_torch()
     cuda_available = bool(torch.cuda.is_available())
     return {
@@ -787,7 +861,9 @@ def training_environment_report(*, device: "torch.device", dtype: str, distribut
         "cuda_available": cuda_available,
         "cuda_version": str(getattr(torch.version, "cuda", "")),
         "device": str(device),
-        "device_name": torch.cuda.get_device_name(device) if device.type == "cuda" and cuda_available else "",
+        "device_name": torch.cuda.get_device_name(device)
+        if device.type == "cuda" and cuda_available
+        else "",
         "dtype": dtype,
         "distributed_strategy": distributed_strategy,
         "distributed_rank": distributed_rank(),
@@ -833,9 +909,9 @@ def prune_old_checkpoints(
 def save_training_checkpoint(
     *,
     output_dir: Path,
-    model: "torch.nn.Module",
-    optimizer: "torch.optim.Optimizer",
-    scheduler: "torch.optim.lr_scheduler.LRScheduler | None" = None,
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
     config: ScratchDecoderConfig,
     step: int,
     trained_tokens: int,
@@ -850,8 +926,16 @@ def save_training_checkpoint(
 ) -> Path:
     checkpoint_dir = output_dir / f"checkpoint-step-{step:08d}"
     manifest_path = output_dir / manifest_filename
-    dataset_manifest_hash = sha256_file(Path(dataset_manifest_path)) if dataset_manifest_path and Path(dataset_manifest_path).exists() else ""
-    tokenizer_hash = sha256_file(Path(tokenizer_path)) if tokenizer_path and Path(tokenizer_path).exists() else ""
+    dataset_manifest_hash = (
+        sha256_file(Path(dataset_manifest_path))
+        if dataset_manifest_path and Path(dataset_manifest_path).exists()
+        else ""
+    )
+    tokenizer_hash = (
+        sha256_file(Path(tokenizer_path))
+        if tokenizer_path and Path(tokenizer_path).exists()
+        else ""
+    )
     trainer_state = {
         "config": config.model_dump(),
         "step": step,
@@ -868,7 +952,9 @@ def save_training_checkpoint(
         "distributed_world_size": distributed_world_size(),
     }
     is_fsdp = model.__class__.__name__ == "FullyShardedDataParallel"
-    is_deepspeed = hasattr(model, "save_checkpoint") and model.__class__.__name__.lower().endswith("engine")
+    is_deepspeed = hasattr(model, "save_checkpoint") and model.__class__.__name__.lower().endswith(
+        "engine"
+    )
     if is_fsdp:
         _save_dcp_checkpoint(
             checkpoint_dir=checkpoint_dir,
@@ -897,7 +983,9 @@ def save_training_checkpoint(
                 {
                     "model": model_state,
                     "optimizer": optimizer.state_dict(),
-                    "scheduler": scheduler.state_dict() if scheduler is not None else {"type": "constant", "state": {}},
+                    "scheduler": scheduler.state_dict()
+                    if scheduler is not None
+                    else {"type": "constant", "state": {}},
                     **trainer_state,
                 },
                 checkpoint_dir / "model.pt",
@@ -909,7 +997,9 @@ def save_training_checkpoint(
                 f"Disk space exhaustion or I/O error: {err}"
             ) from err
     if distributed_rank() == 0:
-        (checkpoint_dir / "config.json").write_text(json.dumps(config.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+        (checkpoint_dir / "config.json").write_text(
+            json.dumps(config.model_dump(), indent=2, sort_keys=True), encoding="utf-8"
+        )
         manifest = CheckpointManifest.from_directory(
             architecture_name=config.name,
             run_id="scratch-pretrain-loop",
@@ -919,17 +1009,19 @@ def save_training_checkpoint(
             metrics=metrics,
         )
         manifest.write_atomic(manifest_path)
-        prune_old_checkpoints(output_dir, keep_last_n=keep_last_n_checkpoints, preserve_dirs={checkpoint_dir})
+        prune_old_checkpoints(
+            output_dir, keep_last_n=keep_last_n_checkpoints, preserve_dirs={checkpoint_dir}
+        )
     distributed_barrier()
     return manifest_path
 
 
 def checkpoint_logit_probe(
-    model: "torch.nn.Module",
+    model: torch.nn.Module,
     *,
     config: ScratchDecoderConfig,
-    device: "torch.device",
-) -> "torch.Tensor":
+    device: torch.device,
+) -> torch.Tensor:
     """Capture deterministic logits used to prove a checkpoint reload is exact enough."""
     sequence_length = min(8, config.max_sequence_length)
     token_ids = torch.arange(sequence_length, dtype=torch.long, device=device).remainder(
@@ -951,10 +1043,10 @@ def checkpoint_logit_probe(
 def load_checkpoint(
     checkpoint_path: Path,
     *,
-    model: "torch.nn.Module",
-    optimizer: "torch.optim.Optimizer",
-    scheduler: "torch.optim.lr_scheduler.LRScheduler | None" = None,
-    device: "torch.device",
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
+    device: torch.device,
     expected_config: ScratchDecoderConfig | None = None,
     expected_dataset_manifest_sha256: str | None = None,
     expected_tokenizer_sha256: str | None = None,
@@ -971,7 +1063,11 @@ def load_checkpoint(
             expected_tokenizer_sha256=expected_tokenizer_sha256,
             expected_training_invariants=expected_training_invariants,
         )
-    if checkpoint_path.is_dir() and (checkpoint_path / "latest").exists() and hasattr(model, "load_checkpoint"):
+    if (
+        checkpoint_path.is_dir()
+        and (checkpoint_path / "latest").exists()
+        and hasattr(model, "load_checkpoint")
+    ):
         loaded_path, client_state = model.load_checkpoint(str(checkpoint_path))
         if not loaded_path:
             raise RuntimeError("DeepSpeed checkpoint reload failed")
@@ -980,11 +1076,18 @@ def load_checkpoint(
             if saved_config.model_dump() != expected_config.model_dump():
                 raise ValueError("DeepSpeed checkpoint architecture config is incompatible")
         if expected_dataset_manifest_sha256 is not None:
-            if str(client_state.get("dataset_manifest_sha256") or "") != expected_dataset_manifest_sha256:
-                raise ValueError("DeepSpeed checkpoint dataset manifest hash does not match immutable training input")
+            if (
+                str(client_state.get("dataset_manifest_sha256") or "")
+                != expected_dataset_manifest_sha256
+            ):
+                raise ValueError(
+                    "DeepSpeed checkpoint dataset manifest hash does not match immutable training input"
+                )
         if expected_tokenizer_sha256 is not None:
             if str(client_state.get("tokenizer_sha256") or "") != expected_tokenizer_sha256:
-                raise ValueError("DeepSpeed checkpoint tokenizer hash does not match immutable training input")
+                raise ValueError(
+                    "DeepSpeed checkpoint tokenizer hash does not match immutable training input"
+                )
         _validate_checkpoint_training_invariants(client_state, expected_training_invariants)
         return int(client_state.get("step", 0)), int(client_state.get("trained_tokens", 0))
     payload = load_trusted_checkpoint(checkpoint_path, map_location=device)
@@ -1007,7 +1110,9 @@ def load_checkpoint(
     if expected_dataset_manifest_sha256 is not None:
         actual_dataset_hash = str(payload.get("dataset_manifest_sha256") or "")
         if actual_dataset_hash != expected_dataset_manifest_sha256:
-            raise ValueError("checkpoint dataset manifest hash does not match immutable training input")
+            raise ValueError(
+                "checkpoint dataset manifest hash does not match immutable training input"
+            )
     if expected_tokenizer_sha256 is not None:
         actual_tokenizer_hash = str(payload.get("tokenizer_sha256") or "")
         if actual_tokenizer_hash != expected_tokenizer_sha256:
@@ -1045,7 +1150,10 @@ def validate_production_training_args(
         failures.append("production mode requires a tokenizer path in the shard manifest")
     if tokenizer_path and not Path(tokenizer_path).exists():
         failures.append("production mode tokenizer_path does not exist")
-    if not active_manifest.val_shards or active_manifest.val_tokens < active_manifest.sequence_length:
+    if (
+        not active_manifest.val_shards
+        or active_manifest.val_tokens < active_manifest.sequence_length
+    ):
         failures.append("production mode requires a non-empty validation shard set")
     if active_manifest.split_strategy != "pre_split_family_safe":
         failures.append("production mode requires a pre-split family-safe token corpus")
@@ -1058,12 +1166,17 @@ def validate_production_training_args(
         != active_manifest.train_documents + active_manifest.val_documents
         or active_manifest.boundary_token_count < 1
     ):
-        failures.append("production mode requires a verified document boundary token for every source row")
+        failures.append(
+            "production mode requires a verified document boundary token for every source row"
+        )
     if not active_manifest.dataset_manifest_path or not active_manifest.dataset_manifest_sha256:
         failures.append("production mode requires a promoted dataset manifest binding")
     else:
         dataset_manifest = Path(active_manifest.dataset_manifest_path)
-        if not dataset_manifest.is_file() or sha256_file(dataset_manifest) != active_manifest.dataset_manifest_sha256:
+        if (
+            not dataset_manifest.is_file()
+            or sha256_file(dataset_manifest) != active_manifest.dataset_manifest_sha256
+        ):
             failures.append("production dataset manifest binding failed integrity verification")
     tokenizer_source = Path(active_manifest.tokenizer_path)
     if (
@@ -1079,14 +1192,16 @@ def validate_production_training_args(
         if not source.is_file() or sha256_file(source) != expected_sha256:
             failures.append(f"production tokenizer source binding failed: {source_path}")
     if validate_every <= 0 or validate_every > run_steps:
-        failures.append("production mode requires validation to run inside the requested step count")
+        failures.append(
+            "production mode requires validation to run inside the requested step count"
+        )
     if checkpoint_every <= 0:
         failures.append("production mode requires checkpointing")
     if failures:
         raise ValueError("production training validation failed: " + "; ".join(failures))
 
 
-def tensor_batch(batch: list[list[int]], *, device: "torch.device") -> "torch.Tensor":
+def tensor_batch(batch: list[list[int]], *, device: torch.device) -> torch.Tensor:
     return torch.tensor(batch, dtype=torch.long, device=device)
 
 
@@ -1099,7 +1214,9 @@ def validate_training_shards(
     expected_sha256: dict[str, str] | None = None,
 ) -> int:
     if not train_shards:
-        raise ValueError("manifest has no training shards; provide a corpus that produces at least one train shard")
+        raise ValueError(
+            "manifest has no training shards; provide a corpus that produces at least one train shard"
+        )
     required_tokens = sequence_length * batch_size
     available_batches = count_batches(
         train_shards,
@@ -1110,7 +1227,8 @@ def validate_training_shards(
     )
     if available_batches < 1:
         total_tokens = sum(
-            len((artifact_cache.materialize(path) if artifact_cache else Path(path)).read_bytes()) // 4
+            len((artifact_cache.materialize(path) if artifact_cache else Path(path)).read_bytes())
+            // 4
             for path in train_shards
         )
         raise ValueError(
@@ -1144,7 +1262,9 @@ def build_training_config(
     gradient_checkpointing: bool = False,
     artifact_cache: ArtifactCache | None = None,
 ) -> ScratchDecoderConfig:
-    base = model_profile(model_profile_name) if model_profile_name != "tiny" else tiny_smoke_config()
+    base = (
+        model_profile(model_profile_name) if model_profile_name != "tiny" else tiny_smoke_config()
+    )
     vocab_size = base.vocab_size
     tokenizer_path = Path(active_manifest.tokenizer_path)
     if tokenizer_path.exists():
@@ -1168,9 +1288,9 @@ def build_training_config(
 @torch.no_grad() if torch is not None else (lambda fn: fn)
 def validation_loss(
     *,
-    model: "CraftlyDecoderLM",
+    model: CraftlyDecoderLM,
     stream: TokenShardStream,
-    device: "torch.device",
+    device: torch.device,
     max_batches: int,
     dtype: str,
 ) -> float:
@@ -1182,7 +1302,9 @@ def validation_loss(
             if index >= max_batches:
                 break
             input_ids = tensor_batch(batch, device=device)
-            with torch.autocast(device_type=device.type, dtype=autocast_dtype(dtype), enabled=use_autocast):
+            with torch.autocast(
+                device_type=device.type, dtype=autocast_dtype(dtype), enabled=use_autocast
+            ):
                 output = model(input_ids, labels=input_ids)
             if output.loss is not None:
                 losses.append(float(output.loss.detach().cpu()))
@@ -1191,7 +1313,9 @@ def validation_loss(
     local_sum = sum(losses)
     local_count = len(losses)
     if distributed_is_initialized():
-        aggregate = torch.tensor([local_sum, float(local_count)], dtype=torch.float64, device=device)
+        aggregate = torch.tensor(
+            [local_sum, float(local_count)], dtype=torch.float64, device=device
+        )
         torch.distributed.all_reduce(aggregate, op=torch.distributed.ReduceOp.SUM)
         local_sum, local_count = float(aggregate[0].item()), int(aggregate[1].item())
     if local_count < 1:
@@ -1270,7 +1394,9 @@ def run_pretraining_loop(
     if not (0.0 < optimizer_beta1 < 1.0 and 0.0 < optimizer_beta2 < 1.0):
         raise ValueError("optimizer beta values must be between 0 and 1")
     if optimizer_epsilon <= 0.0 or weight_decay < 0.0 or gradient_clip_norm <= 0.0:
-        raise ValueError("optimizer epsilon/gradient clip must be positive and weight decay non-negative")
+        raise ValueError(
+            "optimizer epsilon/gradient clip must be positive and weight decay non-negative"
+        )
     if warmup_steps and warmup_ratio:
         raise ValueError("set either warmup_steps or warmup_ratio, not both")
     resolved_warmup_steps = warmup_steps or int(steps * warmup_ratio)
@@ -1309,13 +1435,17 @@ def run_pretraining_loop(
         from src.craftly.learning.ablation_runner import verify_model_progression_decision
 
         progression = verify_model_progression_decision(progression_source)
-        if progression.status != "authorized" or progression.target_model_profile != model_profile_name:
+        if (
+            progression.status != "authorized"
+            or progression.target_model_profile != model_profile_name
+        ):
             raise ValueError("model progression decision does not authorize this model profile")
     root = Path(output_dir).resolve()
     root.mkdir(parents=True, exist_ok=True)
     artifact_cache = ArtifactCache(
         artifact_cache_dir or os.environ.get("CRAFTLY_ARTIFACT_CACHE_DIR", root / "artifact-cache"),
-        s3_endpoint_url=object_store_endpoint_url or os.environ.get("CRAFTLY_OBJECT_STORE_ENDPOINT_URL"),
+        s3_endpoint_url=object_store_endpoint_url
+        or os.environ.get("CRAFTLY_OBJECT_STORE_ENDPOINT_URL"),
     )
     active_manifest_path: Path | None = (
         artifact_cache.materialize(manifest, expected_sha256=manifest_sha256) if manifest else None
@@ -1337,7 +1467,9 @@ def run_pretraining_loop(
     else:
         raise ValueError("provide --manifest, or both --token-file and --tokenizer-path")
     immutable_tokenizer = tokenizer_path or active_manifest.tokenizer_path
-    local_tokenizer = artifact_cache.materialize(immutable_tokenizer, expected_sha256=tokenizer_sha256)
+    local_tokenizer = artifact_cache.materialize(
+        immutable_tokenizer, expected_sha256=tokenizer_sha256
+    )
     active_manifest = active_manifest.model_copy(update={"tokenizer_path": str(local_tokenizer)})
     validate_production_training_args(
         production_mode=production_mode,
@@ -1476,7 +1608,9 @@ def run_pretraining_loop(
     if config.gradient_checkpointing:
         model.enable_gradient_checkpointing()
     if not is_deepspeed_strategy(distributed_strategy):
-        model = wrap_for_distributed(model, strategy=distributed_strategy, dtype=dtype, device=selected)
+        model = wrap_for_distributed(
+            model, strategy=distributed_strategy, dtype=dtype, device=selected
+        )
     optimizer = torch.optim.AdamW(
         model.parameters(),
         lr=learning_rate,
@@ -1502,7 +1636,9 @@ def run_pretraining_loop(
             gradient_accumulation_steps=gradient_accumulation_steps,
             dtype=dtype,
         )
-    checkpoint_environment = training_environment_report(device=selected, dtype=dtype, distributed_strategy=distributed_strategy)
+    checkpoint_environment = training_environment_report(
+        device=selected, dtype=dtype, distributed_strategy=distributed_strategy
+    )
     checkpoint_args = {
         "objective": "causal_language_modeling",
         "optimizer_policy_path": str(optimizer_policy_source or ""),
@@ -1534,7 +1670,11 @@ def run_pretraining_loop(
         "attention_impl": attention_impl,
         "gradient_checkpointing": gradient_checkpointing,
         "distributed_strategy": distributed_strategy,
-        "deepspeed_config": str(deepspeed_config or default_deepspeed_config_path(distributed_strategy)) if is_deepspeed_strategy(distributed_strategy) else "",
+        "deepspeed_config": str(
+            deepspeed_config or default_deepspeed_config_path(distributed_strategy)
+        )
+        if is_deepspeed_strategy(distributed_strategy)
+        else "",
         "production_mode": production_mode,
         "dev_smoke": dev_smoke,
         "max_training_loss": max_training_loss,
@@ -1578,7 +1718,9 @@ def run_pretraining_loop(
                 scheduler=scheduler,
                 device=selected,
                 expected_config=config,
-                expected_dataset_manifest_sha256=sha256_file(active_manifest_path) if active_manifest_path else None,
+                expected_dataset_manifest_sha256=sha256_file(active_manifest_path)
+                if active_manifest_path
+                else None,
                 expected_tokenizer_sha256=sha256_file(local_tokenizer),
                 expected_training_invariants=checkpoint_training_invariants,
             )
@@ -1595,7 +1737,9 @@ def run_pretraining_loop(
                 expected_dataset_manifest_sha256=(
                     None
                     if allow_initial_dataset_rebind
-                    else sha256_file(active_manifest_path) if active_manifest_path else None
+                    else sha256_file(active_manifest_path)
+                    if active_manifest_path
+                    else None
                 ),
                 expected_tokenizer_sha256=sha256_file(local_tokenizer),
                 expected_training_invariants=checkpoint_training_invariants,
@@ -1677,7 +1821,9 @@ def run_pretraining_loop(
                 else contextlib.nullcontext()
             )
             with sync_context:
-                with torch.autocast(device_type=selected.type, dtype=autocast_dtype(dtype), enabled=use_autocast):
+                with torch.autocast(
+                    device_type=selected.type, dtype=autocast_dtype(dtype), enabled=use_autocast
+                ):
                     output = model(input_ids, labels=input_ids)
                     if output.loss is None:
                         raise RuntimeError("loss missing")
@@ -1702,7 +1848,9 @@ def run_pretraining_loop(
                         router_dropped_assignments += dropped
                         router_load_ratios.append(float(router_metric["p99_to_mean_load"]))
                     if router_dropped_assignments:
-                        raise RuntimeError("dropless MoE invariant failed: one or more token assignments were dropped")
+                        raise RuntimeError(
+                            "dropless MoE invariant failed: one or more token assignments were dropped"
+                        )
                     backward_loss = (
                         output.loss
                         if is_deepspeed_strategy(distributed_strategy)
@@ -1730,7 +1878,11 @@ def run_pretraining_loop(
             optimizer.zero_grad(set_to_none=True)
         current_step += 1
         train_losses.append(sum(optimizer_step_losses) / len(optimizer_step_losses))
-        if current_step == 1 or current_step % max(1, progress_every_steps) == 0 or current_step >= steps:
+        if (
+            current_step == 1
+            or current_step % max(1, progress_every_steps) == 0
+            or current_step >= steps
+        ):
             active_progress.emit(
                 "training",
                 "running",
@@ -1765,7 +1917,9 @@ def run_pretraining_loop(
                 "complete",
                 step=current_step,
                 validation_loss=round(current_val_loss, 6),
-                best_validation_loss=round(best_val_loss, 6) if best_val_loss != float("inf") else None,
+                best_validation_loss=round(best_val_loss, 6)
+                if best_val_loss != float("inf")
+                else None,
             )
             if current_val_loss < best_val_loss - early_stopping_min_delta:
                 best_val_loss = current_val_loss
@@ -1779,7 +1933,11 @@ def run_pretraining_loop(
                     config=config,
                     step=current_step,
                     trained_tokens=trained_tokens,
-                    metrics={"train_loss": train_losses[-1], "val_loss": current_val_loss, "best_val_loss": current_val_loss},
+                    metrics={
+                        "train_loss": train_losses[-1],
+                        "val_loss": current_val_loss,
+                        "best_val_loss": current_val_loss,
+                    },
                     training_args=checkpoint_args,
                     dataset_manifest_path=active_manifest_path,
                     tokenizer_path=active_manifest.tokenizer_path,
@@ -1797,13 +1955,18 @@ def run_pretraining_loop(
                 )
             else:
                 validations_without_improvement += 1
-                if early_stopping_patience > 0 and validations_without_improvement >= early_stopping_patience:
+                if (
+                    early_stopping_patience > 0
+                    and validations_without_improvement >= early_stopping_patience
+                ):
                     early_stopped = True
                     early_stop_reason = (
                         f"validation loss did not improve by {early_stopping_min_delta} "
                         f"for {validations_without_improvement} validation checks"
                     )
-                    active_progress.emit("training", "early_stopping", step=current_step, reason=early_stop_reason)
+                    active_progress.emit(
+                        "training", "early_stopping", step=current_step, reason=early_stop_reason
+                    )
         if early_stopped:
             break
         if checkpoint_every > 0 and current_step % checkpoint_every == 0:
@@ -1815,7 +1978,10 @@ def run_pretraining_loop(
                 config=config,
                 step=current_step,
                 trained_tokens=trained_tokens,
-                metrics={"train_loss": train_losses[-1], "val_loss": val_losses[-1]["loss"] if val_losses else -1.0},
+                metrics={
+                    "train_loss": train_losses[-1],
+                    "val_loss": val_losses[-1]["loss"] if val_losses else -1.0,
+                },
                 training_args=checkpoint_args,
                 dataset_manifest_path=active_manifest_path,
                 tokenizer_path=active_manifest.tokenizer_path,
@@ -1847,7 +2013,11 @@ def run_pretraining_loop(
         config=config,
         step=current_step,
         trained_tokens=trained_tokens,
-        metrics={"train_loss": train_losses[-1], "val_loss": final_val_loss, "best_val_loss": best_val_loss if val_losses else -1.0},
+        metrics={
+            "train_loss": train_losses[-1],
+            "val_loss": final_val_loss,
+            "best_val_loss": best_val_loss if val_losses else -1.0,
+        },
         training_args=checkpoint_args,
         dataset_manifest_path=active_manifest_path,
         tokenizer_path=active_manifest.tokenizer_path,
@@ -1864,7 +2034,11 @@ def run_pretraining_loop(
             config=config,
             step=current_step,
             trained_tokens=trained_tokens,
-            metrics={"train_loss": train_losses[-1], "val_loss": final_val_loss, "best_val_loss": final_val_loss},
+            metrics={
+                "train_loss": train_losses[-1],
+                "val_loss": final_val_loss,
+                "best_val_loss": final_val_loss,
+            },
             training_args=checkpoint_args,
             dataset_manifest_path=active_manifest_path,
             tokenizer_path=active_manifest.tokenizer_path,
@@ -1885,7 +2059,9 @@ def run_pretraining_loop(
         scheduler=scheduler,
         device=selected,
         expected_config=config,
-        expected_dataset_manifest_sha256=sha256_file(active_manifest_path) if active_manifest_path else None,
+        expected_dataset_manifest_sha256=sha256_file(active_manifest_path)
+        if active_manifest_path
+        else None,
         expected_tokenizer_sha256=sha256_file(local_tokenizer),
         expected_training_invariants=checkpoint_training_invariants,
     )
@@ -1935,7 +2111,9 @@ def run_pretraining_loop(
         "start_step": start_step,
         "resume_source": resume_source,
         "initial_checkpoint_manifest": str(initial_checkpoint_manifest or ""),
-        "initial_dataset_rebound": bool(initial_checkpoint_manifest and allow_initial_dataset_rebind),
+        "initial_dataset_rebound": bool(
+            initial_checkpoint_manifest and allow_initial_dataset_rebind
+        ),
         "device": str(selected),
         "dtype": dtype,
         "gradient_accumulation_steps": gradient_accumulation_steps,
@@ -1950,7 +2128,11 @@ def run_pretraining_loop(
         "attention_impl": attention_impl,
         "distributed_strategy": distributed_strategy,
         "distributed": distributed_report,
-        "deepspeed_config": str(deepspeed_config or default_deepspeed_config_path(distributed_strategy)) if is_deepspeed_strategy(distributed_strategy) else "",
+        "deepspeed_config": str(
+            deepspeed_config or default_deepspeed_config_path(distributed_strategy)
+        )
+        if is_deepspeed_strategy(distributed_strategy)
+        else "",
         "production_mode": production_mode,
         "dev_smoke": dev_smoke,
         "max_training_loss": max_training_loss,
@@ -1973,8 +2155,7 @@ def run_pretraining_loop(
             "maximum_p99_to_mean_load": max(router_load_ratios, default=0.0),
             "configured_p99_to_mean_limit": config.router_load_limit,
             "load_balance_passed": (
-                not router_load_ratios
-                or max(router_load_ratios) <= config.router_load_limit
+                not router_load_ratios or max(router_load_ratios) <= config.router_load_limit
             ),
         },
         "validation_losses": val_losses,
@@ -2000,7 +2181,9 @@ def run_pretraining_loop(
         "duration_ms": round((time.perf_counter() - started) * 1000, 3),
     }
     if distributed_rank() == 0:
-        (root / "pretrain_report.json").write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+        (root / "pretrain_report.json").write_text(
+            json.dumps(report, indent=2, sort_keys=True), encoding="utf-8"
+        )
     active_progress.emit(
         "training",
         "complete",
@@ -2038,7 +2221,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--optimizer-epsilon", type=float, default=1e-8)
     parser.add_argument("--weight-decay", type=float, default=0.1)
     parser.add_argument("--gradient-clip-norm", type=float, default=1.0)
-    parser.add_argument("--learning-rate-schedule", choices=["constant", "linear", "cosine"], default="cosine")
+    parser.add_argument(
+        "--learning-rate-schedule", choices=["constant", "linear", "cosine"], default="cosine"
+    )
     parser.add_argument("--warmup-steps", type=int, default=0)
     parser.add_argument("--warmup-ratio", type=float, default=0.0)
     parser.add_argument("--minimum-learning-rate-ratio", type=float, default=0.1)
@@ -2060,8 +2245,14 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--attention-impl", default="auto", choices=["auto", "sdpa", "eager"])
     parser.add_argument("--gradient-checkpointing", action="store_true")
-    parser.add_argument("--production", action="store_true", help="Enable strict production training validation.")
-    parser.add_argument("--dev-smoke", action="store_true", help="Explicitly allow tiny/dev smoke behavior under production validation.")
+    parser.add_argument(
+        "--production", action="store_true", help="Enable strict production training validation."
+    )
+    parser.add_argument(
+        "--dev-smoke",
+        action="store_true",
+        help="Explicitly allow tiny/dev smoke behavior under production validation.",
+    )
     parser.add_argument("--max-training-loss", type=float, default=10_000.0)
     parser.add_argument("--dataloader-prefetch-batches", type=int, default=4)
     parser.add_argument("--dataloader-seed", type=int, default=1337)
@@ -2075,8 +2266,14 @@ def parse_args() -> argparse.Namespace:
         choices=["none", "fsdp", "deepspeed_zero2", "deepspeed_zero3", "megatron"],
         help="Validated distributed strategy contract. Use --cluster-plan-only before cluster execution.",
     )
-    parser.add_argument("--cluster-plan-only", action="store_true", help="Write/print a distributed training launch plan without training.")
-    parser.add_argument("--cluster-plan-out", default="artifacts/craftly/cluster_training_plan.json")
+    parser.add_argument(
+        "--cluster-plan-only",
+        action="store_true",
+        help="Write/print a distributed training launch plan without training.",
+    )
+    parser.add_argument(
+        "--cluster-plan-out", default="artifacts/craftly/cluster_training_plan.json"
+    )
     parser.add_argument("--num-nodes", type=int, default=1)
     parser.add_argument("--gpus-per-node", type=int, default=8)
     parser.add_argument("--node-rank", type=int, default=0)
@@ -2172,4 +2369,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

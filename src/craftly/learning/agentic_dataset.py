@@ -10,13 +10,11 @@ from __future__ import annotations
 
 import json
 import re
-from pathlib import Path
 from typing import Any
 
 from pydantic import Field
 
 from src.craftly.shared.schemas import StrictModel
-
 
 TOOL_CALL_START = "<|tool_call|>"
 TOOL_CALL_END = "<|tool_end|>"
@@ -88,7 +86,6 @@ def parse_agentic_output(text: str) -> ParsedAgentStep:
     thought = None
     tool_call = None
     patch = None
-    explanation = text
 
     # 1. Parse Thought
     thought_match = re.search(r"<\|thought_start\|>(.*?)<\|thought_end\|>", text, re.DOTALL)
@@ -177,7 +174,7 @@ def build_canonical_agentic_scenarios() -> list[AgenticScenario]:
                 " def authenticate_user(cursor, username, password):\n"
                 "-    query = f\"SELECT id, role FROM users WHERE user='{username}' AND pass='{password}'\"\n"
                 "-    cursor.execute(query)\n"
-                "+    query = \"SELECT id, role FROM users WHERE user=%s AND pass=%s\"\n"
+                '+    query = "SELECT id, role FROM users WHERE user=%s AND pass=%s"\n'
                 "+    cursor.execute(query, (username, password))\n"
                 "     return cursor.fetchone()\n"
             ),

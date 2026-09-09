@@ -1,10 +1,9 @@
-﻿"""Production readiness gate for large Craftly data-platform runs."""
+"""Production readiness gate for large Craftly data-platform runs."""
 
 from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 from urllib.parse import urlparse
 
 from pydantic import Field
@@ -12,7 +11,8 @@ from pydantic import Field
 from src.craftly.db.migration_runner import load_migrations
 from src.craftly.learning.benchmark_contamination_filter import load_patterns
 from src.craftly.learning.source_registry import SourceRegistry
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import print_report
+from src.craftly.shared.schemas import StrictModel, print_report
 
 
 class ReadinessCheck(StrictModel):
@@ -57,7 +57,9 @@ def run_readiness_check(config: DataPlatformReadinessConfig) -> DataPlatformRead
     checks.append(
         _check(
             "source_registry",
-            registry_report.source_count > 0 and registry_report.url_count > 0 and not registry_report.warnings,
+            registry_report.source_count > 0
+            and registry_report.url_count > 0
+            and not registry_report.warnings,
             f"{registry_report.source_count} sources, {registry_report.url_count} seed urls, warnings={len(registry_report.warnings)}",
         )
     )
@@ -91,7 +93,9 @@ def run_readiness_check(config: DataPlatformReadinessConfig) -> DataPlatformRead
     )
 
     migrations = load_migrations()
-    has_data_platform_migration = any("data_platform" in migration.version for migration in migrations)
+    has_data_platform_migration = any(
+        "data_platform" in migration.version for migration in migrations
+    )
     checks.append(
         _check(
             "postgres_migrations",
@@ -103,7 +107,8 @@ def run_readiness_check(config: DataPlatformReadinessConfig) -> DataPlatformRead
     checks.append(
         _check(
             "worker_scale",
-            (config.worker_replicas >= 2 and config.async_workers >= 16) or not config.production_mode,
+            (config.worker_replicas >= 2 and config.async_workers >= 16)
+            or not config.production_mode,
             f"worker_replicas={config.worker_replicas}, async_workers={config.async_workers}",
             warn=not config.production_mode,
         )
@@ -112,11 +117,15 @@ def run_readiness_check(config: DataPlatformReadinessConfig) -> DataPlatformRead
     has_fail = any(item.status == "fail" for item in checks)
     has_warn = any(item.status == "warn" for item in checks)
     status = "block" if has_fail else "warn" if has_warn else "pass"
-    return DataPlatformReadinessReport(status=status, production_mode=config.production_mode, checks=checks)
+    return DataPlatformReadinessReport(
+        status=status, production_mode=config.production_mode, checks=checks
+    )
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Check Craftly data-platform production readiness.")
+    parser = argparse.ArgumentParser(
+        description="Check Craftly data-platform production readiness."
+    )
     parser.add_argument("--sources", required=True)
     parser.add_argument("--frontier-backend", choices=["sqlite", "postgres"], default="sqlite")
     parser.add_argument("--postgres-dsn")
@@ -147,11 +156,10 @@ def config_from_args(args: argparse.Namespace) -> DataPlatformReadinessConfig:
 
 def main() -> None:
     report = run_readiness_check(config_from_args(parse_args()))
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
     if report.status == "block":
         raise SystemExit(2)
 
 
 if __name__ == "__main__":
     main()
-

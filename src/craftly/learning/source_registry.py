@@ -1,4 +1,4 @@
-﻿"""Allowlisted source registry for defensive Craftly data collection."""
+"""Allowlisted source registry for defensive Craftly data collection."""
 
 from __future__ import annotations
 
@@ -19,9 +19,8 @@ import httpx
 from pydantic import Field, field_validator, model_validator
 
 from src.craftly.learning.web_ingest import SourceSpec, allowed_url, load_sources
-from src.craftly.shared.schemas import StrictModel
 from src.craftly.shared.integrity import sha256_file
-
+from src.craftly.shared.schemas import StrictModel
 
 APPROVED_LICENSES = {
     "apache-2.0",
@@ -69,12 +68,14 @@ class LegalApprovalEvidence(StrictModel):
     @classmethod
     def validate_sha256(cls, value: str) -> str:
         normalized = value.strip().lower()
-        if len(normalized) != 64 or any(character not in "0123456789abcdef" for character in normalized):
+        if len(normalized) != 64 or any(
+            character not in "0123456789abcdef" for character in normalized
+        ):
             raise ValueError("approval hashes must be SHA-256 hex")
         return normalized
 
     @model_validator(mode="after")
-    def validate_timestamp_and_scope(self) -> "LegalApprovalEvidence":
+    def validate_timestamp_and_scope(self) -> LegalApprovalEvidence:
         try:
             parsed = datetime.fromisoformat(self.approved_at.replace("Z", "+00:00"))
         except ValueError as exc:
@@ -116,17 +117,23 @@ class SourceEvidenceOrigin(StrictModel):
     license_url: str | None = Field(default=None, min_length=1, max_length=2048)
 
     @model_validator(mode="after")
-    def validate_origin(self) -> "SourceEvidenceOrigin":
+    def validate_origin(self) -> SourceEvidenceOrigin:
         if self.origin_kind == "git_repository":
             if not self.repository_url or not self.git_ref or not self.license_path:
-                raise ValueError("git evidence origin requires repository_url, git_ref, and license_path")
+                raise ValueError(
+                    "git evidence origin requires repository_url, git_ref, and license_path"
+                )
             parsed = urlparse(self.repository_url)
             if parsed.scheme != "https" or parsed.hostname != "github.com":
                 raise ValueError("git evidence repository must be an official HTTPS GitHub URL")
             if parsed.query or parsed.fragment or parsed.username or parsed.password:
-                raise ValueError("git evidence repository URL cannot contain credentials, query, or fragment")
+                raise ValueError(
+                    "git evidence repository URL cannot contain credentials, query, or fragment"
+                )
             if re.fullmatch(r"/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?", parsed.path) is None:
-                raise ValueError("git evidence repository URL must contain exactly owner/repository")
+                raise ValueError(
+                    "git evidence repository URL must contain exactly owner/repository"
+                )
             relative = Path(self.license_path)
             if relative.is_absolute() or ".." in relative.parts or "\x00" in self.license_path:
                 raise ValueError("git evidence license_path must be a safe relative path")
@@ -140,7 +147,10 @@ class SourceEvidenceOrigin(StrictModel):
                 raise ValueError("web evidence URL must use an explicitly governed HTTPS host")
             if parsed.query or parsed.fragment or parsed.username or parsed.password:
                 raise ValueError("web evidence URL cannot contain credentials, query, or fragment")
-            if any(value is not None for value in (self.repository_url, self.git_ref, self.license_path)):
+            if any(
+                value is not None
+                for value in (self.repository_url, self.git_ref, self.license_path)
+            ):
                 raise ValueError("web evidence origin cannot define git fields")
         return self
 
@@ -150,7 +160,7 @@ class SourceEvidenceOriginRegistry(StrictModel):
     sources: list[SourceEvidenceOrigin] = Field(min_length=1, max_length=100)
 
     @model_validator(mode="after")
-    def validate_unique_sources(self) -> "SourceEvidenceOriginRegistry":
+    def validate_unique_sources(self) -> SourceEvidenceOriginRegistry:
         source_ids = [source.source_id for source in self.sources]
         if len(source_ids) != len(set(source_ids)):
             raise ValueError("source evidence origin registry contains duplicate source IDs")
@@ -178,7 +188,9 @@ class SourceEvidenceCandidate(StrictModel):
     @classmethod
     def validate_candidate_hash(cls, value: str) -> str:
         normalized = value.strip().lower()
-        if len(normalized) != 64 or any(character not in "0123456789abcdef" for character in normalized):
+        if len(normalized) != 64 or any(
+            character not in "0123456789abcdef" for character in normalized
+        ):
             raise ValueError("source evidence candidate hashes must be SHA-256 hex")
         return normalized
 
@@ -196,12 +208,14 @@ class SourceEvidenceCandidateEntry(StrictModel):
     @classmethod
     def validate_entry_hash(cls, value: str) -> str:
         normalized = value.strip().lower()
-        if len(normalized) != 64 or any(character not in "0123456789abcdef" for character in normalized):
+        if len(normalized) != 64 or any(
+            character not in "0123456789abcdef" for character in normalized
+        ):
             raise ValueError("evidence candidate entry hashes must be SHA-256 hex")
         return normalized
 
     @model_validator(mode="after")
-    def validate_relative_paths(self) -> "SourceEvidenceCandidateEntry":
+    def validate_relative_paths(self) -> SourceEvidenceCandidateEntry:
         for value in (self.candidate_path, self.license_path, self.approval_template_path):
             relative = Path(value)
             if relative.is_absolute() or ".." in relative.parts or "\x00" in value:
@@ -226,12 +240,14 @@ class SourceEvidenceCandidateBundleReport(StrictModel):
     @classmethod
     def validate_bundle_hash(cls, value: str) -> str:
         normalized = value.strip().lower()
-        if len(normalized) != 64 or any(character not in "0123456789abcdef" for character in normalized):
+        if len(normalized) != 64 or any(
+            character not in "0123456789abcdef" for character in normalized
+        ):
             raise ValueError("evidence candidate bundle hashes must be SHA-256 hex")
         return normalized
 
     @model_validator(mode="after")
-    def validate_candidate_set(self) -> "SourceEvidenceCandidateBundleReport":
+    def validate_candidate_set(self) -> SourceEvidenceCandidateBundleReport:
         source_ids = [entry.source_id for entry in self.candidates]
         if self.source_count != len(source_ids) or len(source_ids) != len(set(source_ids)):
             raise ValueError("evidence candidate bundle count or source uniqueness is invalid")
@@ -257,12 +273,14 @@ class SourceSelectionManifest(StrictModel):
     @classmethod
     def validate_manifest_sha256(cls, value: str) -> str:
         normalized = value.strip().lower()
-        if len(normalized) != 64 or any(character not in "0123456789abcdef" for character in normalized):
+        if len(normalized) != 64 or any(
+            character not in "0123456789abcdef" for character in normalized
+        ):
             raise ValueError("selection manifest hashes must be SHA-256 hex")
         return normalized
 
     @model_validator(mode="after")
-    def validate_selection(self) -> "SourceSelectionManifest":
+    def validate_selection(self) -> SourceSelectionManifest:
         if self.source_count != len(self.source_ids) or self.source_count != len(self.entries):
             raise ValueError("selection manifest count does not match selected sources")
         if self.source_ids != sorted(self.source_ids):
@@ -286,7 +304,10 @@ def source_registry_entry_sha256(source: SourceSpec) -> str:
 
 def source_registry_snapshot_sha256(sources: list[SourceSpec]) -> str:
     payload = json.dumps(
-        [source.model_dump(mode="json") for source in sorted(sources, key=lambda item: item.source_id or "")],
+        [
+            source.model_dump(mode="json")
+            for source in sorted(sources, key=lambda item: item.source_id or "")
+        ],
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
@@ -297,11 +318,15 @@ def source_registry_snapshot_sha256(sources: list[SourceSpec]) -> str:
 def load_evidence_origin_registry(path: str | Path) -> SourceEvidenceOriginRegistry:
     source = Path(path).expanduser().resolve(strict=True)
     if not source.is_file() or source.stat().st_size > 1_048_576:
-        raise ValueError("source evidence origin registry must be a regular file no larger than 1 MiB")
+        raise ValueError(
+            "source evidence origin registry must be a regular file no larger than 1 MiB"
+        )
     return SourceEvidenceOriginRegistry.model_validate_json(source.read_text(encoding="utf-8-sig"))
 
 
-def _resolve_public_git_revision(repository_url: str, revision: str, *, timeout_seconds: float = 30.0) -> str:
+def _resolve_public_git_revision(
+    repository_url: str, revision: str, *, timeout_seconds: float = 30.0
+) -> str:
     git = shutil.which("git")
     if not git:
         raise RuntimeError("git executable is required to resolve governed evidence revisions")
@@ -330,7 +355,9 @@ def _resolve_public_git_revision(repository_url: str, revision: str, *, timeout_
     )
     if completed.returncode != 0:
         detail = completed.stderr.strip()[:500]
-        raise RuntimeError(f"failed to resolve governed repository revision: {detail or completed.returncode}")
+        raise RuntimeError(
+            f"failed to resolve governed repository revision: {detail or completed.returncode}"
+        )
     revisions = {
         line.split()[0].lower()
         for line in completed.stdout.splitlines()
@@ -351,7 +378,10 @@ def _fetch_governed_evidence_url(
     timeout_seconds: float = 30.0,
 ) -> tuple[bytes, dict[str, str]]:
     parsed = urlparse(url)
-    if parsed.scheme != "https" or parsed.hostname not in {"raw.githubusercontent.com", "www.nist.gov"}:
+    if parsed.scheme != "https" or parsed.hostname not in {
+        "raw.githubusercontent.com",
+        "www.nist.gov",
+    }:
         raise ValueError("governed evidence fetch attempted an unapproved host")
     if parsed.query or parsed.fragment or parsed.username or parsed.password:
         raise ValueError("governed evidence URL cannot contain credentials, query, or fragment")
@@ -411,11 +441,11 @@ class SourceRegistry:
         self.sources = sources
 
     @classmethod
-    def from_file(cls, path: str | Path) -> "SourceRegistry":
+    def from_file(cls, path: str | Path) -> SourceRegistry:
         return cls(load_sources(path))
 
     @classmethod
-    def from_files(cls, paths: list[str | Path]) -> "SourceRegistry":
+    def from_files(cls, paths: list[str | Path]) -> SourceRegistry:
         sources: list[SourceSpec] = []
         for path in paths:
             sources.extend(load_sources(path))
@@ -426,11 +456,13 @@ class SourceRegistry:
         source_ids: list[str],
         *,
         expected_count: int | None = None,
-    ) -> tuple["SourceRegistry", SourceSelectionManifest]:
+    ) -> tuple[SourceRegistry, SourceSelectionManifest]:
         requested = [source_id.strip().lower() for source_id in source_ids]
         if not requested or any(not source_id for source_id in requested):
             raise ValueError("source selection requires at least one non-empty source ID")
-        duplicates = sorted({source_id for source_id in requested if requested.count(source_id) > 1})
+        duplicates = sorted(
+            {source_id for source_id in requested if requested.count(source_id) > 1}
+        )
         if duplicates:
             raise ValueError("duplicate selected source IDs: " + ", ".join(duplicates))
         if expected_count is not None and expected_count != len(requested):
@@ -483,12 +515,16 @@ class SourceRegistry:
                 raise ValueError(f"duplicate source_id: {source.source_id}")
             seen_ids.add(source.source_id)
             if source.license.lower() not in APPROVED_LICENSES:
-                warnings.append(f"{source.name}: license '{source.license}' needs explicit legal approval")
+                warnings.append(
+                    f"{source.name}: license '{source.license}' needs explicit legal approval"
+                )
             if source.approval_status == "approved":
                 approved_sources += 1
             else:
                 quarantine_sources += 1
-                warnings.append(f"{source.name}: source remains {source.approval_status}/{source.trust_tier}")
+                warnings.append(
+                    f"{source.name}: source remains {source.approval_status}/{source.trust_tier}"
+                )
             if not source.allowed_domains:
                 raise ValueError(f"{source.name}: allowed_domains cannot be empty")
             categories.add(source.category)
@@ -525,11 +561,17 @@ class SourceRegistry:
         blockers: list[str] = []
         for source in self.sources:
             if source.approval_status != "approved":
-                blockers.append(f"{source.name}: production collection requires approval_status='approved'")
+                blockers.append(
+                    f"{source.name}: production collection requires approval_status='approved'"
+                )
             if source.trust_tier not in {"reviewed", "trusted"}:
-                blockers.append(f"{source.name}: production training source must be reviewed or trusted")
+                blockers.append(
+                    f"{source.name}: production training source must be reviewed or trusted"
+                )
             if source.approved_use == "evaluation_only":
-                blockers.append(f"{source.name}: evaluation-only source cannot enter production training collection")
+                blockers.append(
+                    f"{source.name}: evaluation-only source cannot enter production training collection"
+                )
             if source.immutable_revision == "rolling":
                 blockers.append(f"{source.name}: production source requires an immutable_revision")
             if (
@@ -564,7 +606,11 @@ class SourceRegistry:
             raise ValueError("approval evidence must be regular files")
 
         index = next(
-            (position for position, source in enumerate(self.sources) if source.source_id == source_id),
+            (
+                position
+                for position, source in enumerate(self.sources)
+                if source.source_id == source_id
+            ),
             None,
         )
         if index is None:
@@ -593,9 +639,13 @@ class SourceRegistry:
             "license_evidence_sha256": legal_evidence.license_evidence_sha256,
             "approved_use": legal_evidence.approved_use,
         }
-        mismatches = [name for name, expected_value in expected.items() if actual[name] != expected_value]
+        mismatches = [
+            name for name, expected_value in expected.items() if actual[name] != expected_value
+        ]
         if mismatches:
-            raise ValueError("legal approval evidence does not match source contract: " + ", ".join(mismatches))
+            raise ValueError(
+                "legal approval evidence does not match source contract: " + ", ".join(mismatches)
+            )
         approved = source.model_copy(
             update={
                 "immutable_revision": immutable_revision.strip(),
@@ -635,7 +685,9 @@ class SourceRegistry:
                 blockers.append(f"{source.name}: legal approval evidence hash changed")
                 continue
             try:
-                evidence = LegalApprovalEvidence.model_validate_json(legal_path.read_text(encoding="utf-8"))
+                evidence = LegalApprovalEvidence.model_validate_json(
+                    legal_path.read_text(encoding="utf-8")
+                )
             except ValueError as exc:
                 blockers.append(f"{source.name}: invalid legal approval evidence: {exc}")
                 continue
@@ -713,7 +765,10 @@ class SourceRegistry:
                 ),
             )
             target = root / f"{source.source_id}.approval-request.json"
-            target.write_text(json.dumps(artifact.model_dump(mode="json"), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            target.write_text(
+                json.dumps(artifact.model_dump(mode="json"), indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
             written.append(target)
         manifest = {
             "schema_version": 1,
@@ -749,7 +804,9 @@ class SourceRegistry:
         source_by_id = {source.source_id: source for source in self.sources}
         origin_by_id = {origin.source_id: origin for origin in origins.sources}
         if None in source_by_id:
-            raise ValueError("every governed source requires a source_id before evidence materialization")
+            raise ValueError(
+                "every governed source requires a source_id before evidence materialization"
+            )
         source_ids = set(source_by_id)
         origin_ids = set(origin_by_id)
         if source_ids != origin_ids:
@@ -762,7 +819,9 @@ class SourceRegistry:
 
         target = Path(output_dir).expanduser().resolve()
         if target.exists():
-            raise FileExistsError(f"refusing to overwrite governed evidence candidate directory: {target}")
+            raise FileExistsError(
+                f"refusing to overwrite governed evidence candidate directory: {target}"
+            )
         target.parent.mkdir(parents=True, exist_ok=True)
         temporary = Path(tempfile.mkdtemp(prefix=f".{target.name}.", dir=target.parent))
         candidate_entries: list[SourceEvidenceCandidateEntry] = []
@@ -781,7 +840,9 @@ class SourceRegistry:
                     assert origin.repository_url is not None
                     assert origin.git_ref is not None
                     assert origin.license_path is not None
-                    resolved_revision = _resolve_public_git_revision(origin.repository_url, origin.git_ref)
+                    resolved_revision = _resolve_public_git_revision(
+                        origin.repository_url, origin.git_ref
+                    )
                     evidence_url = _raw_github_url(
                         origin.repository_url,
                         resolved_revision,
@@ -836,7 +897,9 @@ class SourceRegistry:
                     "approved_use": source.approved_use,
                     "approved_by": None,
                     "approved_at": None,
-                    "scope": "evaluation_only" if source.approved_use == "evaluation_only" else "training_collection",
+                    "scope": "evaluation_only"
+                    if source.approved_use == "evaluation_only"
+                    else "training_collection",
                     "rationale": None,
                 }
                 template_path = temporary_source_dir / "approval.template.json"
@@ -919,9 +982,13 @@ class SourceRegistry:
                     continue
                 incoming = incoming_by_id.get(approved.source_id)
                 if incoming is None:
-                    raise ValueError(f"refusing to remove previously approved source: {approved.source_id}")
+                    raise ValueError(
+                        f"refusing to remove previously approved source: {approved.source_id}"
+                    )
                 if incoming.model_dump(mode="json") != approved.model_dump(mode="json"):
-                    raise ValueError(f"refusing to alter previously approved source: {approved.source_id}")
+                    raise ValueError(
+                        f"refusing to alter previously approved source: {approved.source_id}"
+                    )
         payload = {"sources": [source.model_dump() for source in self.sources]}
         self._atomic_write_json(target, payload)
         return target
@@ -930,7 +997,9 @@ class SourceRegistry:
 def main() -> None:
     import argparse
 
-    parser = argparse.ArgumentParser(description="Validate or merge Craftly defensive data source registries.")
+    parser = argparse.ArgumentParser(
+        description="Validate or merge Craftly defensive data source registries."
+    )
     parser.add_argument("--sources", nargs="+", required=True)
     parser.add_argument("--output")
     parser.add_argument("--production", action="store_true")
@@ -1012,4 +1081,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

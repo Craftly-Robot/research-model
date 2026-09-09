@@ -1,9 +1,9 @@
-﻿"""Object storage adapters for Craftly dataset artifacts."""
+"""Object storage adapters for Craftly dataset artifacts."""
 
 from __future__ import annotations
 
-import hashlib
 import argparse
+import hashlib
 import json
 import re
 import shutil
@@ -14,8 +14,9 @@ from urllib.parse import urlparse
 
 from pydantic import Field
 
-from src.craftly.shared.schemas import StrictModel
 from src.craftly.shared.integrity import sha256_file as file_sha256
+from src.craftly.shared.schemas import print_report
+from src.craftly.shared.schemas import StrictModel, print_report
 
 
 class StoredObject(StrictModel):
@@ -26,23 +27,17 @@ class StoredObject(StrictModel):
 
 
 class ObjectStore(Protocol):
-    def put_file(self, path: str | Path, *, key: str | None = None) -> StoredObject:
-        ...
+    def put_file(self, path: str | Path, *, key: str | None = None) -> StoredObject: ...
 
-    def put_json(self, payload: dict[str, Any], *, key: str) -> StoredObject:
-        ...
+    def put_json(self, payload: dict[str, Any], *, key: str) -> StoredObject: ...
 
-    def head(self, key: str) -> StoredObject:
-        ...
+    def head(self, key: str) -> StoredObject: ...
 
-    def get_file(self, key: str, target_path: str | Path) -> StoredObject:
-        ...
+    def get_file(self, key: str, target_path: str | Path) -> StoredObject: ...
 
-    def delete(self, key: str) -> None:
-        ...
+    def delete(self, key: str) -> None: ...
 
-    def list_objects(self, prefix: str = "") -> list[StoredObject]:
-        ...
+    def list_objects(self, prefix: str = "") -> list[StoredObject]: ...
 
 
 class LocalObjectStore:
@@ -66,7 +61,12 @@ class LocalObjectStore:
         target = self.root / key
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-        return StoredObject(source_path=str(target), uri=str(target), size_bytes=target.stat().st_size, sha256=file_sha256(target))
+        return StoredObject(
+            source_path=str(target),
+            uri=str(target),
+            size_bytes=target.stat().st_size,
+            sha256=file_sha256(target),
+        )
 
     def _resolve_key(self, key: str) -> Path:
         target = (self.root / key).resolve()
@@ -79,7 +79,12 @@ class LocalObjectStore:
         target = self._resolve_key(key)
         if not target.exists() or not target.is_file():
             raise FileNotFoundError(f"object not found: {key}")
-        return StoredObject(source_path=str(target), uri=str(target), size_bytes=target.stat().st_size, sha256=file_sha256(target))
+        return StoredObject(
+            source_path=str(target),
+            uri=str(target),
+            size_bytes=target.stat().st_size,
+            sha256=file_sha256(target),
+        )
 
     def get_file(self, key: str, target_path: str | Path) -> StoredObject:
         source = self._resolve_key(key)
@@ -88,7 +93,12 @@ class LocalObjectStore:
         target = Path(target_path)
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
-        return StoredObject(source_path=str(source), uri=str(target), size_bytes=target.stat().st_size, sha256=file_sha256(target))
+        return StoredObject(
+            source_path=str(source),
+            uri=str(target),
+            size_bytes=target.stat().st_size,
+            sha256=file_sha256(target),
+        )
 
     def delete(self, key: str) -> None:
         target = self._resolve_key(key)
@@ -104,7 +114,12 @@ class LocalObjectStore:
         else:
             paths = []
         return [
-            StoredObject(source_path=str(path), uri=str(path), size_bytes=path.stat().st_size, sha256=file_sha256(path))
+            StoredObject(
+                source_path=str(path),
+                uri=str(path),
+                size_bytes=path.stat().st_size,
+                sha256=file_sha256(path),
+            )
             for path in paths
         ]
 
@@ -164,7 +179,12 @@ class S3ObjectStore:
             max_retries=self.max_retries,
         )
         digest = hashlib.sha256(body).hexdigest()
-        return StoredObject(source_path=f"memory:{key}", uri=f"s3://{self.bucket}/{object_key}", size_bytes=len(body), sha256=digest)
+        return StoredObject(
+            source_path=f"memory:{key}",
+            uri=f"s3://{self.bucket}/{object_key}",
+            size_bytes=len(body),
+            sha256=digest,
+        )
 
     def head(self, key: str) -> StoredObject:
         object_key = self._object_key(key)
@@ -194,11 +214,19 @@ class S3ObjectStore:
             lambda: self.client.download_file(self.bucket, object_key, str(target)),
             max_retries=self.max_retries,
         )
-        return StoredObject(source_path=f"s3://{self.bucket}/{object_key}", uri=str(target), size_bytes=target.stat().st_size, sha256=file_sha256(target))
+        return StoredObject(
+            source_path=f"s3://{self.bucket}/{object_key}",
+            uri=str(target),
+            size_bytes=target.stat().st_size,
+            sha256=file_sha256(target),
+        )
 
     def delete(self, key: str) -> None:
         object_key = self._object_key(key)
-        retry_sync(lambda: self.client.delete_object(Bucket=self.bucket, Key=object_key), max_retries=self.max_retries)
+        retry_sync(
+            lambda: self.client.delete_object(Bucket=self.bucket, Key=object_key),
+            max_retries=self.max_retries,
+        )
 
     def list_objects(self, prefix: str = "") -> list[StoredObject]:
         object_prefix = self._object_key(prefix) if prefix else self.prefix
@@ -226,7 +254,9 @@ class S3ObjectStore:
                 break
             continuation = response.get("NextContinuationToken")
             if not continuation:
-                raise RuntimeError("S3 pagination response was truncated without a continuation token")
+                raise RuntimeError(
+                    "S3 pagination response was truncated without a continuation token"
+                )
         return objects
 
     def presign_put(
@@ -273,12 +303,16 @@ def retry_sync(operation: Any, *, max_retries: int, base_delay_seconds: float = 
     for attempt in range(max_retries):
         try:
             return operation()
-        except Exception as exc:  # pragma: no cover - network retries are integration-tested in deployment
+        except (
+            Exception
+        ) as exc:  # pragma: no cover - network retries are integration-tested in deployment
             last_error = exc
             if attempt == max_retries - 1:
                 break
             time.sleep(base_delay_seconds * (2**attempt))
-    raise RuntimeError(f"object storage operation failed after {max_retries} attempts") from last_error
+    raise RuntimeError(
+        f"object storage operation failed after {max_retries} attempts"
+    ) from last_error
 
 
 def create_object_store(config: ObjectStoreConfig) -> ObjectStore:
@@ -291,7 +325,9 @@ def create_object_store(config: ObjectStoreConfig) -> ObjectStore:
         root = f"{parsed.netloc}{parsed.path}" if parsed.netloc else parsed.path
         return LocalObjectStore(root)
     if parsed.scheme == "s3":
-        return S3ObjectStore(config.uri, endpoint_url=config.endpoint_url, max_retries=config.max_retries)
+        return S3ObjectStore(
+            config.uri, endpoint_url=config.endpoint_url, max_retries=config.max_retries
+        )
     raise ValueError(f"unsupported object store URI: {config.uri}")
 
 
@@ -381,11 +417,10 @@ def main() -> None:
         work_dir=args.work_dir,
         key=args.key,
     )
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
     if report.status != "passed":
         raise SystemExit(2)
 
 
 if __name__ == "__main__":
     main()
-

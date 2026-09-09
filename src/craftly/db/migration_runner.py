@@ -1,4 +1,4 @@
-﻿"""Postgres migration runner for Craftly production deployments."""
+"""Postgres migration runner for Craftly production deployments."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
 
@@ -87,7 +86,12 @@ async def apply_migrations(database_url: str, *, dry_run: bool = False) -> dict[
                         migration.checksum,
                     )
                     applied.append(migration.version)
-    return {"status": "ok", "applied": applied, "migration_count": len(migrations), "dry_run": dry_run}
+    return {
+        "status": "ok",
+        "applied": applied,
+        "migration_count": len(migrations),
+        "dry_run": dry_run,
+    }
 
 
 def parse_args() -> argparse.Namespace:
@@ -107,4 +111,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

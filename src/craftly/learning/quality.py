@@ -1,18 +1,19 @@
-﻿"""Dataset quality gates for scratch pretraining corpora."""
+"""Dataset quality gates for scratch pretraining corpora."""
 
 from __future__ import annotations
 
 import json
 import re
 import time
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from pydantic import Field
 
 from src.craftly.shared.schemas import StrictModel
 
-
+# --- Regex patterns ---
 SECRET_RE = re.compile(
     r"(?i)(-----BEGIN .*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|api[_-]?key\s*[:=]\s*['\"][A-Za-z0-9_\-]{20,})"
 )
@@ -20,6 +21,23 @@ EMAIL_RE = re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b")
 HEX_ADDRESS_RE = re.compile(r"\b0x[0-9a-fA-F]{6,}\b")
 CVE_RE = re.compile(r"\bCVE-\d{4}-\d{4,7}\b", re.IGNORECASE)
 CWE_RE = re.compile(r"\bCWE-\d{1,5}\b", re.IGNORECASE)
+
+# --- Quality scoring thresholds ---
+_LENGTH_BASELINE = 180
+_LENGTH_RANGE = 2500
+_SECURITY_SIGNAL_MAX_HITS = 5
+_AGENTIC_SIGNAL_MAX_HITS = 4
+_CODE_SIGNAL_MAX_HITS = 5
+_NOISE_PENALTY_FACTOR = 0.18
+_LEXICAL_DIVERSITY_MULTIPLIER = 4
+_STRUCTURE_LINE_TARGET = 80
+_STRUCTURE_PATCH_BONUS = 0.3
+_SECURITY_CODE_BONUS = 0.08
+_PATCH_TRACE_BONUS = 0.05
+_RISK_FLAG_HEAVY_NOISE_THRESHOLD = 3
+_RISK_FLAG_REPEATED_LINE_THRESHOLD = 0.18
+_RISK_FLAG_LOW_LEXICAL_THRESHOLD = 0.12
+_MIN_LINE_LENGTH_FOR_DEDUP = 12
 
 DEFENSIVE_SECURITY_TERMS = {
     "authentication",
@@ -164,7 +182,17 @@ def iter_jsonl(path: str | Path) -> Iterable[dict[str, Any]]:
                     yield json.loads(line)
                 except json.JSONDecodeError as exc:
                     snippet = line[:240].replace("\n", "\\n")
-                    raise ValueError(f"invalid JSONL in {source} at line {line_number}: {exc.msg}; snippet={snippet!r}") from exc
+                    raise ValueError(
+                        f"invalid JSONL in {source} at line {line_number}: {exc.msg}; snippet={snippet!r}"
+                    ) from exc
+
+
+def iter_jsonl_texts(path: str | Path) -> Iterable[str]:
+    """Yield text content from JSONL rows, checking common text fields."""
+    for row in iter_jsonl(path):
+        text = str(row.get("text") or row.get("content") or row.get("prompt") or "")
+        if text:
+            yield text
 
 
 def infer_language(text: str, url: str = "") -> str | None:
@@ -200,11 +228,21 @@ def infer_language(text: str, url: str = "") -> str | None:
         return "c_cpp"
     if "public class " in lowered or "private static" in lowered:
         return "java"
-    if "def " in text or "import " in text and "python" in lowered or "traceback (most recent call last)" in lowered:
+    if (
+        "def " in text
+        or "import " in text
+        and "python" in lowered
+        or "traceback (most recent call last)" in lowered
+    ):
         return "python"
     if "#!/bin/bash" in lowered or "set -euo pipefail" in lowered:
         return "bash"
-    if "interface " in lowered and "typescript" in lowered or ": string" in lowered and "const " in lowered:
+    if (
+        "interface " in lowered
+        and "typescript" in lowered
+        or ": string" in lowered
+        and "const " in lowered
+    ):
         return "typescript"
     if "function " in lowered or "const " in lowered and "=>" in lowered:
         return "javascript"
@@ -213,9 +251,18 @@ def infer_language(text: str, url: str = "") -> str | None:
 
 def infer_data_type(text: str, labels: list[str]) -> str:
     lowered = text.lower()
-    if "diff --git" in lowered or lowered.startswith("--- ") and "\n+++ " in lowered or "patch" in labels:
+    if (
+        "diff --git" in lowered
+        or lowered.startswith("--- ")
+        and "\n+++ " in lowered
+        or "patch" in labels
+    ):
         return "patch"
-    if "traceback (most recent call last)" in lowered or "compile error" in lowered or "stack trace" in lowered:
+    if (
+        "traceback (most recent call last)" in lowered
+        or "compile error" in lowered
+        or "stack trace" in lowered
+    ):
         return "debug_trace"
     if "test_" in lowered or "pytest" in lowered or "unittest" in lowered or "assert " in lowered:
         return "test"
@@ -253,7 +300,7 @@ def _text_metrics(normalized: str) -> dict[str, float]:
     line_counts: dict[str, int] = {}
     for line in normalized.splitlines():
         key = line.strip()
-        if len(key) < 12:
+        if len(key) < _MIN_LINE_LENGTH_FOR_DEDUP:
             continue
         line_counts[key] = line_counts.get(key, 0) + 1
         if line_counts[key] == 2:
@@ -270,7 +317,11 @@ def _text_metrics(normalized: str) -> dict[str, float]:
 def build_labels(text: str) -> list[str]:
     lowered = text.lower()
     labels: list[str] = []
-    if any(term in lowered for term in DEFENSIVE_SECURITY_TERMS) or CVE_RE.search(text) or CWE_RE.search(text):
+    if (
+        any(term in lowered for term in DEFENSIVE_SECURITY_TERMS)
+        or CVE_RE.search(text)
+        or CWE_RE.search(text)
+    ):
         labels.append("defensive_security")
     if any(term in lowered for term in AGENTIC_CODING_TERMS):
         labels.append("agentic_coding")
@@ -287,7 +338,9 @@ def build_labels(text: str) -> list[str]:
     return labels
 
 
-def quality_score(*, text: str, labels: list[str], reasons: list[str]) -> tuple[float, dict[str, float], list[str]]:
+def quality_score(
+    *, text: str, labels: list[str], reasons: list[str]
+) -> tuple[float, dict[str, float], list[str]]:
     if reasons:
         return 0.0, {}, []
     normalized = text.strip()
@@ -299,14 +352,21 @@ def quality_score(*, text: str, labels: list[str], reasons: list[str]) -> tuple[
     noise_hits = _count_matches(normalized, NOISE_TERMS)
 
     components = {
-        "length": _bounded((length - 180) / 2500),
-        "security_signal": _bounded(security_hits / 5),
-        "agentic_signal": _bounded(agentic_hits / 4),
-        "code_signal": _bounded((code_hits + (1 if "code" in labels else 0)) / 5),
+        "length": _bounded((length - _LENGTH_BASELINE) / _LENGTH_RANGE),
+        "security_signal": _bounded(security_hits / _SECURITY_SIGNAL_MAX_HITS),
+        "agentic_signal": _bounded(agentic_hits / _AGENTIC_SIGNAL_MAX_HITS),
+        "code_signal": _bounded(
+            (code_hits + (1 if "code" in labels else 0)) / _CODE_SIGNAL_MAX_HITS
+        ),
         "test_signal": 1.0 if "tests" in labels else 0.0,
-        "structure": _bounded((metrics["line_count"] / 80) + (0.3 if "patch" in labels else 0.0)),
-        "low_noise": _bounded(1.0 - (noise_hits * 0.18) - metrics["repeated_line_ratio"]),
-        "lexical_diversity": _bounded(metrics["unique_word_ratio"] * 4),
+        "structure": _bounded(
+            (metrics["line_count"] / _STRUCTURE_LINE_TARGET)
+            + (_STRUCTURE_PATCH_BONUS if "patch" in labels else 0.0)
+        ),
+        "low_noise": _bounded(
+            1.0 - (noise_hits * _NOISE_PENALTY_FACTOR) - metrics["repeated_line_ratio"]
+        ),
+        "lexical_diversity": _bounded(metrics["unique_word_ratio"] * _LEXICAL_DIVERSITY_MULTIPLIER),
     }
     score = (
         0.14 * components["length"]
@@ -319,20 +379,24 @@ def quality_score(*, text: str, labels: list[str], reasons: list[str]) -> tuple[
         + 0.08 * components["lexical_diversity"]
     )
     if "defensive_security" in labels and "code" in labels:
-        score += 0.08
+        score += _SECURITY_CODE_BONUS
     if "patch" in labels or "runtime_trace" in labels:
-        score += 0.05
+        score += _PATCH_TRACE_BONUS
 
     risk_flags: list[str] = []
     if noise_hits:
         risk_flags.append("navigation_or_boilerplate_noise")
-    if noise_hits >= 3:
+    if noise_hits >= _RISK_FLAG_HEAVY_NOISE_THRESHOLD:
         risk_flags.append("heavy_boilerplate_noise")
-    if metrics["repeated_line_ratio"] > 0.18:
+    if metrics["repeated_line_ratio"] > _RISK_FLAG_REPEATED_LINE_THRESHOLD:
         risk_flags.append("repeated_lines")
-    if metrics["unique_word_ratio"] < 0.12:
+    if metrics["unique_word_ratio"] < _RISK_FLAG_LOW_LEXICAL_THRESHOLD:
         risk_flags.append("low_lexical_diversity")
-    return round(_bounded(score), 6), {key: round(value, 6) for key, value in components.items()}, risk_flags
+    return (
+        round(_bounded(score), 6),
+        {key: round(value, 6) for key, value in components.items()},
+        risk_flags,
+    )
 
 
 class DatasetQualityGate:
@@ -350,9 +414,16 @@ class DatasetQualityGate:
             reasons.append("too_short")
         if len(compact) > self.config.max_chars:
             reasons.append("too_large")
-        license_name = str(row.get("license") or row.get("metadata", {}).get("license") or "").lower()
+        license_name = str(
+            row.get("license") or row.get("metadata", {}).get("license") or ""
+        ).lower()
         metadata = row.get("metadata", {}) if isinstance(row.get("metadata"), dict) else {}
-        content_type = str(metadata.get("content_type") or row.get("content_type") or "").split(";")[0].strip().lower()
+        content_type = (
+            str(metadata.get("content_type") or row.get("content_type") or "")
+            .split(";")[0]
+            .strip()
+            .lower()
+        )
         if content_type in BINARY_CONTENT_TYPES:
             reasons.append("non_text_content_type")
         if self.config.require_license and license_name not in self.config.allowed_licenses:
@@ -364,9 +435,15 @@ class DatasetQualityGate:
         if seen is not None and digest in seen:
             reasons.append("duplicate")
         metrics = _text_metrics(compact)
-        if len(compact) >= self.config.min_chars and metrics["alpha_ratio"] < self.config.min_alpha_ratio:
+        if (
+            len(compact) >= self.config.min_chars
+            and metrics["alpha_ratio"] < self.config.min_alpha_ratio
+        ):
             reasons.append("low_text_signal")
-        if metrics["word_count"] >= 80 and metrics["unique_word_ratio"] < self.config.min_unique_word_ratio:
+        if (
+            metrics["word_count"] >= 80
+            and metrics["unique_word_ratio"] < self.config.min_unique_word_ratio
+        ):
             risk_flags.append("low_unique_word_ratio")
             if metrics["unique_word_ratio"] < 0.025:
                 reasons.append("low_unique_word_ratio")
@@ -376,11 +453,19 @@ class DatasetQualityGate:
         labels = build_labels(normalized)
         language_hint = infer_language(text, str(row.get("url") or ""))
         data_type = infer_data_type(text, labels)
-        score, component_scores, score_flags = quality_score(text=normalized, labels=labels, reasons=reasons)
+        score, component_scores, score_flags = quality_score(
+            text=normalized, labels=labels, reasons=reasons
+        )
         risk_flags.extend(score_flags)
-        if "heavy_boilerplate_noise" in risk_flags and "code" not in labels and "defensive_security" not in labels:
+        if (
+            "heavy_boilerplate_noise" in risk_flags
+            and "code" not in labels
+            and "defensive_security" not in labels
+        ):
             reasons.append("heavy_boilerplate_noise")
-            score, component_scores, score_flags = quality_score(text=normalized, labels=labels, reasons=reasons)
+            score, component_scores, score_flags = quality_score(
+                text=normalized, labels=labels, reasons=reasons
+            )
             risk_flags.extend(score_flags)
         return QualityDecision(
             accepted=not reasons,
@@ -411,5 +496,10 @@ class DatasetQualityGate:
                 row["quality"] = decision.model_dump()
                 handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
                 accepted += 1
-        return QualityGateReport(input_path=str(input_path), output_path=str(target), accepted=accepted, rejected=rejected, duplicate=duplicate)
-
+        return QualityGateReport(
+            input_path=str(input_path),
+            output_path=str(target),
+            accepted=accepted,
+            rejected=rejected,
+            duplicate=duplicate,
+        )

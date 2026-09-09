@@ -1,4 +1,4 @@
-﻿"""Production observability primitives for Craftly."""
+"""Production observability primitives for Craftly."""
 
 from __future__ import annotations
 
@@ -9,9 +9,10 @@ import re
 import time
 import uuid
 from collections import defaultdict
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from threading import RLock
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import Response
@@ -59,7 +60,9 @@ class HistogramAggregate:
 class MetricsRegistry:
     counters: dict[str, float] = field(default_factory=lambda: defaultdict(float))
     gauges: dict[str, float] = field(default_factory=dict)
-    histograms: dict[str, HistogramAggregate] = field(default_factory=lambda: defaultdict(HistogramAggregate))
+    histograms: dict[str, HistogramAggregate] = field(
+        default_factory=lambda: defaultdict(HistogramAggregate)
+    )
     lock: RLock = field(default_factory=RLock)
 
     def inc(self, name: str, value: float = 1.0, **labels: str) -> None:
@@ -109,8 +112,12 @@ class MetricsRegistry:
             for key, aggregate in sorted(self.histograms.items()):
                 if not aggregate.count:
                     continue
-                lines.append(f'{self._with_labels(key, {"quantile": "avg"})} {aggregate.total / aggregate.count:.6f}')
-                lines.append(f'{self._with_labels(key, {"quantile": "max"})} {aggregate.maximum:.6f}')
+                lines.append(
+                    f"{self._with_labels(key, {'quantile': 'avg'})} {aggregate.total / aggregate.count:.6f}"
+                )
+                lines.append(
+                    f"{self._with_labels(key, {'quantile': 'max'})} {aggregate.maximum:.6f}"
+                )
                 lines.append(f"{self._count_key(key)} {aggregate.count}")
         return "\n".join(lines) + "\n"
 
@@ -131,8 +138,7 @@ class MetricsRegistry:
         if not labels:
             return name
         label_text = ",".join(
-            f'{key}="{self._escape_label(value)}"'
-            for key, value in sorted(labels.items())
+            f'{key}="{self._escape_label(value)}"' for key, value in sorted(labels.items())
         )
         return f"{name}{{{label_text}}}"
 
@@ -158,7 +164,9 @@ LOGGER = logging.getLogger("craftly.gateway")
 
 
 class ObservabilityMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
         started = time.perf_counter()
         status_code = 500
         supplied_request_id = request.headers.get("x-request-id", "")
@@ -232,8 +240,11 @@ def install_tracing(app: FastAPI) -> None:
     except ImportError:
         logging.getLogger("craftly.gateway").warning("opentelemetry_not_installed")
         return
-    provider = TracerProvider(resource=Resource.create({"service.name": os.environ.get("CRAFTLY_SERVICE_NAME", "craftly-api")}))
+    provider = TracerProvider(
+        resource=Resource.create(
+            {"service.name": os.environ.get("CRAFTLY_SERVICE_NAME", "craftly-api")}
+        )
+    )
     provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint)))
     trace.set_tracer_provider(provider)
     FastAPIInstrumentor.instrument_app(app)
-

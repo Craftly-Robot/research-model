@@ -26,7 +26,7 @@ import re
 import shutil
 import subprocess  # nosec B404 - fixed argv, resolved executable, no shell
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlparse
@@ -43,7 +43,6 @@ from src.craftly.evaluation.benchmark_suites import (
 from src.craftly.evaluation.checkpoint_eval import evaluate_checkpoint
 from src.craftly.model_ops.checkpoint_compare import (
     CheckpointComparisonReport,
-    CheckpointSideReport,
     GenerationConfig,
     compare_checkpoints,
     evaluate_checkpoint_prompt_suite,
@@ -53,7 +52,6 @@ from src.craftly.model_ops.learning_validation import audit_tokenizer_dominance
 from src.craftly.model_ops.pretrain_loop import git_commit, run_pretraining_loop
 from src.craftly.shared.progress import progress_from_options
 from src.craftly.shared.schemas import StrictModel
-
 
 QualificationCategory = Literal[
     "coding",
@@ -90,7 +88,7 @@ class RepositoryQualificationSource(StrictModel):
     notes: str = Field(default="", max_length=2000)
 
     @model_validator(mode="after")
-    def validate_source_policy(self) -> "RepositoryQualificationSource":
+    def validate_source_policy(self) -> RepositoryQualificationSource:
         parsed = urlparse(self.repository_url)
         if parsed.scheme != "https" or not parsed.hostname:
             raise ValueError("qualification source repository must use an absolute HTTPS URL")
@@ -106,7 +104,7 @@ class QualificationSourceRegistry(StrictModel):
     sources: list[RepositoryQualificationSource] = Field(min_length=1)
 
     @model_validator(mode="after")
-    def unique_sources(self) -> "QualificationSourceRegistry":
+    def unique_sources(self) -> QualificationSourceRegistry:
         identities = [item.source_id for item in self.sources]
         if len(identities) != len(set(identities)):
             raise ValueError("repository qualification source IDs must be unique")
@@ -141,7 +139,7 @@ class LegalApprovalRecord(StrictModel):
             raise ValueError("approved_at must be an RFC3339 timestamp") from exc
         if parsed.tzinfo is None:
             raise ValueError("approved_at must contain a timezone")
-        if parsed > datetime.now(timezone.utc):
+        if parsed > datetime.now(UTC):
             raise ValueError("approved_at cannot be in the future")
         return value
 
@@ -179,12 +177,15 @@ class QualificationTask(StrictModel):
     provenance: HistoricalTaskProvenance
 
     @model_validator(mode="after")
-    def enforce_holdout(self) -> "QualificationTask":
+    def enforce_holdout(self) -> QualificationTask:
         if not self.holdout or self.training_allowed:
             raise ValueError("qualification tasks must remain protected evaluation holdouts")
         if self.provenance.fixing_commit.lower() in self.prompt.lower():
             raise ValueError("qualification prompt leaks the fixing commit")
-        if "diff" in self.prompt.lower() and "do not use a reference diff" not in self.prompt.lower():
+        if (
+            "diff" in self.prompt.lower()
+            and "do not use a reference diff" not in self.prompt.lower()
+        ):
             raise ValueError("qualification prompt appears to disclose a reference diff")
         return self
 
@@ -211,11 +212,13 @@ class QualificationPackManifest(StrictModel):
     created_at_unix: float = Field(default_factory=time.time)
 
     @model_validator(mode="after")
-    def validate_exact_pack(self) -> "QualificationPackManifest":
+    def validate_exact_pack(self) -> QualificationPackManifest:
         if self.task_count != 50 or len(self.task_ids) != 50 or len(set(self.task_ids)) != 50:
             raise ValueError("repository qualification pack must contain exactly 50 unique tasks")
         if any(self.category_counts.get(category) != 10 for category in CATEGORIES):
-            raise ValueError("repository qualification pack must contain exactly 10 tasks per category")
+            raise ValueError(
+                "repository qualification pack must contain exactly 10 tasks per category"
+            )
         return self
 
 
@@ -267,7 +270,7 @@ class QualificationGatePolicy(StrictModel):
     minimum_executable_pass_at_1: float = Field(default=0.01, gt=0.0, le=1.0)
 
     @model_validator(mode="after")
-    def validate_ladder(self) -> "QualificationGatePolicy":
+    def validate_ladder(self) -> QualificationGatePolicy:
         if self.stage_steps != sorted(set(self.stage_steps)):
             raise ValueError("qualification stage_steps must be unique and increasing")
         if self.stage_steps != list(DEFAULT_STAGE_STEPS):
@@ -275,7 +278,9 @@ class QualificationGatePolicy(StrictModel):
         if self.require_improvement_from_stage not in self.stage_steps:
             raise ValueError("require_improvement_from_stage must be a qualification stage")
         if self.require_executable_benchmark_from_stage not in self.stage_steps:
-            raise ValueError("require_executable_benchmark_from_stage must be a qualification stage")
+            raise ValueError(
+                "require_executable_benchmark_from_stage must be a qualification stage"
+            )
         return self
 
 
@@ -290,7 +295,7 @@ class ExecutableQualificationConfig(StrictModel):
     sandbox_timeout_ms: int = Field(default=10_000, ge=100, le=300_000)
 
     @model_validator(mode="after")
-    def validate_executable_suites(self) -> "ExecutableQualificationConfig":
+    def validate_executable_suites(self) -> ExecutableQualificationConfig:
         if any(item.kind not in {"human_eval_style", "mbpp_style"} for item in self.suites):
             raise ValueError("checkpoint executable qualification supports only HumanEval and MBPP")
         if any(not item.required for item in self.suites):
@@ -300,7 +305,9 @@ class ExecutableQualificationConfig(StrictModel):
             raise ValueError("checkpoint qualification requires both HumanEval and MBPP")
         normalized = sorted(set(self.pass_k))
         if normalized != self.pass_k or normalized[0] != 1:
-            raise ValueError("checkpoint qualification pass_k must be unique, sorted, and start with pass@1")
+            raise ValueError(
+                "checkpoint qualification pass_k must be unique, sorted, and start with pass@1"
+            )
         if any(value > self.candidates_per_task for value in normalized):
             raise ValueError("checkpoint qualification pass_k exceeds candidates_per_task")
         return self
@@ -458,7 +465,9 @@ def _git_head(source_root: Path) -> str:
         env={"PATH": os.environ.get("PATH", ""), "SYSTEMROOT": os.environ.get("SYSTEMROOT", "")},
     )
     if result.returncode != 0:
-        raise ValueError(f"qualification source is not a readable Git checkout: {result.stderr.strip()[:500]}")
+        raise ValueError(
+            f"qualification source is not a readable Git checkout: {result.stderr.strip()[:500]}"
+        )
     return result.stdout.strip().lower()
 
 
@@ -489,7 +498,7 @@ def write_approval_template(
         "approved_use": "evaluation_only",
         "redistribution_allowed": False,
         "approved_by": "PENDING AUTHORIZED REVIEWER",
-        "approved_at": datetime.now(timezone.utc).isoformat(),
+        "approved_at": datetime.now(UTC).isoformat(),
         "rationale": "PENDING legal, license, privacy, benchmark-policy, and intended-use review.",
         "source_files_sha256": _source_hashes(root, source),
     }
@@ -548,7 +557,12 @@ def _cwe_for_crash(crash_type: str) -> str:
         return "CWE-190"
     if "null" in lowered:
         return "CWE-476"
-    if "buffer-overflow" in lowered or "out-of-bounds" in lowered or "unknown read" in lowered or "unknown write" in lowered:
+    if (
+        "buffer-overflow" in lowered
+        or "out-of-bounds" in lowered
+        or "unknown read" in lowered
+        or "unknown write" in lowered
+    ):
         return "CWE-787" if "write" in lowered else "CWE-125"
     if "negative-size" in lowered:
         return "CWE-195"
@@ -629,7 +643,9 @@ def build_repository_qualification_pack(
 
     metadata = _gzip_json(root / "sample_metadata.json.gz")
     official_reports = _gzip_json(root / "report.json.gz")
-    repositories = _repository_map(_json_file(root / "github_repos.json"), source.allowed_repository_hosts)
+    repositories = _repository_map(
+        _json_file(root / "github_repos.json"), source.allowed_repository_hosts
+    )
     if not isinstance(metadata, dict) or not isinstance(official_reports, dict):
         raise ValueError("benchmark metadata and report artifacts must contain JSON objects")
 
@@ -656,17 +672,25 @@ def build_repository_qualification_pack(
             continue
         eligible.append((str(source_task_id), raw, report, repository_url))
     if len(eligible) < 50:
-        raise ValueError(f"benchmark contains only {len(eligible)} eligible governed tasks; 50 are required")
+        raise ValueError(
+            f"benchmark contains only {len(eligible)} eligible governed tasks; 50 are required"
+        )
 
     eligible.sort(
-        key=lambda item: hashlib.sha256(f"{seed}:{item[0]}:{item[1].get('fixing_commit')}".encode()).hexdigest()
+        key=lambda item: hashlib.sha256(
+            f"{seed}:{item[0]}:{item[1].get('fixing_commit')}".encode()
+        ).hexdigest()
     )
     selected = eligible[:50]
     tasks: list[QualificationTask] = []
     for index, (source_task_id, raw, report, repository_url) in enumerate(selected):
         category = CATEGORIES[index // 10]
         raw_functions = raw.get("changed_function") or []
-        changed_functions = [str(item) for item in raw_functions] if isinstance(raw_functions, list) else [str(raw_functions)]
+        changed_functions = (
+            [str(item) for item in raw_functions]
+            if isinstance(raw_functions, list)
+            else [str(raw_functions)]
+        )
         crash_type = str(raw.get("crash_type") or "unknown memory safety failure")
         diff_digest = hashlib.sha256(
             json.dumps(raw.get("diff") or {}, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -712,7 +736,10 @@ def build_repository_qualification_pack(
     output.mkdir(parents=True, exist_ok=True)
     prompt_suite = output / "checkpoint_prompts.jsonl"
     task_catalog = output / "repository_task_catalog.jsonl"
-    with prompt_suite.open("w", encoding="utf-8") as prompt_handle, task_catalog.open("w", encoding="utf-8") as catalog_handle:
+    with (
+        prompt_suite.open("w", encoding="utf-8") as prompt_handle,
+        task_catalog.open("w", encoding="utf-8") as catalog_handle,
+    ):
         for task in tasks:
             prompt_payload = {
                 "task_id": task.task_id,
@@ -725,9 +752,15 @@ def build_repository_qualification_pack(
                 "allow_verified_test_claims": task.allow_verified_test_claims,
                 "defensive_only": task.defensive_only,
             }
-            prompt_handle.write(json.dumps(prompt_payload, ensure_ascii=False, sort_keys=True) + "\n")
-            catalog_handle.write(json.dumps(task.model_dump(), ensure_ascii=False, sort_keys=True) + "\n")
-    category_counts = {category: sum(task.category == category for task in tasks) for category in CATEGORIES}
+            prompt_handle.write(
+                json.dumps(prompt_payload, ensure_ascii=False, sort_keys=True) + "\n"
+            )
+            catalog_handle.write(
+                json.dumps(task.model_dump(), ensure_ascii=False, sort_keys=True) + "\n"
+            )
+    category_counts = {
+        category: sum(task.category == category for task in tasks) for category in CATEGORIES
+    }
     manifest = QualificationPackManifest(
         pack_id=f"{source.source_id}-{source.pinned_commit[:12]}-seed-{seed}",
         source_id=source.source_id,
@@ -828,8 +861,12 @@ def import_secrepobench_evidence(
         testcase = str(run.get("testcase") or "").lower()
         evaluated_tests = run.get("unittest") or {}
         baseline_tests = baseline.get("unittest_sec") or {}
-        evaluated_pass = set(evaluated_tests.get("pass") or []) if isinstance(evaluated_tests, dict) else set()
-        required_pass = set(baseline_tests.get("pass") or []) if isinstance(baseline_tests, dict) else set()
+        evaluated_pass = (
+            set(evaluated_tests.get("pass") or []) if isinstance(evaluated_tests, dict) else set()
+        )
+        required_pass = (
+            set(baseline_tests.get("pass") or []) if isinstance(baseline_tests, dict) else set()
+        )
         tests_passed = bool(required_pass) and required_pass.issubset(evaluated_pass)
         security_passed = testcase == "pass"
         errors: list[str] = []
@@ -917,7 +954,10 @@ def _repository_evidence(
     failures: dict[str, int] = {}
     for item in tasks:
         for error in item.get("errors") or []:
-            name = str(error).split(":", 1)[0].strip().lower().replace(" ", "_")[:80] or "repository_error"
+            name = (
+                str(error).split(":", 1)[0].strip().lower().replace(" ", "_")[:80]
+                or "repository_error"
+            )
             failures[name] = failures.get(name, 0) + 1
     total = len(tasks)
     status: EvidenceStatus = "measured"
@@ -997,7 +1037,10 @@ def run_checkpoint_baseline(
         "",
         "## Failure Categories",
         "",
-        *([f"- {name}: {count}" for name, count in report.failure_categories.items()] or ["- none"]),
+        *(
+            [f"- {name}: {count}" for name, count in report.failure_categories.items()]
+            or ["- none"]
+        ),
     ]
     _atomic_text(output / "qualification_baseline_report.md", "\n".join(lines) + "\n")
     return report
@@ -1098,7 +1141,9 @@ def validate_defensive_dataset_binding(
         "sequence_length",
         "shard_sha256",
     ]
-    changed = [field for field in immutable_fields if version_shards.get(field) != shard_payload.get(field)]
+    changed = [
+        field for field in immutable_fields if version_shards.get(field) != shard_payload.get(field)
+    ]
     if changed:
         raise ValueError(f"dataset version and shard manifests disagree: {', '.join(changed)}")
     mix = version.get("instruction_mix_report")
@@ -1121,17 +1166,23 @@ def validate_defensive_dataset_binding(
         raise ValueError("dataset has no near-duplicate report")
 
 
-def _prior_stage(state: QualificationCampaignState, target: int, policy: QualificationGatePolicy) -> QualificationStageRecord | None:
+def _prior_stage(
+    state: QualificationCampaignState, target: int, policy: QualificationGatePolicy
+) -> QualificationStageRecord | None:
     index = policy.stage_steps.index(target)
     if index == 0:
         return None
     required = policy.stage_steps[index - 1]
     matches = [stage for stage in state.stages if stage.target_curriculum_steps == required]
     if not matches:
-        raise RuntimeError(f"qualification stage {target} is locked until stage {required} completes")
+        raise RuntimeError(
+            f"qualification stage {target} is locked until stage {required} completes"
+        )
     prior = matches[-1]
     if not prior.promotion_allowed:
-        raise RuntimeError(f"qualification stage {target} is locked because stage {required} was not promoted")
+        raise RuntimeError(
+            f"qualification stage {target} is locked because stage {required} was not promoted"
+        )
     return prior
 
 
@@ -1213,9 +1264,7 @@ def decide_stage(
     improvement_required = target_curriculum_steps >= policy.require_improvement_from_stage
     if improvement_required and comparison.score_delta < policy.minimum_score_improvement:
         failures.append("minimum_score_improvement_not_met")
-    executable_required = (
-        target_curriculum_steps >= policy.require_executable_benchmark_from_stage
-    )
+    executable_required = target_curriculum_steps >= policy.require_executable_benchmark_from_stage
     executable_pass_at_1: float | None = None
     if executable_benchmark is not None:
         measured = [
@@ -1245,7 +1294,9 @@ def decide_stage(
         status=status,
         promotion_allowed=promotion_allowed,
         selected_checkpoint_manifest=selected,
-        selected_checkpoint_sha256=sha256_file(Path(selected)) if selected and Path(selected).is_file() else "",
+        selected_checkpoint_sha256=sha256_file(Path(selected))
+        if selected and Path(selected).is_file()
+        else "",
         training_report_path=str(training_report_path),
         checkpoint_eval_path=str(checkpoint_eval_path),
         checkpoint_comparison_path=str(checkpoint_comparison_path),
@@ -1309,7 +1360,9 @@ def run_defensive_stage(
     )
     prior = _prior_stage(state, target_curriculum_steps, config.gate)
     if any(stage.target_curriculum_steps == target_curriculum_steps for stage in state.stages):
-        raise RuntimeError(f"qualification stage {target_curriculum_steps} already has an immutable result")
+        raise RuntimeError(
+            f"qualification stage {target_curriculum_steps} already has an immutable result"
+        )
 
     stage_root = root / f"stage-{target_curriculum_steps:06d}"
     stage_root.mkdir(parents=True, exist_ok=True)
@@ -1320,9 +1373,7 @@ def run_defensive_stage(
         output_path=audit_path,
     )
     baseline_for_stage = (
-        Path(prior.selected_checkpoint_manifest).resolve(strict=True)
-        if prior
-        else initial_source
+        Path(prior.selected_checkpoint_manifest).resolve(strict=True) if prior else initial_source
     )
     global_target = state.initial_global_step + target_curriculum_steps
     progress = progress_from_options(
@@ -1361,7 +1412,6 @@ def run_defensive_stage(
         )
     finally:
         progress.close()
-    training_report_path = Path(root / "train" / "pretrain_report.json").resolve(strict=True)
     stage_training_report = stage_root / "training_report.json"
     _atomic_json(stage_training_report, training)
     best_manifest = Path(str(training["best_checkpoint_manifest"])).resolve(strict=True)
@@ -1471,7 +1521,8 @@ def write_campaign_plan(*, config_path: str | Path, output_dir: str | Path) -> P
             {
                 "target_curriculum_steps": steps,
                 "requires_previous_promotion": index > 0,
-                "requires_measured_improvement": steps >= config.gate.require_improvement_from_stage,
+                "requires_measured_improvement": steps
+                >= config.gate.require_improvement_from_stage,
                 "requires_executable_benchmark": (
                     steps >= config.gate.require_executable_benchmark_from_stage
                 ),
@@ -1497,9 +1548,8 @@ def write_campaign_plan(*, config_path: str | Path, output_dir: str | Path) -> P
                 Path(config.executable_evaluation.protected_manifest).resolve(strict=True)
             ),
             "suites": [
-                suite.model_dump() for suite in _governed_executable_suites(
-                    config.executable_evaluation
-                )
+                suite.model_dump()
+                for suite in _governed_executable_suites(config.executable_evaluation)
             ],
             "candidates_per_task": config.executable_evaluation.candidates_per_task,
             "pass_k": config.executable_evaluation.pass_k,
@@ -1525,7 +1575,9 @@ def write_campaign_plan(*, config_path: str | Path, output_dir: str | Path) -> P
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Craftly governed checkpoint qualification campaign")
+    parser = argparse.ArgumentParser(
+        description="Craftly governed checkpoint qualification campaign"
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     approval = subparsers.add_parser("approval-template")
@@ -1633,7 +1685,9 @@ def main() -> None:
             device=args.device,
         ).model_dump()
     elif args.command == "plan":
-        result = {"plan": str(write_campaign_plan(config_path=args.config, output_dir=args.output_dir))}
+        result = {
+            "plan": str(write_campaign_plan(config_path=args.config, output_dir=args.output_dir))
+        }
     elif args.command == "run-stage":
         result = run_defensive_stage(
             config_path=args.config,

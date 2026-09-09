@@ -1,4 +1,4 @@
-﻿"""Initial Craftly schema.
+"""Initial Craftly schema.
 
 Revision ID: 0001_initial
 Revises:
@@ -13,7 +13,6 @@ from alembic import op
 
 from src.craftly.db.migration_runner import expand_psql_includes
 
-
 revision = "0001_initial"
 down_revision = None
 branch_labels = None
@@ -27,4 +26,3 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     raise RuntimeError("Craftly production migrations are forward-only")
-

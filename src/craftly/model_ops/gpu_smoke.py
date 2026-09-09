@@ -1,4 +1,4 @@
-﻿"""GPU smoke runner for Craftly scratch decoder training path."""
+"""GPU smoke runner for Craftly scratch decoder training path."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ from typing import Any
 from src.craftly.model_ops.foundation import CheckpointManifest
 from src.craftly.model_ops.torch_decoder import (
     CraftlyDecoderLM,
-    ScratchDecoderConfig,
     require_torch,
     save_trusted_checkpoint,
     select_torch_device,
@@ -24,7 +23,7 @@ except ImportError:  # pragma: no cover
     torch = None  # type: ignore[assignment]
 
 
-def gpu_name(device: "torch.device") -> str:
+def gpu_name(device: torch.device) -> str:
     if device.type == "cuda":
         return str(torch.cuda.get_device_name(device))
     return "cpu"
@@ -69,7 +68,9 @@ def run_scratch_gpu_smoke(
             device=selected_device,
         )
         optimizer.zero_grad(set_to_none=True)
-        with torch.autocast(device_type=selected_device.type, dtype=autocast_dtype, enabled=use_autocast):
+        with torch.autocast(
+            device_type=selected_device.type, dtype=autocast_dtype, enabled=use_autocast
+        ):
             output = model(tokens, labels=tokens)
             if output.loss is None:
                 raise RuntimeError("scratch decoder did not produce a loss")
@@ -90,7 +91,9 @@ def run_scratch_gpu_smoke(
         },
         checkpoint_dir / "model.pt",
     )
-    (checkpoint_dir / "config.json").write_text(json.dumps(config.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+    (checkpoint_dir / "config.json").write_text(
+        json.dumps(config.model_dump(), indent=2, sort_keys=True), encoding="utf-8"
+    )
     manifest = CheckpointManifest.from_directory(
         architecture_name=config.name,
         run_id="gpu-smoke",
@@ -123,7 +126,9 @@ def run_scratch_gpu_smoke(
         "checkpoint_manifest": str(manifest_path),
         "duration_ms": round((time.perf_counter() - started) * 1000, 3),
     }
-    (root / "gpu_smoke_report.json").write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+    (root / "gpu_smoke_report.json").write_text(
+        json.dumps(report, indent=2, sort_keys=True), encoding="utf-8"
+    )
     return report
 
 
@@ -155,4 +160,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

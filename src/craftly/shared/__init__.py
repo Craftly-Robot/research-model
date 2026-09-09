@@ -1,3 +1,1 @@
-﻿"""Shared schemas, config, and errors for the consolidated Craftly runtime."""
-
-
+"""Shared schemas, config, and errors for the consolidated Craftly runtime."""

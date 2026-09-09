@@ -1,4 +1,4 @@
-﻿"""Source budget allocation driven by reputation scores."""
+"""Source budget allocation driven by reputation scores."""
 
 from __future__ import annotations
 
@@ -10,7 +10,8 @@ from pathlib import Path
 from pydantic import Field
 
 from src.craftly.learning.source_registry import SourceRegistry
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import write_report, print_report
+from src.craftly.shared.schemas import StrictModel, write_report, print_report
 
 
 class SourceBudget(StrictModel):
@@ -82,7 +83,11 @@ def _weighted_allocations(
         if granted_this_round == 0:
             ranked = sorted(
                 active,
-                key=lambda name: (-(raw_shares[name] - int(raw_shares[name])), -weights[name], name),
+                key=lambda name: (
+                    -(raw_shares[name] - int(raw_shares[name])),
+                    -weights[name],
+                    name,
+                ),
             )
             for name in ranked:
                 if remaining <= 0:
@@ -110,7 +115,9 @@ def build_source_budget_plan(
         has_evidence = rep is not None
         score = float(rep.get("reputation_score", 0.0)) if rep else 0.0
         action = str(rep.get("action", "block")) if rep else "block"
-        category_multiplier = 1.25 if source.category in {"defensive_security", "vulnerability_database"} else 1.0
+        category_multiplier = (
+            1.25 if source.category in {"defensive_security", "vulnerability_database"} else 1.0
+        )
         action_multiplier = {
             "promote": 1.4,
             "watch": 1.0,
@@ -174,12 +181,14 @@ def write_source_budget_plan(output_path: str | Path, **kwargs: object) -> Sourc
     plan = build_source_budget_plan(**kwargs)
     target = Path(output_path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(plan.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+    write_report(plan, target)
     return plan
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Allocate Craftly crawl budget from source reputation.")
+    parser = argparse.ArgumentParser(
+        description="Allocate Craftly crawl budget from source reputation."
+    )
     parser.add_argument("--sources", required=True)
     parser.add_argument("--reputation-report")
     parser.add_argument("--target-total-docs", type=int, required=True)
@@ -191,9 +200,8 @@ def main() -> None:
         reputation_report_path=args.reputation_report,
         target_total_docs=args.target_total_docs,
     )
-    print(json.dumps(plan.model_dump(), indent=2, sort_keys=True))
+    print_report(plan)
 
 
 if __name__ == "__main__":
     main()
-

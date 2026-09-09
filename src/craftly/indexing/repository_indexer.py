@@ -1,4 +1,4 @@
-﻿"""MVP repository indexing engine.
+"""MVP repository indexing engine.
 
 This module gives Craftly a Cursor-style local repository intelligence baseline:
 file inventory, content hashes, language detection, chunking, symbol extraction,
@@ -9,8 +9,8 @@ system is testable on day one; vector storage can subscribe to the same chunks.
 from __future__ import annotations
 
 import argparse
-import asyncio
 import ast
+import asyncio
 import contextlib
 import hashlib
 import io
@@ -24,10 +24,11 @@ import tempfile
 import time
 import uuid
 from collections import defaultdict
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Callable, Iterable, Iterator, Protocol
+from typing import Any, Protocol
 
 from pydantic import Field
 
@@ -39,7 +40,6 @@ from src.craftly.db.local_store import (
 )
 from src.craftly.learning.storage import ObjectStore, ObjectStoreConfig, create_object_store
 from src.craftly.shared.schemas import StrictModel
-
 
 LANGUAGE_BY_SUFFIX = {
     ".py": "python",
@@ -91,8 +91,14 @@ SYMBOL_REGEX = re.compile(
 )
 
 IMPORT_REGEX_BY_LANGUAGE = {
-    "javascript": re.compile(r"^\s*import\s+.*?\s+from\s+['\"]([^'\"]+)['\"]|^\s*const\s+.+?=\s+require\(['\"]([^'\"]+)['\"]\)", re.MULTILINE),
-    "typescript": re.compile(r"^\s*import\s+.*?\s+from\s+['\"]([^'\"]+)['\"]|^\s*const\s+.+?=\s+require\(['\"]([^'\"]+)['\"]\)", re.MULTILINE),
+    "javascript": re.compile(
+        r"^\s*import\s+.*?\s+from\s+['\"]([^'\"]+)['\"]|^\s*const\s+.+?=\s+require\(['\"]([^'\"]+)['\"]\)",
+        re.MULTILINE,
+    ),
+    "typescript": re.compile(
+        r"^\s*import\s+.*?\s+from\s+['\"]([^'\"]+)['\"]|^\s*const\s+.+?=\s+require\(['\"]([^'\"]+)['\"]\)",
+        re.MULTILINE,
+    ),
     "go": re.compile(r"^\s*import\s+(?:\(\s*)?\"([^\"]+)\"", re.MULTILINE),
     "rust": re.compile(r"^\s*use\s+([^;]+);", re.MULTILINE),
     "java": re.compile(r"^\s*import\s+([^;]+);", re.MULTILINE),
@@ -311,9 +317,13 @@ class RepositoryIndexer:
         )
         self.object_store = object_store
         if self.production_mode and self.object_store is None:
-            uri = os.environ.get("CRAFTLY_RAG_OBJECT_STORE_URI") or os.environ.get("CRAFTLY_OBJECT_STORE_URI")
+            uri = os.environ.get("CRAFTLY_RAG_OBJECT_STORE_URI") or os.environ.get(
+                "CRAFTLY_OBJECT_STORE_URI"
+            )
             if not uri or not uri.startswith("s3://"):
-                raise RuntimeError("production repository indexing requires S3/MinIO snapshot storage")
+                raise RuntimeError(
+                    "production repository indexing requires S3/MinIO snapshot storage"
+                )
             self.object_store = create_object_store(
                 ObjectStoreConfig(
                     uri=uri,
@@ -349,7 +359,9 @@ class RepositoryIndexer:
         if max_chunk_tokens < 128 or max_chunk_tokens > 4096:
             raise ValueError("max_chunk_tokens must be between 128 and 4096")
         if overlap_tokens < 0 or overlap_tokens >= max_chunk_tokens:
-            raise ValueError("overlap_tokens must be non-negative and smaller than max_chunk_tokens")
+            raise ValueError(
+                "overlap_tokens must be non-negative and smaller than max_chunk_tokens"
+            )
 
         source_files = list(
             self.iter_source_files(
@@ -369,7 +381,9 @@ class RepositoryIndexer:
         previous_files = self.store.list_workspace_file_hashes(project_id)
         current_hashes = {item.relative_path: item.content_hash for item in source_files}
         changed_file_count = sum(
-            1 for path, content_hash in current_hashes.items() if previous_files.get(path) != content_hash
+            1
+            for path, content_hash in current_hashes.items()
+            if previous_files.get(path) != content_hash
         )
         removed_file_count = len(set(previous_files) - set(current_hashes))
         manifest_base = {
@@ -398,8 +412,11 @@ class RepositoryIndexer:
                 if cancellation_check is not None and cancellation_check():
                     raise IndexCancelled("repository indexing was cancelled")
                 file_id = stable_uuid(
-                    project["organization_id"], project_id, source_file.relative_path,
-                    source_file.content_hash, CHUNKER_VERSION,
+                    project["organization_id"],
+                    project_id,
+                    source_file.relative_path,
+                    source_file.content_hash,
+                    CHUNKER_VERSION,
                 )
                 files.append(
                     {
@@ -436,7 +453,8 @@ class RepositoryIndexer:
                             parser: sum(
                                 1
                                 for chunk in all_chunks
-                                if str((chunk.get("metadata") or {}).get("parser") or "unknown") == parser
+                                if str((chunk.get("metadata") or {}).get("parser") or "unknown")
+                                == parser
                             )
                             for parser in {
                                 str((chunk.get("metadata") or {}).get("parser") or "unknown")
@@ -449,7 +467,9 @@ class RepositoryIndexer:
                 "changed_file_count": changed_file_count,
                 "removed_file_count": removed_file_count,
             }
-            manifest["manifest_sha256"] = sha256_text(json.dumps(manifest, sort_keys=True, separators=(",", ":")))
+            manifest["manifest_sha256"] = sha256_text(
+                json.dumps(manifest, sort_keys=True, separators=(",", ":"))
+            )
             self.store.commit_index_revision(
                 revision_id=revision_id,
                 files=files,
@@ -616,8 +636,12 @@ class RepositoryIndexer:
             chunks = list(self.python_symbol_chunks(source_file))
             if chunks:
                 for chunk in chunks:
-                    for bounded in self.bound_chunk(chunk, max_chunk_tokens=max_chunk_tokens, overlap_tokens=overlap_tokens):
-                        yield self.chunk_payload(organization_id, project_id, file_id, source_file, **bounded)
+                    for bounded in self.bound_chunk(
+                        chunk, max_chunk_tokens=max_chunk_tokens, overlap_tokens=overlap_tokens
+                    ):
+                        yield self.chunk_payload(
+                            organization_id, project_id, file_id, source_file, **bounded
+                        )
                 return
         if source_file.language in TREE_SITTER_LANGUAGES:
             if self.production_mode:
@@ -633,11 +657,17 @@ class RepositoryIndexer:
                         max_chunk_tokens=max_chunk_tokens,
                         overlap_tokens=overlap_tokens,
                     ):
-                        yield self.chunk_payload(organization_id, project_id, file_id, source_file, **bounded)
+                        yield self.chunk_payload(
+                            organization_id, project_id, file_id, source_file, **bounded
+                        )
                 return
         for chunk in self.line_chunks(source_file, max_chunk_lines=max_chunk_lines):
-            for bounded in self.bound_chunk(chunk, max_chunk_tokens=max_chunk_tokens, overlap_tokens=overlap_tokens):
-                yield self.chunk_payload(organization_id, project_id, file_id, source_file, **bounded)
+            for bounded in self.bound_chunk(
+                chunk, max_chunk_tokens=max_chunk_tokens, overlap_tokens=overlap_tokens
+            ):
+                yield self.chunk_payload(
+                    organization_id, project_id, file_id, source_file, **bounded
+                )
 
     def bound_chunk(
         self,
@@ -650,7 +680,6 @@ class RepositoryIndexer:
         if estimate_tokens(content) <= max_chunk_tokens:
             yield chunk
             return
-        lines = content.splitlines()
         max_chars = max_chunk_tokens * 4
         overlap_chars = overlap_tokens * 4
         start = 0
@@ -667,9 +696,15 @@ class RepositoryIndexer:
             bounded = dict(chunk)
             bounded["content"] = segment
             bounded["start_line"] = int(chunk["start_line"]) + start_line_offset
-            bounded["end_line"] = min(int(chunk["end_line"]), int(chunk["start_line"]) + end_line_offset)
+            bounded["end_line"] = min(
+                int(chunk["end_line"]), int(chunk["start_line"]) + end_line_offset
+            )
             bounded["kind"] = f"{chunk['kind']}_part"
-            bounded["metadata"] = {**dict(chunk.get("metadata") or {}), "parent_symbol": chunk.get("symbol_name"), "part": part}
+            bounded["metadata"] = {
+                **dict(chunk.get("metadata") or {}),
+                "parent_symbol": chunk.get("symbol_name"),
+                "part": part,
+            }
             yield bounded
             part += 1
             if end >= len(content):
@@ -751,7 +786,9 @@ class RepositoryIndexer:
             name = self.tree_sitter_symbol_name(node, source_bytes)
             if not name:
                 continue
-            content = source_bytes[ts_byte(node, "start") : ts_byte(node, "end")].decode("utf-8", "replace")
+            content = source_bytes[ts_byte(node, "start") : ts_byte(node, "end")].decode(
+                "utf-8", "replace"
+            )
             start_line = ts_row(node, "start") + 1
             end_line = max(start_line, ts_row(node, "end") + 1)
             signature = self.tree_sitter_signature(node, source_bytes)
@@ -793,7 +830,11 @@ class RepositoryIndexer:
 
     @staticmethod
     def tree_sitter_node_text(node: Any, source_bytes: bytes) -> str:
-        return source_bytes[ts_byte(node, "start") : ts_byte(node, "end")].decode("utf-8", "replace").strip()
+        return (
+            source_bytes[ts_byte(node, "start") : ts_byte(node, "end")]
+            .decode("utf-8", "replace")
+            .strip()
+        )
 
     def tree_sitter_symbol_name(self, node: Any, source_bytes: bytes) -> str:
         name_node = node.child_by_field_name("name")
@@ -820,7 +861,11 @@ class RepositoryIndexer:
     def tree_sitter_signature(self, node: Any, source_bytes: bytes) -> str:
         body = node.child_by_field_name("body")
         start_byte = ts_byte(node, "start")
-        end_byte = ts_byte(body, "start") if body is not None else min(ts_byte(node, "end"), start_byte + 2048)
+        end_byte = (
+            ts_byte(body, "start")
+            if body is not None
+            else min(ts_byte(node, "end"), start_byte + 2048)
+        )
         signature = source_bytes[start_byte:end_byte].decode("utf-8", "replace").strip()
         return " ".join(signature.split())[:2048]
 
@@ -928,7 +973,9 @@ class RepositoryIndexer:
             "symbols": sum(len(values) for values in by_leaf.values()),
         }
 
-    def line_chunks(self, source_file: SourceFile, *, max_chunk_lines: int) -> Iterable[dict[str, Any]]:
+    def line_chunks(
+        self, source_file: SourceFile, *, max_chunk_lines: int
+    ) -> Iterable[dict[str, Any]]:
         lines = source_file.content.splitlines()
         if not lines:
             return
@@ -1081,8 +1128,14 @@ class RepositoryIndexer:
         chunk_hash = sha256_text(content)
         return {
             "id": stable_uuid(
-                organization_id, project_id, source_file.relative_path, symbol_name or "",
-                start_line, end_line, chunk_hash, CHUNKER_VERSION,
+                organization_id,
+                project_id,
+                source_file.relative_path,
+                symbol_name or "",
+                start_line,
+                end_line,
+                chunk_hash,
+                CHUNKER_VERSION,
             ),
             "project_id": project_id,
             "file_id": file_id,
@@ -1101,14 +1154,22 @@ class RepositoryIndexer:
 
 class RAGJobStore(Protocol):
     def create_index_job(self, **kwargs: Any) -> dict[str, Any]: ...
-    def get_index_job(self, job_id: str, *, organization_id: str | None = None) -> dict[str, Any] | None: ...
-    def claim_index_job(self, *, worker_id: str, lease_seconds: int = 60) -> dict[str, Any] | None: ...
-    def heartbeat_index_job(self, job_id: str, *, worker_id: str, lease_seconds: int = 60) -> bool: ...
+    def get_index_job(
+        self, job_id: str, *, organization_id: str | None = None
+    ) -> dict[str, Any] | None: ...
+    def claim_index_job(
+        self, *, worker_id: str, lease_seconds: int = 60
+    ) -> dict[str, Any] | None: ...
+    def heartbeat_index_job(
+        self, job_id: str, *, worker_id: str, lease_seconds: int = 60
+    ) -> bool: ...
     def index_job_cancel_requested(self, job_id: str) -> bool: ...
     def request_index_job_cancel(self, job_id: str, *, organization_id: str) -> dict[str, Any]: ...
     def complete_index_job(self, job_id: str, **kwargs: Any) -> dict[str, Any]: ...
     def fail_index_job(self, job_id: str, **kwargs: Any) -> dict[str, Any]: ...
-    def claim_rag_outbox(self, *, worker_id: str, lease_seconds: int = 60) -> dict[str, Any] | None: ...
+    def claim_rag_outbox(
+        self, *, worker_id: str, lease_seconds: int = 60
+    ) -> dict[str, Any] | None: ...
     def complete_rag_outbox(self, event_id: str, *, worker_id: str) -> None: ...
     def fail_rag_outbox(self, event_id: str, **kwargs: Any) -> None: ...
 
@@ -1191,7 +1252,9 @@ class RedisRAGControl:
             count=32,
             block=int(min(max(timeout_seconds, 0.1), 60.0) * 1000),
         )
-        message_ids = [message_id for _stream, entries in messages for message_id, _payload in entries]
+        message_ids = [
+            message_id for _stream, entries in messages for message_id, _payload in entries
+        ]
         if message_ids:
             await client.xack(self.INDEX_STREAM, self.WORKER_GROUP, *message_ids)
         return bool(message_ids)
@@ -1254,7 +1317,13 @@ class RAGIndexCoordinator:
         max_attempts: int = 3,
     ) -> dict[str, Any]:
         payload = dict(request or {})
-        allowed = {"include_suffixes", "max_file_bytes", "max_chunk_lines", "max_chunk_tokens", "overlap_tokens"}
+        allowed = {
+            "include_suffixes",
+            "max_file_bytes",
+            "max_chunk_lines",
+            "max_chunk_tokens",
+            "overlap_tokens",
+        }
         unexpected = sorted(set(payload) - allowed)
         if unexpected:
             raise ValueError(f"unsupported index request fields: {unexpected}")
@@ -1369,8 +1438,14 @@ class RAGIndexCoordinator:
             from src.craftly.indexing.vector_index import VectorBackendConfig, create_vector_index
 
             config = VectorBackendConfig(
-                backend="qdrant" if self.production_mode else os.environ.get("CRAFTLY_VECTOR_BACKEND", "local_hashing"),
-                dims=int(os.environ.get("CRAFTLY_EMBEDDING_DIMS", "768" if self.production_mode else "384")),
+                backend="qdrant"
+                if self.production_mode
+                else os.environ.get("CRAFTLY_VECTOR_BACKEND", "local_hashing"),
+                dims=int(
+                    os.environ.get(
+                        "CRAFTLY_EMBEDDING_DIMS", "768" if self.production_mode else "384"
+                    )
+                ),
                 qdrant_url=os.environ.get("CRAFTLY_QDRANT_URL"),
                 embedding_url=os.environ.get("CRAFTLY_EMBEDDING_URL"),
                 embedding_manifest_path=os.environ.get("CRAFTLY_EMBEDDING_MANIFEST"),
@@ -1398,14 +1473,18 @@ class RAGIndexCoordinator:
                 error=f"{type(exc).__name__}: {exc}",
                 retry_delay_seconds=min(300.0, float(2 ** min(int(event.get("attempt") or 1), 8))),
             )
-            return {"status": "retry_or_dead_letter", "event_id": event["id"], "error_type": type(exc).__name__}
+            return {
+                "status": "retry_or_dead_letter",
+                "event_id": event["id"],
+                "error_type": type(exc).__name__,
+            }
 
     async def _heartbeat(self, job_id: str, stopped: asyncio.Event) -> None:
         interval = max(5.0, self.lease_seconds / 3)
         while not stopped.is_set():
             try:
                 await asyncio.wait_for(stopped.wait(), timeout=interval)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 alive = await asyncio.to_thread(
                     self.store.heartbeat_index_job,
                     job_id,
@@ -1445,18 +1524,29 @@ async def _run_worker(args: argparse.Namespace) -> int:
             index_result = await coordinator.run_index_once()
             vector_result = await coordinator.run_vector_sync_once()
             if args.once:
-                print(json.dumps({"index": index_result, "vector_sync": vector_result}, indent=2, sort_keys=True))
+                print(
+                    json.dumps(
+                        {"index": index_result, "vector_sync": vector_result},
+                        indent=2,
+                        sort_keys=True,
+                    )
+                )
                 return 0
             if index_result is None and vector_result is None:
                 if coordinator.redis is None:
                     await asyncio.sleep(args.poll_seconds)
                 else:
                     try:
-                        await coordinator.redis.wait_for_work(coordinator.worker_id, timeout_seconds=args.poll_seconds)
+                        await coordinator.redis.wait_for_work(
+                            coordinator.worker_id, timeout_seconds=args.poll_seconds
+                        )
                     except Exception as exc:
                         print(
                             json.dumps(
-                                {"event": "rag_redis_wake_failed", "error_type": type(exc).__name__},
+                                {
+                                    "event": "rag_redis_wake_failed",
+                                    "error_type": type(exc).__name__,
+                                },
                                 sort_keys=True,
                             ),
                             flush=True,
@@ -1473,7 +1563,9 @@ async def _run_distributed_worker(args: argparse.Namespace) -> int:
     dsn = os.environ.get("CRAFTLY_DATABASE_URL", "")
     redis_url = args.redis_url or os.environ.get("CRAFTLY_REDIS_URL", "")
     if not dsn or not redis_url:
-        raise RuntimeError("distributed RAG worker requires CRAFTLY_DATABASE_URL and CRAFTLY_REDIS_URL")
+        raise RuntimeError(
+            "distributed RAG worker requires CRAFTLY_DATABASE_URL and CRAFTLY_REDIS_URL"
+        )
     worker_id = args.worker_id or f"rag-dispatch-{os.getpid()}-{uuid.uuid4().hex[:12]}"
     dispatcher = PostgresRAGDispatcher(dsn)
     store_factory = PostgresRAGStoreFactory(dsn, min_pool_size=1, max_pool_size=8)
@@ -1523,7 +1615,11 @@ async def _run_distributed_worker(args: argparse.Namespace) -> int:
             if args.once:
                 print(
                     json.dumps(
-                        {"index": claimed_job, "vector_sync": claimed_event, "worker_id": worker_id},
+                        {
+                            "index": claimed_job,
+                            "vector_sync": claimed_event,
+                            "worker_id": worker_id,
+                        },
                         indent=2,
                         sort_keys=True,
                         default=str,
@@ -1549,7 +1645,9 @@ async def _run_distributed_worker(args: argparse.Namespace) -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run the durable Craftly Hybrid RAG indexing worker")
+    parser = argparse.ArgumentParser(
+        description="Run the durable Craftly Hybrid RAG indexing worker"
+    )
     parser.add_argument("worker", nargs="?", default="worker", choices=["worker"])
     parser.add_argument("--redis-url", default=os.environ.get("CRAFTLY_REDIS_URL"))
     parser.add_argument("--worker-id")
@@ -1569,4 +1667,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

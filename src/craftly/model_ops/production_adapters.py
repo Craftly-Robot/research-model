@@ -1,4 +1,4 @@
-﻿"""Production adapter exports for Craftly scratch checkpoints.
+"""Production adapter exports for Craftly scratch checkpoints.
 
 This module owns the bridge from the native Craftly checkpoint format to external
 large-model runtimes. It intentionally separates "artifact generated" from
@@ -16,13 +16,23 @@ import shutil
 import subprocess  # nosec B404
 import time
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import Field
 
-from src.craftly.model_ops.foundation import CheckpointManifest, model_profile as get_model_profile, sha256_file
-from src.craftly.model_ops.torch_decoder import ScratchDecoderConfig, load_trusted_checkpoint, require_torch
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.model_ops.foundation import (
+    CheckpointManifest,
+    sha256_file,
+)
+from src.craftly.model_ops.foundation import (
+    model_profile as get_model_profile,
+)
+from src.craftly.model_ops.torch_decoder import (
+    ScratchDecoderConfig,
+    load_trusted_checkpoint,
+    require_torch,
+)
+from src.craftly.shared.schemas import StrictModel, write_report, print_report
 
 try:
     import torch
@@ -44,7 +54,7 @@ class AdapterReport(StrictModel):
         root = Path(output_dir)
         root.mkdir(parents=True, exist_ok=True)
         target = root / name
-        target.write_text(json.dumps(self.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+        write_report(self, target)
         return target
 
 
@@ -167,9 +177,13 @@ def megatron_model_arguments(profile: ScratchDecoderConfig) -> list[str]:
     return arguments
 
 
-def _load_checkpoint(manifest_path: str | Path) -> tuple[CheckpointManifest, dict[str, Any], ScratchDecoderConfig]:
+def _load_checkpoint(
+    manifest_path: str | Path,
+) -> tuple[CheckpointManifest, dict[str, Any], ScratchDecoderConfig]:
     require_torch()
-    manifest = CheckpointManifest.model_validate(json.loads(Path(manifest_path).read_text(encoding="utf-8-sig")))
+    manifest = CheckpointManifest.model_validate(
+        json.loads(Path(manifest_path).read_text(encoding="utf-8-sig"))
+    )
     checkpoint_path = Path(manifest.checkpoint_dir) / "model.pt"
     if not checkpoint_path.exists():
         raise FileNotFoundError(f"checkpoint model file not found: {checkpoint_path}")
@@ -212,7 +226,9 @@ def _hf_llama_config(config: ScratchDecoderConfig, *, torch_dtype: str) -> dict[
     return payload
 
 
-def _convert_state_dict_to_hf_llama(state: dict[str, Any], config: ScratchDecoderConfig) -> dict[str, Any]:
+def _convert_state_dict_to_hf_llama(
+    state: dict[str, Any], config: ScratchDecoderConfig
+) -> dict[str, Any]:
     if config.attention_architecture != "gqa" or config.feed_forward_architecture != "dense":
         raise ValueError("MLA/MoE state cannot be represented by the Llama checkpoint schema")
     converted: dict[str, Any] = {
@@ -264,7 +280,10 @@ def export_hf_llama_package(
     except ImportError as exc:  # pragma: no cover
         raise RuntimeError("safetensors is required for production HF/vLLM export") from exc
     save_safetensors(state, target / "model.safetensors")
-    (target / "config.json").write_text(json.dumps(_hf_llama_config(config, torch_dtype=torch_dtype), indent=2, sort_keys=True), encoding="utf-8")
+    (target / "config.json").write_text(
+        json.dumps(_hf_llama_config(config, torch_dtype=torch_dtype), indent=2, sort_keys=True),
+        encoding="utf-8",
+    )
     shutil.copy2(tokenizer, target / "tokenizer.json")
     (target / "tokenizer_config.json").write_text(
         json.dumps(
@@ -282,7 +301,11 @@ def export_hf_llama_package(
         encoding="utf-8",
     )
     (target / "special_tokens_map.json").write_text(
-        json.dumps({"unk_token": "<unk>", "pad_token": "<pad>", "bos_token": "<s>", "eos_token": "</s>"}, indent=2, sort_keys=True),
+        json.dumps(
+            {"unk_token": "<unk>", "pad_token": "<pad>", "bos_token": "<s>", "eos_token": "</s>"},
+            indent=2,
+            sort_keys=True,
+        ),
         encoding="utf-8",
     )
     conversion = {
@@ -302,16 +325,35 @@ def export_hf_llama_package(
             "run TensorRT-LLM engine build and decode parity test",
         ],
     }
-    (target / "craftly_conversion_manifest.json").write_text(json.dumps(conversion, indent=2, sort_keys=True), encoding="utf-8")
-    artifacts = [str(target / name) for name in ["config.json", "model.safetensors", "tokenizer.json", "tokenizer_config.json", "special_tokens_map.json", "craftly_conversion_manifest.json"]]
-    report = AdapterReport(status="built_not_runtime_proven", adapter="hf_llama_vllm", output_dir=str(target), artifacts=artifacts)
+    (target / "craftly_conversion_manifest.json").write_text(
+        json.dumps(conversion, indent=2, sort_keys=True), encoding="utf-8"
+    )
+    artifacts = [
+        str(target / name)
+        for name in [
+            "config.json",
+            "model.safetensors",
+            "tokenizer.json",
+            "tokenizer_config.json",
+            "special_tokens_map.json",
+            "craftly_conversion_manifest.json",
+        ]
+    ]
+    report = AdapterReport(
+        status="built_not_runtime_proven",
+        adapter="hf_llama_vllm",
+        output_dir=str(target),
+        artifacts=artifacts,
+    )
     report.write(target, "hf_export_report.json")
     return report
 
 
 def validate_vllm_package(*, hf_model_dir: str | Path) -> AdapterReport:
     root = Path(hf_model_dir)
-    missing = [str(root / name) for name in ["config.json", "tokenizer.json"] if not (root / name).exists()]
+    missing = [
+        str(root / name) for name in ["config.json", "tokenizer.json"] if not (root / name).exists()
+    ]
     if not (root / "model.safetensors").exists() and not (root / "pytorch_model.bin").exists():
         missing.append(str(root / "model.safetensors"))
     if shutil.which("python") is None:
@@ -325,7 +367,9 @@ def validate_vllm_package(*, hf_model_dir: str | Path) -> AdapterReport:
         missing.append("python module: vllm")
     command = ["python", "-m", "vllm.entrypoints.openai.api_server", "--model", str(root)]
     return AdapterReport(
-        status="production_ready_requires_external_service" if not missing else "blocked_missing_dependency",
+        status="production_ready_requires_external_service"
+        if not missing
+        else "blocked_missing_dependency",
         adapter="vllm",
         output_dir=str(root),
         command=command,
@@ -334,11 +378,17 @@ def validate_vllm_package(*, hf_model_dir: str | Path) -> AdapterReport:
     )
 
 
-def build_tensorrt_llm_plan(*, hf_model_dir: str | Path, output_dir: str | Path, dtype: str = "bfloat16") -> AdapterReport:
+def build_tensorrt_llm_plan(
+    *, hf_model_dir: str | Path, output_dir: str | Path, dtype: str = "bfloat16"
+) -> AdapterReport:
     source = Path(hf_model_dir)
     target = Path(output_dir)
     target.mkdir(parents=True, exist_ok=True)
-    missing = [str(source / name) for name in ["config.json", "tokenizer.json"] if not (source / name).exists()]
+    missing = [
+        str(source / name)
+        for name in ["config.json", "tokenizer.json"]
+        if not (source / name).exists()
+    ]
     if not (source / "model.safetensors").exists() and not (source / "pytorch_model.bin").exists():
         missing.append(str(source / "model.safetensors"))
     if shutil.which("trtllm-build") is None:
@@ -357,7 +407,9 @@ def build_tensorrt_llm_plan(*, hf_model_dir: str | Path, output_dir: str | Path,
         dtype,
     ]
     report = AdapterReport(
-        status="production_ready_requires_external_service" if not missing else "blocked_missing_dependency",
+        status="production_ready_requires_external_service"
+        if not missing
+        else "blocked_missing_dependency",
         adapter="tensorrt_llm",
         output_dir=str(target),
         command=command,
@@ -404,7 +456,9 @@ def build_megatron_launch_plan(
         "num_nodes": num_nodes,
         "master_port": master_port,
     }
-    invalid = [name for name, value in numeric_values.items() if not isinstance(value, int) or value <= 0]
+    invalid = [
+        name for name, value in numeric_values.items() if not isinstance(value, int) or value <= 0
+    ]
     if invalid:
         raise ValueError("Megatron integer settings must be positive: " + ", ".join(invalid))
     if node_rank < 0 or node_rank >= num_nodes:
@@ -443,7 +497,11 @@ def build_megatron_launch_plan(
         raise ValueError("invalid Megatron parallel topology")
 
     root_value = megatron_root or os.environ.get("MEGATRON_LM_ROOT", "")
-    root = Path(root_value).expanduser().resolve() if root_value else Path("__missing_megatron_root__").resolve()
+    root = (
+        Path(root_value).expanduser().resolve()
+        if root_value
+        else Path("__missing_megatron_root__").resolve()
+    )
     output = Path(output_dir).expanduser().resolve()
     output.mkdir(parents=True, exist_ok=True)
     missing = []
@@ -521,7 +579,9 @@ def build_megatron_launch_plan(
     report.write(output, "megatron_launch_plan.json")
     if execute:
         if missing:
-            raise RuntimeError("cannot execute Megatron plan with missing dependencies: " + ", ".join(missing))
+            raise RuntimeError(
+                "cannot execute Megatron plan with missing dependencies: " + ", ".join(missing)
+            )
         # Every path, integer, and executable above is canonicalized and bounded; argv is a list and shell stays disabled.
         # nosemgrep: python.lang.security.audit.dangerous-subprocess-use-tainted-env-args.dangerous-subprocess-use-tainted-env-args
         completed = subprocess.run(  # nosec B603
@@ -538,7 +598,9 @@ def build_megatron_launch_plan(
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Craftly production adapter utilities.")
     sub = parser.add_subparsers(dest="command", required=True)
-    hf = sub.add_parser("export-hf", help="Export native Craftly checkpoint as HF Llama-compatible package.")
+    hf = sub.add_parser(
+        "export-hf", help="Export native Craftly checkpoint as HF Llama-compatible package."
+    )
     hf.add_argument("--checkpoint-manifest", required=True)
     hf.add_argument("--tokenizer-path", required=True)
     hf.add_argument("--output-dir", required=True)
@@ -585,7 +647,9 @@ def main() -> None:
     elif args.command == "validate-vllm":
         report = validate_vllm_package(hf_model_dir=args.hf_model_dir)
     elif args.command == "plan-tensorrt":
-        report = build_tensorrt_llm_plan(hf_model_dir=args.hf_model_dir, output_dir=args.output_dir, dtype=args.dtype)
+        report = build_tensorrt_llm_plan(
+            hf_model_dir=args.hf_model_dir, output_dir=args.output_dir, dtype=args.dtype
+        )
     else:
         report = build_megatron_launch_plan(
             manifest=args.manifest,
@@ -609,11 +673,10 @@ def main() -> None:
             megatron_root=args.megatron_root,
             execute=args.execute,
         )
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
     if report.status == "blocked_missing_dependency":
         raise SystemExit(2)
 
 
 if __name__ == "__main__":
     main()
-

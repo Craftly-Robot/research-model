@@ -1,4 +1,4 @@
-﻿"""Database interfaces for Craftly MVP."""
+"""Database interfaces for Craftly MVP."""
 
 from src.craftly.db.local_store import (
     LocalStore,
@@ -8,4 +8,3 @@ from src.craftly.db.local_store import (
 )
 
 __all__ = ["LocalStore", "PostgresRAGDispatcher", "PostgresRAGStore", "PostgresRAGStoreFactory"]
-

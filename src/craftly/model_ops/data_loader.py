@@ -1,16 +1,16 @@
-﻿"""Streaming token-shard dataloader for scratch pretraining."""
+"""Streaming token-shard dataloader for scratch pretraining."""
 
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import os
 import queue
 import random
 import threading
 import time
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator
 from urllib.parse import unquote, urlparse
 
 from src.craftly.model_ops.tokenizer_pipeline import ShardManifest, read_uint32_tokens
@@ -78,10 +78,14 @@ class ArtifactCache:
                 os.close(descriptor)
                 acquired = True
             except FileExistsError:
-                if target.is_file() and (not expected_sha256 or sha256_file(target) == expected_sha256):
+                if target.is_file() and (
+                    not expected_sha256 or sha256_file(target) == expected_sha256
+                ):
                     return target
                 if time.monotonic() >= deadline:
-                    raise TimeoutError(f"timed out waiting for training artifact cache lock: {lock}")
+                    raise TimeoutError(
+                        f"timed out waiting for training artifact cache lock: {lock}"
+                    )
                 time.sleep(0.2)
         temporary = target.with_suffix(target.suffix + f".{os.getpid()}.tmp")
         try:
@@ -147,7 +151,9 @@ class TokenShardStream:
 
     def _materialize_shard(self, path: str) -> Path:
         if self.artifact_cache:
-            return self.artifact_cache.materialize(path, expected_sha256=self.expected_sha256.get(path))
+            return self.artifact_cache.materialize(
+                path, expected_sha256=self.expected_sha256.get(path)
+            )
         local = Path(path)
         expected = self.expected_sha256.get(path)
         if expected and sha256_file(local) != expected:
@@ -256,4 +262,3 @@ def count_batches(
         for path in shard_paths
     )
     return total_tokens // (sequence_length * batch_size)
-

@@ -1,4 +1,4 @@
-﻿"""Dataset quality inspection reports for clean Craftly JSONL shards."""
+"""Dataset quality inspection reports for clean Craftly JSONL shards."""
 
 from __future__ import annotations
 
@@ -6,12 +6,12 @@ import argparse
 import json
 import statistics
 from pathlib import Path
-from typing import Any
 
 from pydantic import Field
 
 from src.craftly.learning.quality import iter_jsonl
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import write_report, print_report
+from src.craftly.shared.schemas import StrictModel, write_report, print_report
 
 
 class QualityInspectionReport(StrictModel):
@@ -82,11 +82,13 @@ def inspect_clean_jsonl(paths: list[str | Path]) -> QualityInspectionReport:
     )
 
 
-def write_quality_report(paths: list[str | Path], output_path: str | Path) -> QualityInspectionReport:
+def write_quality_report(
+    paths: list[str | Path], output_path: str | Path
+) -> QualityInspectionReport:
     report = inspect_clean_jsonl(paths)
     target = Path(output_path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+    write_report(report, target)
     return report
 
 
@@ -96,9 +98,8 @@ def main() -> None:
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
     report = write_quality_report(args.input, args.output)
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
 
 
 if __name__ == "__main__":
     main()
-

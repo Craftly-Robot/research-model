@@ -1,4 +1,4 @@
-﻿"""Dataset version manifests and append-only local ledger."""
+"""Dataset version manifests and append-only local ledger."""
 
 from __future__ import annotations
 
@@ -10,7 +10,8 @@ from typing import Any
 from pydantic import Field
 
 from src.craftly.learning.storage import StoredObject, file_sha256
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import write_report
+from src.craftly.shared.schemas import StrictModel, write_report
 
 
 class DatasetArtifact(StrictModel):
@@ -51,7 +52,7 @@ class DatasetVersionManifest(StrictModel):
     def write(self, path: str | Path) -> Path:
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(self.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+        write_report(self, target)
         return target
 
 
@@ -79,7 +80,9 @@ class DatasetLedger:
 
 def artifact_from_path(path: str | Path, *, role: str) -> DatasetArtifact:
     source = Path(path)
-    return DatasetArtifact(path=str(source), role=role, size_bytes=source.stat().st_size, sha256=file_sha256(source))
+    return DatasetArtifact(
+        path=str(source), role=role, size_bytes=source.stat().st_size, sha256=file_sha256(source)
+    )
 
 
 def build_version_id(dataset_id: str, artifact_hashes: list[str]) -> str:
@@ -90,4 +93,3 @@ def build_version_id(dataset_id: str, artifact_hashes: list[str]) -> str:
     for item in sorted(artifact_hashes):
         digest.update(item.encode("utf-8"))
     return digest.hexdigest()[:16]
-

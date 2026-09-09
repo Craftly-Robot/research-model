@@ -1,4 +1,4 @@
-﻿"""Benchmark harness contracts for coding and defensive security evaluation."""
+"""Benchmark harness contracts for coding and defensive security evaluation."""
 
 from __future__ import annotations
 
@@ -88,13 +88,21 @@ class BenchmarkHarness:
                     benchmark=task.benchmark,
                     status=status,
                     score=score,
-                    reason="expected defensive findings matched" if status == "passed" else "missing expected findings",
+                    reason="expected defensive findings matched"
+                    if status == "passed"
+                    else "missing expected findings",
                     metrics={"expected": len(expected), "hits": hits},
                 )
             )
         passed = sum(1 for result in results if result.status == "passed")
         score = passed / max(1, len(results))
-        return BenchmarkRunReport(status="passed" if passed == len(results) else "failed", total=len(results), passed=passed, score=score, results=results)
+        return BenchmarkRunReport(
+            status="passed" if passed == len(results) else "failed",
+            total=len(results),
+            passed=passed,
+            score=score,
+            results=results,
+        )
 
 
 def built_in_security_tasks() -> list[BenchmarkTask]:
@@ -175,7 +183,9 @@ def built_in_security_tasks() -> list[BenchmarkTask]:
             task_id="coding-regression-test-001",
             benchmark="swe_style",
             prompt="Check that patch includes regression assertion.",
-            files={"test_auth.py": "def test_rejects_empty_password(): assert login('u', '') is False"},
+            files={
+                "test_auth.py": "def test_rejects_empty_password(): assert login('u', '') is False"
+            },
             expected_findings=["test_rejects_empty_password", "assert"],
             tags=["tests"],
         ),
@@ -231,7 +241,9 @@ def built_in_security_tasks() -> list[BenchmarkTask]:
             task_id="security-typescript-xss-001",
             benchmark="security_static",
             prompt="Find TypeScript DOM XSS risk.",
-            files={"view.ts": "element.innerHTML = new URLSearchParams(location.search).get('q') || ''"},
+            files={
+                "view.ts": "element.innerHTML = new URLSearchParams(location.search).get('q') || ''"
+            },
             expected_findings=["innerhtml", "location.search"],
             tags=["typescript", "xss"],
         ),
@@ -239,7 +251,7 @@ def built_in_security_tasks() -> list[BenchmarkTask]:
             task_id="security-go-sql-injection-001",
             benchmark="security_static",
             prompt="Find Go SQL injection risk.",
-            files={"main.go": "db.Query(\"SELECT * FROM users WHERE name='\" + name + \"'\")"},
+            files={"main.go": 'db.Query("SELECT * FROM users WHERE name=\'" + name + "\'")'},
             expected_findings=["select * from users", "name"],
             tags=["go", "sql_injection"],
         ),
@@ -247,7 +259,7 @@ def built_in_security_tasks() -> list[BenchmarkTask]:
             task_id="security-rust-command-injection-001",
             benchmark="security_static",
             prompt="Find Rust command execution risk.",
-            files={"main.rs": "Command::new(\"sh\").arg(\"-c\").arg(user_input).status()?;"},
+            files={"main.rs": 'Command::new("sh").arg("-c").arg(user_input).status()?;'},
             expected_findings=["command::new", "user_input"],
             tags=["rust", "command_injection"],
         ),
@@ -255,7 +267,9 @@ def built_in_security_tasks() -> list[BenchmarkTask]:
             task_id="security-java-deserialization-001",
             benchmark="security_static",
             prompt="Find Java deserialization risk.",
-            files={"Read.java": "ObjectInputStream in = new ObjectInputStream(sock.getInputStream()); return in.readObject();"},
+            files={
+                "Read.java": "ObjectInputStream in = new ObjectInputStream(sock.getInputStream()); return in.readObject();"
+            },
             expected_findings=["objectinputstream", "readobject"],
             tags=["java", "deserialization"],
         ),
@@ -263,7 +277,9 @@ def built_in_security_tasks() -> list[BenchmarkTask]:
             task_id="security-solidity-reentrancy-001",
             benchmark="security_static",
             prompt="Find Solidity reentrancy shape.",
-            files={"Vault.sol": "msg.sender.call{value: amount}(\"\"); balances[msg.sender] -= amount;"},
+            files={
+                "Vault.sol": 'msg.sender.call{value: amount}(""); balances[msg.sender] -= amount;'
+            },
             expected_findings=["call{value", "balances"],
             tags=["solidity", "reentrancy"],
         ),
@@ -279,7 +295,9 @@ def built_in_security_tasks() -> list[BenchmarkTask]:
             task_id="security-k8s-privileged-001",
             benchmark="security_static",
             prompt="Find Kubernetes privileged container risk.",
-            files={"pod.yaml": "securityContext:\n  privileged: true\n  allowPrivilegeEscalation: true"},
+            files={
+                "pod.yaml": "securityContext:\n  privileged: true\n  allowPrivilegeEscalation: true"
+            },
             expected_findings=["privileged: true", "allowprivilegeescalation"],
             tags=["kubernetes", "hardening"],
         ),
@@ -303,9 +321,10 @@ def built_in_security_tasks() -> list[BenchmarkTask]:
             task_id="patch-regression-test-001",
             benchmark="patch_generation",
             prompt="Check patch contains validation and regression test.",
-            files={"patch.diff": "+ if not token:\n+     raise ValueError('missing token')\n+ def test_rejects_missing_token():\n+     assert rejects_missing_token()"},
+            files={
+                "patch.diff": "+ if not token:\n+     raise ValueError('missing token')\n+ def test_rejects_missing_token():\n+     assert rejects_missing_token()"
+            },
             expected_findings=["missing token", "test_rejects_missing_token"],
             tags=["patch_shape", "tests"],
         ),
     ]
-

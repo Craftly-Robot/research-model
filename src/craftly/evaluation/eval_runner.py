@@ -1,17 +1,21 @@
-﻿"""Config-driven deterministic checkpoint evaluation runner."""
+"""Config-driven deterministic checkpoint evaluation runner."""
 
 from __future__ import annotations
 
 import argparse
 import json
-import math
 import time
 from pathlib import Path
 from typing import Any
 
 from pydantic import Field
 
-from src.craftly.evaluation.benchmarks import BenchmarkHarness, BenchmarkRunReport, BenchmarkTask, built_in_security_tasks
+from src.craftly.evaluation.benchmarks import (
+    BenchmarkHarness,
+    BenchmarkRunReport,
+    BenchmarkTask,
+    built_in_security_tasks,
+)
 from src.craftly.model_ops.checkpoint_compare import (
     DEFAULT_PROMPTS,
     GenerationConfig,
@@ -25,11 +29,12 @@ from src.craftly.model_ops.tokenizer_pipeline import load_tokenizer
 from src.craftly.model_ops.torch_decoder import select_torch_device
 from src.craftly.shared.config_contracts import (
     EvalBenchmarkContract as EvalBenchmarkSpec,
-    EvalSafetyContract as EvalSafetyConfig,
+)
+from src.craftly.shared.config_contracts import (
     EvalScheduleContract as EvalSchedule,
     load_eval_schedule_contract,
 )
-from src.craftly.shared.schemas import EvaluationGate as RegressionFlag, StrictModel
+from src.craftly.shared.schemas import EvaluationGate as RegressionFlag, StrictModel, print_report
 
 try:
     import torch
@@ -65,7 +70,9 @@ class EvalRunReport(StrictModel):
         root = Path(output_dir)
         root.mkdir(parents=True, exist_ok=True)
         json_path = root / "eval_report.json"
-        json_path.write_text(json.dumps(self.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+        json_path.write_text(
+            json.dumps(self.model_dump(), indent=2, sort_keys=True), encoding="utf-8"
+        )
         write_markdown_report(self, root / "eval_report.md")
         return json_path
 
@@ -84,10 +91,18 @@ def _load_prompt_cases(path: str | Path | None, *, default_category: str) -> lis
     source = Path(path)
     rows: list[dict[str, Any]] = []
     if source.suffix == ".jsonl":
-        rows = [json.loads(line) for line in source.read_text(encoding="utf-8").splitlines() if line.strip()]
+        rows = [
+            json.loads(line)
+            for line in source.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
     else:
         payload = json.loads(source.read_text(encoding="utf-8"))
-        rows = payload.get("prompts", payload.get("tasks", payload)) if isinstance(payload, dict) else payload
+        rows = (
+            payload.get("prompts", payload.get("tasks", payload))
+            if isinstance(payload, dict)
+            else payload
+        )
     cases = []
     for index, row in enumerate(rows):
         cases.append(
@@ -95,7 +110,9 @@ def _load_prompt_cases(path: str | Path | None, *, default_category: str) -> lis
                 task_id=str(row.get("task_id") or row.get("id") or f"case-{index}"),
                 category=str(row.get("category") or default_category),
                 prompt=str(row.get("prompt") or row.get("question") or ""),
-                expected_terms=[str(item) for item in row.get("expected_terms", row.get("expected", []))],
+                expected_terms=[
+                    str(item) for item in row.get("expected_terms", row.get("expected", []))
+                ],
                 forbidden_terms=[str(item) for item in row.get("forbidden_terms", [])],
             )
         )
@@ -103,13 +120,23 @@ def _load_prompt_cases(path: str | Path | None, *, default_category: str) -> lis
 
 
 def _score_mcq_rows(path: str | Path) -> EvalBenchmarkResult:
-    rows = [json.loads(line) for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()]
+    rows = [
+        json.loads(line)
+        for line in Path(path).read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
     passed = 0
     total = 0
     for row in rows:
         total += 1
-        prediction = str(row.get("prediction") or row.get("model_answer") or row.get("chosen_option") or "").strip().lower()
-        expected = str(row.get("answer") or row.get("gold") or row.get("expected") or "").strip().lower()
+        prediction = (
+            str(row.get("prediction") or row.get("model_answer") or row.get("chosen_option") or "")
+            .strip()
+            .lower()
+        )
+        expected = (
+            str(row.get("answer") or row.get("gold") or row.get("expected") or "").strip().lower()
+        )
         if prediction and expected and prediction == expected:
             passed += 1
     score = passed / max(1, total)
@@ -142,7 +169,9 @@ def _score_generation_cases(
     scores = []
     details = []
     for case in cases:
-        output, token_count = generate_text(model=model, tokenizer=tokenizer, prompt=case.prompt, device=selected, config=generation)
+        output, token_count = generate_text(
+            model=model, tokenizer=tokenizer, prompt=case.prompt, device=selected, config=generation
+        )
         score, expected_hits, missing, forbidden_hits, repetition = _score_output(output, case)
         scores.append(score)
         details.append(
@@ -204,7 +233,11 @@ def _run_benchmark(
             details=report.model_dump(),
         )
     if spec.kind == "static_jsonl":
-        tasks = [BenchmarkTask.model_validate(json.loads(line)) for line in Path(str(spec.path)).read_text(encoding="utf-8").splitlines() if line.strip()]
+        tasks = [
+            BenchmarkTask.model_validate(json.loads(line))
+            for line in Path(str(spec.path)).read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
         report = BenchmarkHarness().run_static(tasks)
         return EvalBenchmarkResult(
             name=spec.name,
@@ -262,10 +295,18 @@ def regression_flags(
     fail_threshold: float,
 ) -> list[RegressionFlag]:
     if not previous_report_path:
-        return [RegressionFlag(name="baseline", status="pass", reason="no previous eval report supplied")]
+        return [
+            RegressionFlag(
+                name="baseline", status="pass", reason="no previous eval report supplied"
+            )
+        ]
     source = Path(previous_report_path)
     if not source.exists():
-        return [RegressionFlag(name="baseline", status="warn", reason=f"previous eval report missing: {source}")]
+        return [
+            RegressionFlag(
+                name="baseline", status="warn", reason=f"previous eval report missing: {source}"
+            )
+        ]
     previous = EvalRunReport.model_validate(json.loads(source.read_text(encoding="utf-8")))
     flags: list[RegressionFlag] = []
     for key in sorted(set(previous.aggregate_scores) | set(current)):
@@ -317,14 +358,18 @@ def evaluate_checkpoint_with_schedule(
         warn_threshold=schedule.regression_threshold_warn,
         fail_threshold=schedule.regression_threshold_fail,
     )
-    failures = [item for item in benchmarks if item.status == "failed"] + [item for item in flags if item.status == "fail"]
+    failures = [item for item in benchmarks if item.status == "failed"] + [
+        item for item in flags if item.status == "fail"
+    ]
     recommendations: list[str] = []
     if any(item.status == "skipped" for item in benchmarks):
         recommendations.append("add local benchmark files for skipped optional tasks")
     if any(item.status == "failed" for item in benchmarks):
         recommendations.append("inspect failed benchmark categories before promoting checkpoint")
     if any(item.status == "fail" for item in flags):
-        recommendations.append("catastrophic regression detected; keep previous checkpoint as promotion candidate")
+        recommendations.append(
+            "catastrophic regression detected; keep previous checkpoint as promotion candidate"
+        )
     report = EvalRunReport(
         status="failed" if failures else "passed",
         checkpoint_manifest=str(checkpoint_manifest),
@@ -357,9 +402,19 @@ def write_markdown_report(report: EvalRunReport, path: str | Path) -> Path:
     ]
     for key, value in sorted(report.aggregate_scores.items()):
         lines.append(f"| {key} | {value:.4f} |")
-    lines.extend(["", "## Benchmarks", "", "| name | kind | status | score | reason |", "|---|---|---|---:|---|"])
+    lines.extend(
+        [
+            "",
+            "## Benchmarks",
+            "",
+            "| name | kind | status | score | reason |",
+            "|---|---|---|---:|---|",
+        ]
+    )
     for item in report.benchmarks:
-        lines.append(f"| {item.name} | {item.kind} | {item.status} | {item.score:.4f} | {item.reason} |")
+        lines.append(
+            f"| {item.name} | {item.kind} | {item.status} | {item.score:.4f} | {item.reason} |"
+        )
     lines.extend(["", "## Regression Flags", "", "| name | status | reason |", "|---|---|---|"])
     for item in report.regression_flags:
         lines.append(f"| {item.name} | {item.status} | {item.reason} |")
@@ -388,11 +443,10 @@ def main() -> None:
         previous_report=args.previous_report,
         device=args.device,
     )
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
     if report.status == "failed":
         raise SystemExit(2)
 
 
 if __name__ == "__main__":
     main()
-

@@ -1,4 +1,4 @@
-﻿"""Native MVP patch preview/apply/rollback service."""
+"""Native MVP patch preview/apply/rollback service."""
 
 from __future__ import annotations
 
@@ -133,7 +133,9 @@ class PatchService:
         if record["status"] == "rolled_back":
             return self.response_from_record(record)
         if record["status"] not in {"preview", "applied"}:
-            raise ValueError(f"patch {patch_id} cannot be rolled back from status {record['status']}")
+            raise ValueError(
+                f"patch {patch_id} cannot be rolled back from status {record['status']}"
+            )
         # A preview has never mutated the workspace. Rejecting one must not
         # replace files or change their timestamps and permissions.
         if record["status"] == "applied":
@@ -253,4 +255,3 @@ class PatchService:
                 lineterm="",
             )
         )
-

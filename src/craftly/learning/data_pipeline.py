@@ -1,4 +1,4 @@
-﻿"""End-to-end Craftly data pipeline: crawl -> clean -> shard -> train."""
+"""End-to-end Craftly data pipeline: crawl -> clean -> shard -> train."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ import argparse
 import asyncio
 import json
 import os
-from pathlib import Path
 import time
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -20,8 +20,13 @@ from src.craftly.learning.benchmark_contamination_filter import (
     filter_benchmark_contamination_jsonl,
     load_patterns,
 )
-from src.craftly.learning.data_engine import DataEngine, DataEngineConfig, FrontierStore, PostgresFrontierStore
 from src.craftly.learning.dashboard import write_dashboard
+from src.craftly.learning.data_engine import (
+    DataEngine,
+    DataEngineConfig,
+    FrontierStore,
+    PostgresFrontierStore,
+)
 from src.craftly.learning.feedback import BenchmarkFeedbackReport, write_feedback_report
 from src.craftly.learning.license_filter import LicenseFilterReport, filter_jsonl_by_license
 from src.craftly.learning.mixer import (
@@ -30,19 +35,36 @@ from src.craftly.learning.mixer import (
     build_scratch_instruction_mix,
 )
 from src.craftly.learning.near_dedup import NearDedupReport, deduplicate_jsonl
+from src.craftly.learning.production_dataset import validate_dataset_manifest_for_promotion
 from src.craftly.learning.quality_inspector import QualityInspectionReport, write_quality_report
 from src.craftly.learning.review import ReviewReport, review_tasks
-from src.craftly.learning.production_dataset import validate_dataset_manifest_for_promotion
 from src.craftly.learning.source_balancing import SourceBalanceReport, balance_clean_jsonl
 from src.craftly.learning.source_budget import SourceBudgetPlan, write_source_budget_plan
-from src.craftly.learning.source_registry import SourceRegistry, SourceRegistryReport
 from src.craftly.learning.source_quality import SourceQualityReport, write_source_quality_report
-from src.craftly.learning.source_reputation import SourceReputationReport, write_source_reputation_report
+from src.craftly.learning.source_registry import SourceRegistry, SourceRegistryReport
+from src.craftly.learning.source_reputation import (
+    SourceReputationReport,
+    write_source_reputation_report,
+)
 from src.craftly.learning.storage import ObjectStoreConfig, create_object_store, upload_paths
 from src.craftly.learning.task_extraction import TaskExtractionReport, extract_tasks
-from src.craftly.learning.training_data_gate import TrainingDataGateConfig, TrainingDataGateReport, apply_training_data_gate
-from src.craftly.learning.versioning import DatasetArtifact, DatasetLedger, DatasetVersionManifest, artifact_from_path, build_version_id
-from src.craftly.model_ops.checkpoint_compare import CheckpointComparisonReport, GenerationConfig, compare_checkpoints
+from src.craftly.learning.training_data_gate import (
+    TrainingDataGateConfig,
+    TrainingDataGateReport,
+    apply_training_data_gate,
+)
+from src.craftly.learning.versioning import (
+    DatasetArtifact,
+    DatasetLedger,
+    DatasetVersionManifest,
+    artifact_from_path,
+    build_version_id,
+)
+from src.craftly.model_ops.checkpoint_compare import (
+    CheckpointComparisonReport,
+    GenerationConfig,
+    compare_checkpoints,
+)
 from src.craftly.model_ops.learning_validation import TokenDominance, audit_tokenizer_dominance
 from src.craftly.model_ops.pretrain_loop import run_pretraining_loop
 from src.craftly.model_ops.tokenizer_pipeline import (
@@ -53,7 +75,8 @@ from src.craftly.model_ops.tokenizer_pipeline import (
     train_bpe_tokenizer,
 )
 from src.craftly.shared.progress import ProgressReporter, progress_from_options
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import print_report
+from src.craftly.shared.schemas import StrictModel, print_report
 
 
 class DataPipelineConfig(StrictModel):
@@ -197,7 +220,7 @@ class PipelineRunLock:
         self.stale_after_seconds = stale_after_seconds
         self.fd: int | None = None
 
-    def __enter__(self) -> "PipelineRunLock":
+    def __enter__(self) -> PipelineRunLock:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         now = time.time()
         if self.path.exists() and now - self.path.stat().st_mtime > self.stale_after_seconds:
@@ -205,7 +228,11 @@ class PipelineRunLock:
         try:
             self.fd = os.open(str(self.path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError as exc:
-            details = self.path.read_text(encoding="utf-8", errors="replace") if self.path.exists() else ""
+            details = (
+                self.path.read_text(encoding="utf-8", errors="replace")
+                if self.path.exists()
+                else ""
+            )
             raise RuntimeError(
                 f"data pipeline work_dir is already locked: {self.path}. "
                 "Use a fresh --output-dir or wait for the running job to finish. "
@@ -235,7 +262,9 @@ async def _build_store(config: DataPipelineConfig) -> Any:
     return FrontierStore(Path(config.work_dir) / "frontier.sqlite3")
 
 
-async def run_data_pipeline(config: DataPipelineConfig, *, client: httpx.AsyncClient | None = None) -> DataPipelineReport:
+async def run_data_pipeline(
+    config: DataPipelineConfig, *, client: httpx.AsyncClient | None = None
+) -> DataPipelineReport:
     validate_data_pipeline_production_config(config)
     root = Path(config.work_dir)
     raw_dir = root / "raw"
@@ -373,7 +402,9 @@ async def _run_data_pipeline_locked(
 
     clean_files = sorted(str(path) for path in clean_dir.glob("clean-*.jsonl"))
     if not clean_files:
-        raise RuntimeError("crawler produced zero clean shards; check sources, quality gate, robots policy, and allowlist")
+        raise RuntimeError(
+            "crawler produced zero clean shards; check sources, quality gate, robots policy, and allowlist"
+        )
 
     license_filter_report: LicenseFilterReport | None = None
     license_filter_path = root / "filtered" / "license-clean-000000.jsonl"
@@ -396,13 +427,17 @@ async def _run_data_pipeline_locked(
         )
         clean_files = [str(license_filter_path)]
         if license_filter_report.accepted == 0:
-            raise RuntimeError("license filter rejected every row; review source licenses or disable strict unknown handling")
+            raise RuntimeError(
+                "license filter rejected every row; review source licenses or disable strict unknown handling"
+            )
 
     benchmark_filter_report: BenchmarkContaminationFilterReport | None = None
     benchmark_filter_path = root / "filtered" / "benchmark-clean-000000.jsonl"
     if config.filter_benchmark_contamination:
         progress.emit("benchmark_contamination_filter", "started", input_files=len(clean_files))
-        benchmark_filter_report = filter_benchmark_contamination_jsonl(clean_files, benchmark_filter_path)
+        benchmark_filter_report = filter_benchmark_contamination_jsonl(
+            clean_files, benchmark_filter_path
+        )
         progress.emit(
             "benchmark_contamination_filter",
             "complete",
@@ -439,10 +474,14 @@ async def _run_data_pipeline_locked(
         )
         clean_files = [str(near_dedup_path)]
         if near_dedup_report.accepted == 0:
-            raise RuntimeError("deduplication rejected every row; lower --near-dedup-hamming-threshold")
+            raise RuntimeError(
+                "deduplication rejected every row; lower --near-dedup-hamming-threshold"
+            )
 
     progress.emit("contamination_scan", "started", input_files=len(clean_files))
-    contamination_report = ContaminationDetector(load_patterns(config.contamination_patterns_path)).scan_jsonl(
+    contamination_report = ContaminationDetector(
+        load_patterns(config.contamination_patterns_path)
+    ).scan_jsonl(
         clean_files,
         block_on_hit=config.block_contamination,
     )
@@ -454,15 +493,21 @@ async def _run_data_pipeline_locked(
     )
     contamination_path = reports_dir / "contamination_report.json"
     contamination_path.parent.mkdir(parents=True, exist_ok=True)
-    contamination_path.write_text(json.dumps(contamination_report.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+    contamination_path.write_text(
+        json.dumps(contamination_report.model_dump(), indent=2, sort_keys=True), encoding="utf-8"
+    )
     if contamination_report.blocked:
-        raise RuntimeError(f"contamination detector blocked dataset: {len(contamination_report.hits)} hits")
+        raise RuntimeError(
+            f"contamination detector blocked dataset: {len(contamination_report.hits)} hits"
+        )
 
     quality_report_path = reports_dir / "quality_report.json"
     progress.emit("quality_inspection", "started", input_files=len(clean_files))
     quality_report: QualityInspectionReport = write_quality_report(clean_files, quality_report_path)
     source_quality_path = reports_dir / "source_quality_report.json"
-    source_quality_report: SourceQualityReport = write_source_quality_report(clean_files, source_quality_path)
+    source_quality_report: SourceQualityReport = write_source_quality_report(
+        clean_files, source_quality_path
+    )
     progress.emit(
         "quality_inspection",
         "complete",
@@ -488,7 +533,9 @@ async def _run_data_pipeline_locked(
             max_tasks=config.max_extracted_tasks,
             max_tasks_per_row=config.max_tasks_per_source_row,
         )
-        task_report_path.write_text(json.dumps(task_report.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+        task_report_path.write_text(
+            json.dumps(task_report.model_dump(), indent=2, sort_keys=True), encoding="utf-8"
+        )
         progress.emit(
             "task_extraction",
             "complete",
@@ -504,7 +551,9 @@ async def _run_data_pipeline_locked(
                 reports_dir / "task_review_decisions.jsonl",
                 automated_pass_tasks_path,
             )
-            (reports_dir / "task_review_report.json").write_text(json.dumps(review_report.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+            (reports_dir / "task_review_report.json").write_text(
+                json.dumps(review_report.model_dump(), indent=2, sort_keys=True), encoding="utf-8"
+            )
             progress.emit(
                 "task_review",
                 "complete",
@@ -513,13 +562,17 @@ async def _run_data_pipeline_locked(
                 rejected=review_report.rejected,
             )
     feedback_path = reports_dir / "feedback_report.json"
-    review_report_path = reports_dir / "task_review_report.json" if review_report is not None else None
+    review_report_path = (
+        reports_dir / "task_review_report.json" if review_report is not None else None
+    )
     feedback_report: BenchmarkFeedbackReport = write_feedback_report(
         output_path=feedback_path,
         quality_report_path=quality_report_path,
         review_report_path=review_report_path,
     )
-    progress.emit("feedback_report", "complete", recommendations=len(feedback_report.recommendations))
+    progress.emit(
+        "feedback_report", "complete", recommendations=len(feedback_report.recommendations)
+    )
     source_reputation_report: SourceReputationReport | None = None
     source_budget_plan: SourceBudgetPlan | None = None
     source_reputation_path = reports_dir / "source_reputation_report.json"
@@ -533,18 +586,33 @@ async def _run_data_pipeline_locked(
             review_report_path=review_report_path,
             feedback_report_path=feedback_path,
             contamination_report_path=contamination_path,
-            dedup_report_path=reports_dir / "near_dedup_report.json" if near_dedup_report is not None else None,
+            dedup_report_path=reports_dir / "near_dedup_report.json"
+            if near_dedup_report is not None
+            else None,
         )
-        progress.emit("source_reputation", "complete", sources=len(source_reputation_report.sources))
+        progress.emit(
+            "source_reputation", "complete", sources=len(source_reputation_report.sources)
+        )
     if config.build_source_budget:
-        progress.emit("source_budget", "started", target_total_docs=config.source_budget_target_docs or config.max_docs)
+        progress.emit(
+            "source_budget",
+            "started",
+            target_total_docs=config.source_budget_target_docs or config.max_docs,
+        )
         source_budget_plan = write_source_budget_plan(
             source_budget_path,
             sources_path=config.sources_path,
-            reputation_report_path=source_reputation_path if source_reputation_report is not None else None,
+            reputation_report_path=source_reputation_path
+            if source_reputation_report is not None
+            else None,
             target_total_docs=config.source_budget_target_docs or config.max_docs,
         )
-        progress.emit("source_budget", "complete", budgets=len(source_budget_plan.budgets), allocated_total_docs=source_budget_plan.allocated_total_docs)
+        progress.emit(
+            "source_budget",
+            "complete",
+            budgets=len(source_budget_plan.budgets),
+            allocated_total_docs=source_budget_plan.allocated_total_docs,
+        )
     training_data_gate_report: TrainingDataGateReport | None = None
     gated_train_path = root / "gated" / "training-promoted.jsonl"
     gated_holdout_path = root / "gated" / "eval-holdout.jsonl"
@@ -564,7 +632,9 @@ async def _run_data_pipeline_locked(
             holdout_path=gated_holdout_path,
             review_queue_path=gated_review_path,
             decisions_path=gated_decisions_path,
-            reputation_report_path=source_reputation_path if source_reputation_report is not None else None,
+            reputation_report_path=source_reputation_path
+            if source_reputation_report is not None
+            else None,
             config=TrainingDataGateConfig(
                 min_quality_score=config.min_training_quality_score,
                 min_source_reputation_score=config.min_source_reputation_score,
@@ -584,7 +654,9 @@ async def _run_data_pipeline_locked(
             rejected=training_data_gate_report.rejected,
         )
         if training_data_gate_report.promoted == 0:
-            raise RuntimeError("training data gate promoted zero rows; lower thresholds or improve source allowlist")
+            raise RuntimeError(
+                "training data gate promoted zero rows; lower thresholds or improve source allowlist"
+            )
         clean_files = [str(gated_train_path)]
     source_balance_report: SourceBalanceReport | None = None
     training_files = clean_files
@@ -608,7 +680,9 @@ async def _run_data_pipeline_locked(
             "complete",
             input_rows=source_balance_report.input_rows,
             output_rows=source_balance_report.output_rows,
-            capped_sources=sum(1 for item in source_balance_report.sources if item.action == "capped"),
+            capped_sources=sum(
+                1 for item in source_balance_report.sources if item.action == "capped"
+            ),
         )
         (reports_dir / "source_balance_report.json").write_text(
             json.dumps(source_balance_report.model_dump(), indent=2, sort_keys=True),
@@ -641,7 +715,9 @@ async def _run_data_pipeline_locked(
             ),
         )
         if instruction_mix_report.total_rows == 0:
-            raise RuntimeError("instruction mix produced zero rows; improve approved source yield before training")
+            raise RuntimeError(
+                "instruction mix produced zero rows; improve approved source yield before training"
+            )
         training_files = [str(instruction_mix_path)]
         progress.emit(
             "instruction_mix",
@@ -654,7 +730,9 @@ async def _run_data_pipeline_locked(
 
     training_quality_path = reports_dir / "training_quality_report.json"
     progress.emit("training_quality_inspection", "started", input_files=len(training_files))
-    training_quality_report: QualityInspectionReport = write_quality_report(training_files, training_quality_path)
+    training_quality_report: QualityInspectionReport = write_quality_report(
+        training_files, training_quality_path
+    )
     progress.emit(
         "training_quality_inspection",
         "complete",
@@ -673,11 +751,15 @@ async def _run_data_pipeline_locked(
             f"{config.min_training_average_quality_score}; raise source quality or lower threshold only for dev validation"
         )
 
-    progress.emit("tokenizer", "started", vocab_size=config.vocab_size, input_files=len(training_files))
+    progress.emit(
+        "tokenizer", "started", vocab_size=config.vocab_size, input_files=len(training_files)
+    )
     trained_tokenizer = train_bpe_tokenizer(
         training_files,
         tokenizer_path,
-        TokenizerTrainConfig(vocab_size=config.vocab_size, min_frequency=config.tokenizer_min_frequency),
+        TokenizerTrainConfig(
+            vocab_size=config.vocab_size, min_frequency=config.tokenizer_min_frequency
+        ),
     )
     progress.emit("tokenizer", "complete", tokenizer_path=str(trained_tokenizer))
     tokenizer_audit_report: TokenDominance = audit_tokenizer_dominance(
@@ -693,7 +775,12 @@ async def _run_data_pipeline_locked(
         single_char_fraction=tokenizer_audit_report.single_char_fraction,
         warnings=len(tokenizer_audit_report.warnings),
     )
-    progress.emit("sharding", "started", shard_token_count=config.shard_token_count, sequence_length=config.sequence_length)
+    progress.emit(
+        "sharding",
+        "started",
+        shard_token_count=config.shard_token_count,
+        sequence_length=config.sequence_length,
+    )
     manifest: ShardManifest = build_token_shards(
         input_paths=training_files,
         tokenizer_path=trained_tokenizer,
@@ -764,11 +851,17 @@ async def _run_data_pipeline_locked(
         if config.run_checkpoint_eval:
             progress.emit("checkpoint_eval", "started")
             checkpoint_eval_report = evaluate_checkpoint(
-                checkpoint_manifest_path=training_report.get("best_checkpoint_manifest") or training_report["checkpoint_manifest"],
+                checkpoint_manifest_path=training_report.get("best_checkpoint_manifest")
+                or training_report["checkpoint_manifest"],
                 training_report=training_report,
                 output_dir=reports_dir / "checkpoint_eval",
             )
-            progress.emit("checkpoint_eval", "complete", eval_status=checkpoint_eval_report.status, gates=len(checkpoint_eval_report.gates))
+            progress.emit(
+                "checkpoint_eval",
+                "complete",
+                eval_status=checkpoint_eval_report.status,
+                gates=len(checkpoint_eval_report.gates),
+            )
         if config.checkpoint_compare_prompt_suite:
             progress.emit(
                 "checkpoint_comparison",
@@ -776,7 +869,10 @@ async def _run_data_pipeline_locked(
                 prompt_suite=config.checkpoint_compare_prompt_suite,
                 min_score=config.checkpoint_compare_min_score,
             )
-            candidate_manifest = training_report.get("best_checkpoint_manifest") or training_report["checkpoint_manifest"]
+            candidate_manifest = (
+                training_report.get("best_checkpoint_manifest")
+                or training_report["checkpoint_manifest"]
+            )
             checkpoint_comparison_report = compare_checkpoints(
                 baseline_manifest=training_report["checkpoint_manifest"],
                 candidate_manifest=candidate_manifest,
@@ -808,7 +904,10 @@ async def _run_data_pipeline_locked(
                 raise RuntimeError(
                     f"checkpoint comparison gate failed: {checkpoint_comparison_report.status}"
                 )
-            if checkpoint_comparison_report.candidate.average_score < config.checkpoint_compare_min_score:
+            if (
+                checkpoint_comparison_report.candidate.average_score
+                < config.checkpoint_compare_min_score
+            ):
                 raise RuntimeError(
                     f"checkpoint comparison gate failed: candidate average score "
                     f"{checkpoint_comparison_report.candidate.average_score:.4f} below minimum "
@@ -821,52 +920,98 @@ async def _run_data_pipeline_locked(
     artifacts.append(artifact_from_path(trained_tokenizer, role="tokenizer"))
     artifacts.append(artifact_from_path(shards_dir / "manifest.json", role="shard_manifest"))
     if license_filter_report is not None:
-        artifacts.append(artifact_from_path(reports_dir / "license_filter_report.json", role="license_filter_report"))
+        artifacts.append(
+            artifact_from_path(
+                reports_dir / "license_filter_report.json", role="license_filter_report"
+            )
+        )
     if benchmark_filter_report is not None:
-        artifacts.append(artifact_from_path(reports_dir / "benchmark_contamination_filter_report.json", role="benchmark_contamination_filter_report"))
+        artifacts.append(
+            artifact_from_path(
+                reports_dir / "benchmark_contamination_filter_report.json",
+                role="benchmark_contamination_filter_report",
+            )
+        )
     if near_dedup_report is not None:
-        artifacts.append(artifact_from_path(reports_dir / "near_dedup_report.json", role="near_dedup_report"))
+        artifacts.append(
+            artifact_from_path(reports_dir / "near_dedup_report.json", role="near_dedup_report")
+        )
     artifacts.append(artifact_from_path(contamination_path, role="contamination_report"))
     artifacts.append(artifact_from_path(quality_report_path, role="quality_report"))
     artifacts.append(artifact_from_path(training_quality_path, role="training_quality_report"))
-    artifacts.append(artifact_from_path(reports_dir / "tokenizer_audit_report.json", role="tokenizer_audit_report"))
+    artifacts.append(
+        artifact_from_path(
+            reports_dir / "tokenizer_audit_report.json", role="tokenizer_audit_report"
+        )
+    )
     artifacts.append(artifact_from_path(source_quality_path, role="source_quality_report"))
     artifacts.append(artifact_from_path(feedback_path, role="feedback_report"))
     if source_reputation_report is not None:
-        artifacts.append(artifact_from_path(source_reputation_path, role="source_reputation_report"))
+        artifacts.append(
+            artifact_from_path(source_reputation_path, role="source_reputation_report")
+        )
     if source_budget_plan is not None:
         artifacts.append(artifact_from_path(source_budget_path, role="source_budget_plan"))
     if training_data_gate_report is not None:
-        artifacts.append(artifact_from_path(reports_dir / "training_data_gate_report.json", role="training_data_gate_report"))
+        artifacts.append(
+            artifact_from_path(
+                reports_dir / "training_data_gate_report.json", role="training_data_gate_report"
+            )
+        )
         artifacts.append(artifact_from_path(gated_train_path, role="promoted_training_jsonl"))
         artifacts.append(artifact_from_path(gated_holdout_path, role="eval_holdout_jsonl"))
         artifacts.append(artifact_from_path(gated_review_path, role="human_review_queue_jsonl"))
     if source_balance_report is not None:
-        artifacts.append(artifact_from_path(reports_dir / "source_balance_report.json", role="source_balance_report"))
+        artifacts.append(
+            artifact_from_path(
+                reports_dir / "source_balance_report.json", role="source_balance_report"
+            )
+        )
         artifacts.append(artifact_from_path(balanced_clean_path, role="balanced_clean_jsonl"))
     if instruction_mix_report is not None:
-        artifacts.append(artifact_from_path(instruction_mix_report_path, role="instruction_mix_report"))
-        artifacts.append(artifact_from_path(instruction_mix_path, role="scratch_instruction_mix_jsonl"))
+        artifacts.append(
+            artifact_from_path(instruction_mix_report_path, role="instruction_mix_report")
+        )
+        artifacts.append(
+            artifact_from_path(instruction_mix_path, role="scratch_instruction_mix_jsonl")
+        )
     checkpoint_eval_path = reports_dir / "checkpoint_eval" / "checkpoint_eval_report.json"
     if checkpoint_eval_report is not None:
         artifacts.append(artifact_from_path(checkpoint_eval_path, role="checkpoint_eval_report"))
-    checkpoint_comparison_path = reports_dir / "checkpoint_compare" / "checkpoint_comparison_report.json"
+    checkpoint_comparison_path = (
+        reports_dir / "checkpoint_compare" / "checkpoint_comparison_report.json"
+    )
     if checkpoint_comparison_report is not None:
-        artifacts.append(artifact_from_path(checkpoint_comparison_path, role="checkpoint_comparison_report"))
+        artifacts.append(
+            artifact_from_path(checkpoint_comparison_path, role="checkpoint_comparison_report")
+        )
     if task_report is not None:
         artifacts.append(artifact_from_path(tasks_path, role="extracted_tasks"))
         artifacts.append(artifact_from_path(task_report_path, role="task_extraction_report"))
     if review_report is not None:
-        artifacts.append(artifact_from_path(reports_dir / "task_review_report.json", role="task_review_report"))
-        artifacts.append(artifact_from_path(automated_pass_tasks_path, role="automated_task_candidates"))
+        artifacts.append(
+            artifact_from_path(reports_dir / "task_review_report.json", role="task_review_report")
+        )
+        artifacts.append(
+            artifact_from_path(automated_pass_tasks_path, role="automated_task_candidates")
+        )
     for shard_path in manifest.train_shards + manifest.val_shards:
         artifacts.append(artifact_from_path(shard_path, role="token_shard"))
     version_id = build_version_id(config.dataset_id, [artifact.sha256 for artifact in artifacts])
     uploaded_objects = []
     store = None
     if config.upload_artifacts:
-        progress.emit("artifact_upload", "started", object_store_uri=config.object_store_uri, artifact_count=len(artifacts))
-        store = create_object_store(ObjectStoreConfig(uri=config.object_store_uri, endpoint_url=config.object_store_endpoint_url))
+        progress.emit(
+            "artifact_upload",
+            "started",
+            object_store_uri=config.object_store_uri,
+            artifact_count=len(artifacts),
+        )
+        store = create_object_store(
+            ObjectStoreConfig(
+                uri=config.object_store_uri, endpoint_url=config.object_store_endpoint_url
+            )
+        )
         upload_prefix = f"{config.dataset_id}/{version_id}"
         upload_candidates = clean_files + [
             str(trained_tokenizer),
@@ -880,7 +1025,9 @@ async def _run_data_pipeline_locked(
         if license_filter_report is not None:
             upload_candidates.append(str(reports_dir / "license_filter_report.json"))
         if benchmark_filter_report is not None:
-            upload_candidates.append(str(reports_dir / "benchmark_contamination_filter_report.json"))
+            upload_candidates.append(
+                str(reports_dir / "benchmark_contamination_filter_report.json")
+            )
         if near_dedup_report is not None:
             upload_candidates.append(str(reports_dir / "near_dedup_report.json"))
         if source_reputation_report is not None:
@@ -900,11 +1047,15 @@ async def _run_data_pipeline_locked(
         if task_report is not None:
             upload_candidates.extend([str(tasks_path), str(task_report_path)])
         if review_report is not None:
-            upload_candidates.extend([str(reports_dir / "task_review_report.json"), str(automated_pass_tasks_path)])
+            upload_candidates.extend(
+                [str(reports_dir / "task_review_report.json"), str(automated_pass_tasks_path)]
+            )
         if checkpoint_eval_report is not None:
             upload_candidates.append(str(checkpoint_eval_path))
         if source_balance_report is not None:
-            upload_candidates.extend([str(reports_dir / "source_balance_report.json"), str(balanced_clean_path)])
+            upload_candidates.extend(
+                [str(reports_dir / "source_balance_report.json"), str(balanced_clean_path)]
+            )
         if instruction_mix_report is not None:
             upload_candidates.extend([str(instruction_mix_report_path), str(instruction_mix_path)])
         if checkpoint_comparison_report is not None:
@@ -919,7 +1070,9 @@ async def _run_data_pipeline_locked(
         source_registry=registry_report.model_dump(),
         crawl_report=crawl_report.model_dump(),
         license_filter_report=license_filter_report.model_dump() if license_filter_report else None,
-        benchmark_contamination_filter_report=benchmark_filter_report.model_dump() if benchmark_filter_report else None,
+        benchmark_contamination_filter_report=benchmark_filter_report.model_dump()
+        if benchmark_filter_report
+        else None,
         near_dedup_report=near_dedup_report.model_dump() if near_dedup_report else None,
         contamination_report=contamination_report.model_dump(),
         quality_report=quality_report.model_dump(),
@@ -928,13 +1081,23 @@ async def _run_data_pipeline_locked(
         task_report=task_report.model_dump() if task_report else None,
         review_report=review_report.model_dump() if review_report else None,
         feedback_report=feedback_report.model_dump(),
-        source_reputation_report=source_reputation_report.model_dump() if source_reputation_report else None,
+        source_reputation_report=source_reputation_report.model_dump()
+        if source_reputation_report
+        else None,
         source_budget_plan=source_budget_plan.model_dump() if source_budget_plan else None,
-        training_data_gate_report=training_data_gate_report.model_dump() if training_data_gate_report else None,
-        checkpoint_eval_report=checkpoint_eval_report.model_dump() if checkpoint_eval_report else None,
+        training_data_gate_report=training_data_gate_report.model_dump()
+        if training_data_gate_report
+        else None,
+        checkpoint_eval_report=checkpoint_eval_report.model_dump()
+        if checkpoint_eval_report
+        else None,
         source_balance_report=source_balance_report.model_dump() if source_balance_report else None,
-        instruction_mix_report=instruction_mix_report.model_dump() if instruction_mix_report else None,
-        checkpoint_comparison_report=checkpoint_comparison_report.model_dump() if checkpoint_comparison_report else None,
+        instruction_mix_report=instruction_mix_report.model_dump()
+        if instruction_mix_report
+        else None,
+        checkpoint_comparison_report=checkpoint_comparison_report.model_dump()
+        if checkpoint_comparison_report
+        else None,
         tokenizer_path=str(trained_tokenizer),
         shard_manifest=manifest.model_dump(),
         artifacts=artifacts,
@@ -943,8 +1106,14 @@ async def _run_data_pipeline_locked(
     manifest_path = version_manifest.write(root / "versions" / f"{version_id}.json")
     DatasetLedger(root / "versions" / "ledger.jsonl").append(version_manifest)
     if store is not None:
-        uploaded_objects.append(store.put_file(manifest_path, key=f"{config.dataset_id}/{version_id}/version_manifest.json"))
-        progress.emit("version_manifest_upload", "complete", version_manifest_path=str(manifest_path))
+        uploaded_objects.append(
+            store.put_file(
+                manifest_path, key=f"{config.dataset_id}/{version_id}/version_manifest.json"
+            )
+        )
+        progress.emit(
+            "version_manifest_upload", "complete", version_manifest_path=str(manifest_path)
+        )
 
     report_payload = DataPipelineReport(
         status="complete",
@@ -954,7 +1123,9 @@ async def _run_data_pipeline_locked(
         source_registry=registry_report,
         crawl=crawl_report.model_dump(),
         license_filter_report=license_filter_report.model_dump() if license_filter_report else None,
-        benchmark_contamination_filter_report=benchmark_filter_report.model_dump() if benchmark_filter_report else None,
+        benchmark_contamination_filter_report=benchmark_filter_report.model_dump()
+        if benchmark_filter_report
+        else None,
         near_dedup_report=near_dedup_report.model_dump() if near_dedup_report else None,
         contamination_report=contamination_report.model_dump(),
         quality_report=quality_report.model_dump(),
@@ -963,11 +1134,17 @@ async def _run_data_pipeline_locked(
         task_report=task_report.model_dump() if task_report else None,
         review_report=review_report.model_dump() if review_report else None,
         feedback_report=feedback_report.model_dump(),
-        source_reputation_report=source_reputation_report.model_dump() if source_reputation_report else None,
+        source_reputation_report=source_reputation_report.model_dump()
+        if source_reputation_report
+        else None,
         source_budget_plan=source_budget_plan.model_dump() if source_budget_plan else None,
-        training_data_gate_report=training_data_gate_report.model_dump() if training_data_gate_report else None,
+        training_data_gate_report=training_data_gate_report.model_dump()
+        if training_data_gate_report
+        else None,
         source_balance_report=source_balance_report.model_dump() if source_balance_report else None,
-        instruction_mix_report=instruction_mix_report.model_dump() if instruction_mix_report else None,
+        instruction_mix_report=instruction_mix_report.model_dump()
+        if instruction_mix_report
+        else None,
         clean_files=clean_files,
         training_files=training_files,
         tokenizer_path=str(trained_tokenizer),
@@ -977,7 +1154,9 @@ async def _run_data_pipeline_locked(
         uploaded_objects=[item.model_dump() for item in uploaded_objects],
         training=training_report,
         checkpoint_eval=checkpoint_eval_report.model_dump() if checkpoint_eval_report else None,
-        checkpoint_comparison=checkpoint_comparison_report.model_dump() if checkpoint_comparison_report else None,
+        checkpoint_comparison=checkpoint_comparison_report.model_dump()
+        if checkpoint_comparison_report
+        else None,
         tokenizer_audit_report=tokenizer_audit_report.model_dump(),
         report_artifacts={
             "pipeline_report": str(reports_dir / "pipeline_report.json"),
@@ -990,13 +1169,19 @@ async def _run_data_pipeline_locked(
             "instruction_mix_report": str(reports_dir / "instruction_mix_report.json"),
             "tokenizer_audit_report": str(reports_dir / "tokenizer_audit_report.json"),
             "tokenizer_audit_markdown": str(reports_dir / "tokenizer_audit_report.md"),
-            "checkpoint_eval_report": str(reports_dir / "checkpoint_eval" / "checkpoint_eval_report.json"),
-            "checkpoint_comparison_report": str(reports_dir / "checkpoint_compare" / "checkpoint_comparison_report.json"),
+            "checkpoint_eval_report": str(
+                reports_dir / "checkpoint_eval" / "checkpoint_eval_report.json"
+            ),
+            "checkpoint_comparison_report": str(
+                reports_dir / "checkpoint_compare" / "checkpoint_comparison_report.json"
+            ),
             "progress_log": str(progress.path) if progress.path else "",
         },
     )
     report_path = reports_dir / "pipeline_report.json"
-    report_path.write_text(json.dumps(report_payload.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+    report_path.write_text(
+        json.dumps(report_payload.model_dump(), indent=2, sort_keys=True), encoding="utf-8"
+    )
     write_dashboard(report_payload.model_dump(), root / "dashboard.html")
     progress.emit(
         "pipeline",
@@ -1013,7 +1198,9 @@ async def _run_data_pipeline_locked(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run Craftly crawl -> clean -> shard -> train pipeline.")
+    parser = argparse.ArgumentParser(
+        description="Run Craftly crawl -> clean -> shard -> train pipeline."
+    )
     parser.add_argument("--sources", required=True)
     parser.add_argument("--dataset-id", default="craftly-defensive-coding-corpus")
     parser.add_argument("--work-dir", default="artifacts/craftly/data-pipeline")
@@ -1037,7 +1224,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--train-batch-size", type=int, default=2)
     parser.add_argument("--gradient-accumulation-steps", type=int, default=1)
     parser.add_argument("--dtype", default="bf16", choices=["bf16", "fp16", "fp32"])
-    parser.add_argument("--model-profile", default="tiny", choices=["tiny", "t4_validation", "1b", "7b", "32b", "62b"])
+    parser.add_argument(
+        "--model-profile",
+        default="tiny",
+        choices=["tiny", "t4_validation", "1b", "7b", "32b", "62b"],
+    )
     parser.add_argument("--attention-impl", default="auto", choices=["auto", "sdpa", "eager"])
     parser.add_argument("--gradient-checkpointing", action="store_true")
     parser.add_argument("--validate-every", type=int, default=25)
@@ -1068,7 +1259,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--curriculum-mode",
         default="balanced",
-        choices=["balanced", "fundamentals_only", "defensive_security_only", "debug_patch_only", "agentic_coding_only"],
+        choices=[
+            "balanced",
+            "fundamentals_only",
+            "defensive_security_only",
+            "debug_patch_only",
+            "agentic_coding_only",
+        ],
     )
     parser.add_argument("--allow-offensive-misuse-rows", action="store_true")
     parser.add_argument("--contamination-patterns")
@@ -1180,9 +1377,8 @@ def config_from_args(args: argparse.Namespace) -> DataPipelineConfig:
 
 def main() -> None:
     report = asyncio.run(run_data_pipeline(config_from_args(parse_args())))
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
 
 
 if __name__ == "__main__":
     main()
-

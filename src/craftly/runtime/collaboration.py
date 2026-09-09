@@ -28,7 +28,6 @@ from src.craftly.db import LocalStore
 from src.craftly.memory import MemoryIngestRequest, UnifiedMemoryManager
 from src.craftly.shared.schemas import StrictModel
 
-
 MAX_MESSAGE_BYTES = 64 * 1024
 MAX_EVIDENCE_REFS = 128
 REFLECTION_QUESTIONS = (
@@ -76,11 +75,19 @@ ROLE_MESSAGE_POLICY: dict[AgentRole, frozenset[MessageKind]] = {
     AgentRole.ARCHITECT: frozenset({MessageKind.PROPOSAL, MessageKind.EVIDENCE}),
     AgentRole.CODER: frozenset({MessageKind.PROPOSAL, MessageKind.EVIDENCE}),
     AgentRole.TESTER: frozenset({MessageKind.EVIDENCE, MessageKind.CHALLENGE, MessageKind.REVIEW}),
-    AgentRole.SECURITY_REVIEWER: frozenset({MessageKind.EVIDENCE, MessageKind.CHALLENGE, MessageKind.REVIEW}),
+    AgentRole.SECURITY_REVIEWER: frozenset(
+        {MessageKind.EVIDENCE, MessageKind.CHALLENGE, MessageKind.REVIEW}
+    ),
     AgentRole.CRITIC: frozenset({MessageKind.CHALLENGE, MessageKind.REVIEW}),
     AgentRole.VERIFIER: frozenset({MessageKind.DECISION}),
     AgentRole.ORCHESTRATOR: frozenset(
-        {MessageKind.PROPOSAL, MessageKind.EVIDENCE, MessageKind.CHALLENGE, MessageKind.REVIEW, MessageKind.DECISION}
+        {
+            MessageKind.PROPOSAL,
+            MessageKind.EVIDENCE,
+            MessageKind.CHALLENGE,
+            MessageKind.REVIEW,
+            MessageKind.DECISION,
+        }
     ),
 }
 
@@ -104,7 +111,10 @@ def _redact_payload(value: Any, *, key: str = "") -> Any:
     if SECRET_KEY_PATTERN.search(key):
         return "[REDACTED]"
     if isinstance(value, dict):
-        return {str(item_key): _redact_payload(item_value, key=str(item_key)) for item_key, item_value in value.items()}
+        return {
+            str(item_key): _redact_payload(item_value, key=str(item_key))
+            for item_key, item_value in value.items()
+        }
     if isinstance(value, list):
         return [_redact_payload(item, key=key) for item in value]
     if isinstance(value, str):
@@ -113,7 +123,11 @@ def _redact_payload(value: Any, *, key: str = "") -> Any:
 
 
 def _payload_size(payload: dict[str, Any]) -> int:
-    return len(json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8"))
+    return len(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode(
+            "utf-8"
+        )
+    )
 
 
 class AgentMessage(StrictModel):
@@ -121,7 +135,9 @@ class AgentMessage(StrictModel):
     run_id: str = Field(min_length=1, max_length=128)
     task_graph_id: str = Field(min_length=1, max_length=128)
     task_id: str | None = Field(default=None, min_length=1, max_length=128)
-    correlation_id: str = Field(default_factory=lambda: str(uuid.uuid4()), min_length=1, max_length=128)
+    correlation_id: str = Field(
+        default_factory=lambda: str(uuid.uuid4()), min_length=1, max_length=128
+    )
     sender_role: AgentRole
     recipient_role: AgentRole
     kind: MessageKind
@@ -165,7 +181,7 @@ class AgentMessage(StrictModel):
         return values
 
     @model_validator(mode="after")
-    def enforce_role_separation(self) -> "AgentMessage":
+    def enforce_role_separation(self) -> AgentMessage:
         if self.sender_role == AgentRole.BROADCAST:
             raise ValueError("broadcast is a recipient only")
         allowed = ROLE_MESSAGE_POLICY[self.sender_role]
@@ -183,20 +199,28 @@ class AgentMessage(StrictModel):
             MessageKind.REVIEW,
             MessageKind.DECISION,
         }:
-            raise ValueError("review, challenge, and decision messages require a distinct recipient")
+            raise ValueError(
+                "review, challenge, and decision messages require a distinct recipient"
+            )
         forbidden_reasoning_keys = {"chain_of_thought", "raw_thoughts", "reasoning_steps"}
         if forbidden_reasoning_keys.intersection(self.payload):
             raise ValueError("raw private reasoning must not be persisted in agent messages")
         if self.sender_role == AgentRole.CRITIC and self.kind == MessageKind.REVIEW:
             confidence = self.payload.get("confidence")
-            if not isinstance(confidence, (int, float)) or isinstance(confidence, bool) or not 0.0 <= confidence <= 1.0:
+            if (
+                not isinstance(confidence, (int, float))
+                or isinstance(confidence, bool)
+                or not 0.0 <= confidence <= 1.0
+            ):
                 raise ValueError("critic review requires confidence between 0 and 1")
         if self.sender_role == AgentRole.VERIFIER:
             accepted = self.payload.get("accepted")
             if not isinstance(accepted, bool):
                 raise ValueError("verifier decision requires a boolean accepted field")
             if accepted and not self.evidence_refs:
-                raise ValueError("accepted verifier decisions require verification evidence references")
+                raise ValueError(
+                    "accepted verifier decisions require verification evidence references"
+                )
         return self
 
 
@@ -298,7 +322,9 @@ Reviser = Callable[[AgentMessage, CriticScore, list[str]], Awaitable[dict[str, A
 class CollaborationRuntime:
     """Validated durable message bus, blackboard, and bounded negotiation."""
 
-    def __init__(self, store: LocalStore, *, confidence_threshold: float = 0.85, max_revisions: int = 3) -> None:
+    def __init__(
+        self, store: LocalStore, *, confidence_threshold: float = 0.85, max_revisions: int = 3
+    ) -> None:
         if not 0.0 <= confidence_threshold <= 1.0:
             raise ValueError("confidence_threshold must be between 0 and 1")
         if not 0 <= max_revisions <= 3:
@@ -309,14 +335,20 @@ class CollaborationRuntime:
 
     def publish(self, message: AgentMessage) -> AgentMessage:
         self._validate_run_binding(message.run_id, message.task_graph_id, message.task_id)
-        return AgentMessage.model_validate(self.store.insert_agent_message(message.model_dump(mode="json")))
+        return AgentMessage.model_validate(
+            self.store.insert_agent_message(message.model_dump(mode="json"))
+        )
 
-    def history(self, run_id: str, *, correlation_id: str | None = None, limit: int = 500) -> list[AgentMessage]:
+    def history(
+        self, run_id: str, *, correlation_id: str | None = None, limit: int = 500
+    ) -> list[AgentMessage]:
         if self.store.get_run(run_id) is None:
             raise KeyError(f"unknown run: {run_id}")
         return [
             AgentMessage.model_validate(item)
-            for item in self.store.list_agent_messages(run_id, correlation_id=correlation_id, limit=limit)
+            for item in self.store.list_agent_messages(
+                run_id, correlation_id=correlation_id, limit=limit
+            )
         ]
 
     def write_blackboard(self, request: BlackboardWrite) -> BlackboardEntry:
@@ -340,12 +372,16 @@ class CollaborationRuntime:
         )
         return BlackboardEntry.model_validate(stored)
 
-    def blackboard(self, run_id: str, *, kind: BlackboardKind | None = None) -> list[BlackboardEntry]:
+    def blackboard(
+        self, run_id: str, *, kind: BlackboardKind | None = None
+    ) -> list[BlackboardEntry]:
         if self.store.get_run(run_id) is None:
             raise KeyError(f"unknown run: {run_id}")
         return [
             BlackboardEntry.model_validate(item)
-            for item in self.store.list_blackboard_entries(run_id, kind=kind.value if kind else None)
+            for item in self.store.list_blackboard_entries(
+                run_id, kind=kind.value if kind else None
+            )
         ]
 
     async def negotiate(
@@ -363,7 +399,9 @@ class CollaborationRuntime:
         if proposal.kind != MessageKind.PROPOSAL:
             raise ValueError("negotiation must start with a proposal message")
         if peer_role == proposal.sender_role or peer_role not in REVIEW_ARTIFACT_TYPE:
-            raise ValueError("peer reviewer must be a distinct tester, security reviewer, or critic")
+            raise ValueError(
+                "peer reviewer must be a distinct tester, security reviewer, or critic"
+            )
         correlation_id = proposal.correlation_id
         current = self.publish(proposal)
         self.write_blackboard(
@@ -372,7 +410,11 @@ class CollaborationRuntime:
                 task_graph_id=current.task_graph_id,
                 entry_key=f"artifact/{correlation_id}",
                 kind=BlackboardKind.ARTIFACT,
-                value={"proposal_message_id": current.message_id, "payload": current.payload, "revision": 0},
+                value={
+                    "proposal_message_id": current.message_id,
+                    "payload": current.payload,
+                    "revision": 0,
+                },
                 expected_version=0,
                 source_message_id=current.message_id,
             )
@@ -422,7 +464,10 @@ class CollaborationRuntime:
                     task_graph_id=current.task_graph_id,
                     entry_key=f"evidence/{evidence_message.message_id}",
                     kind=BlackboardKind.EVIDENCE,
-                    value={"payload": evidence_message.payload, "peer_message_id": peer_message.message_id},
+                    value={
+                        "payload": evidence_message.payload,
+                        "peer_message_id": peer_message.message_id,
+                    },
                     verified=False,
                     source_message_id=evidence_message.message_id,
                 )
@@ -709,11 +754,21 @@ async def prove_postgres_collaboration(database_url: str, output_dir: str | Path
 
     try:
         async with pool.acquire() as connection:
-            required_tables = ["projects", "runs", "task_graphs", "tasks", "agent_messages", "blackboard_entries", "failure_records"]
+            required_tables = [
+                "projects",
+                "runs",
+                "task_graphs",
+                "tasks",
+                "agent_messages",
+                "blackboard_entries",
+                "failure_records",
+            ]
             for table in required_tables:
                 present = await connection.fetchval("SELECT to_regclass($1)", f"public.{table}")
                 if present is None:
-                    raise RuntimeError(f"required Postgres table is missing: {table}; apply migration 0005")
+                    raise RuntimeError(
+                        f"required Postgres table is missing: {table}; apply migration 0005"
+                    )
             async with connection.transaction():
                 await connection.execute(
                     """

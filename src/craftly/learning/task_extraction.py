@@ -1,4 +1,4 @@
-﻿"""Extract supervised/evaluation task candidates from clean corpus shards."""
+"""Extract supervised/evaluation task candidates from clean corpus shards."""
 
 from __future__ import annotations
 
@@ -12,8 +12,8 @@ from typing import Any
 from pydantic import Field
 
 from src.craftly.learning.quality import CVE_RE, CWE_RE, iter_jsonl, stable_hash
-from src.craftly.shared.schemas import StrictModel
-
+from src.craftly.shared.schemas import print_report
+from src.craftly.shared.schemas import StrictModel, print_report
 
 CODE_FENCE_RE = re.compile(r"```([a-zA-Z0-9_+\-.#]*)\n(.*?)```", re.DOTALL)
 DIFF_RE = re.compile(r"(?ms)^diff --git .*?(?=^diff --git |\Z)")
@@ -21,13 +21,44 @@ ERROR_RE = re.compile(
     r"(?i)(traceback \(most recent call last\)|compile error|undefined reference|segmentation fault|stack trace|exception|panic:)"
 )
 SECURITY_CATEGORIES = {
-    "buffer_overflow": ("buffer overflow", "strcpy", "memcpy", "out-of-bounds", "cwe-120", "cwe-787"),
+    "buffer_overflow": (
+        "buffer overflow",
+        "strcpy",
+        "memcpy",
+        "out-of-bounds",
+        "cwe-120",
+        "cwe-787",
+    ),
     "command_injection": ("command injection", "shell=true", "os.system", "subprocess", "cwe-78"),
-    "dependency_confusion": ("dependency confusion", "typosquatting", "package takeover", "malicious package"),
-    "deserialization": ("deserialization", "pickle.loads", "yaml.load", "objectinputstream", "cwe-502"),
+    "dependency_confusion": (
+        "dependency confusion",
+        "typosquatting",
+        "package takeover",
+        "malicious package",
+    ),
+    "deserialization": (
+        "deserialization",
+        "pickle.loads",
+        "yaml.load",
+        "objectinputstream",
+        "cwe-502",
+    ),
     "hardcoded_secret": ("hardcoded secret", "api_key", "secret", "password =", "cwe-798"),
-    "insecure_auth_session": ("session fixation", "jwt none", "missing authorization", "broken access control", "cwe-287", "cwe-862"),
-    "insecure_solidity": ("reentrancy", "unchecked call", "tx.origin", "integer overflow", "solidity"),
+    "insecure_auth_session": (
+        "session fixation",
+        "jwt none",
+        "missing authorization",
+        "broken access control",
+        "cwe-287",
+        "cwe-862",
+    ),
+    "insecure_solidity": (
+        "reentrancy",
+        "unchecked call",
+        "tx.origin",
+        "integer overflow",
+        "solidity",
+    ),
     "path_traversal": ("path traversal", "../", "cwe-22"),
     "prototype_pollution": ("prototype pollution", "__proto__", "constructor.prototype"),
     "race_condition": ("race condition", "time-of-check", "time of check", "toctou", "cwe-362"),
@@ -37,7 +68,15 @@ SECURITY_CATEGORIES = {
     "weak_crypto": ("md5", "sha1", "weak crypto", "insecure random", "cwe-327"),
     "xss": ("cross-site scripting", "xss", "innerhtml", "cwe-79"),
 }
-IMPLEMENTATION_TERMS = ("build", "implement", "api", "database", "deployment", "architecture", "workflow")
+IMPLEMENTATION_TERMS = (
+    "build",
+    "implement",
+    "api",
+    "database",
+    "deployment",
+    "architecture",
+    "workflow",
+)
 TEST_TERMS = ("pytest", "unittest", "assert ", "test_", "regression")
 PATCH_TERMS = ("patch", "fix", "mitigation", "diff --git", "+++ ", "--- ")
 
@@ -87,7 +126,9 @@ def _security_categories(text: str, source_url: str | None = None) -> list[str]:
             scores.append((score, category))
     if CVE_RE.search(text) or CWE_RE.search(text):
         scores.append((10, "vulnerability_taxonomy"))
-    return [category for _score, category in sorted(scores, key=lambda item: (-item[0], item[1]))[:3]]
+    return [
+        category for _score, category in sorted(scores, key=lambda item: (-item[0], item[1]))[:3]
+    ]
 
 
 def _row_text(row: dict[str, Any]) -> str:
@@ -173,7 +214,9 @@ def _security_finding_task(row: dict[str, Any], text: str, language: str | None)
     )
 
 
-def _patch_generation_task(row: dict[str, Any], text: str, language: str | None, code: str | None = None) -> ExtractedTask:
+def _patch_generation_task(
+    row: dict[str, Any], text: str, language: str | None, code: str | None = None
+) -> ExtractedTask:
     body = code or text[:9000]
     prompt = (
         f"Using the approved defensive source context from {_source(row)}, produce a safe patch plan and patch-shaped answer.\n\n"
@@ -192,11 +235,15 @@ def _patch_generation_task(row: dict[str, Any], text: str, language: str | None,
             "Mentions validation or regression checks.",
             "Does not execute or weaponize the issue.",
         ],
-        metadata={"security_categories": _security_categories(text + "\n" + (code or ""), row.get("url"))},
+        metadata={
+            "security_categories": _security_categories(text + "\n" + (code or ""), row.get("url"))
+        },
     )
 
 
-def _code_review_task(row: dict[str, Any], text: str, language: str | None, code: str) -> ExtractedTask:
+def _code_review_task(
+    row: dict[str, Any], text: str, language: str | None, code: str
+) -> ExtractedTask:
     prompt = (
         f"Review this approved {language or 'code'} artifact from {_source(row)} for correctness, maintainability, "
         "and defensive security. Prioritize concrete findings and safe fixes.\n\n"
@@ -216,7 +263,9 @@ def _code_review_task(row: dict[str, Any], text: str, language: str | None, code
     )
 
 
-def _test_generation_task(row: dict[str, Any], text: str, language: str | None, code: str | None = None) -> ExtractedTask:
+def _test_generation_task(
+    row: dict[str, Any], text: str, language: str | None, code: str | None = None
+) -> ExtractedTask:
     artifact = code or text[:9000]
     prompt = (
         f"Create regression and security-oriented tests from the approved source context at {_source(row)}.\n\n"
@@ -299,7 +348,9 @@ def _tasks_from_row(row: dict[str, Any]) -> list[ExtractedTask]:
     lowered = text.lower()
     tasks: list[ExtractedTask] = []
     code_candidates = _code_candidates(text, language)
-    security_signal = bool(_security_categories(text, row.get("url"))) or "defensive_security" in labels
+    security_signal = (
+        bool(_security_categories(text, row.get("url"))) or "defensive_security" in labels
+    )
     patch_signal = any(term in lowered for term in PATCH_TERMS) or "patch" in labels
     test_signal = any(term in lowered for term in TEST_TERMS) or "tests" in labels
     implementation_signal = any(term in lowered for term in IMPLEMENTATION_TERMS)
@@ -307,11 +358,19 @@ def _tasks_from_row(row: dict[str, Any]) -> list[ExtractedTask]:
     if security_signal:
         tasks.append(_security_finding_task(row, text, language))
     if patch_signal or quality.get("data_type") == "patch" or security_signal and code_candidates:
-        tasks.append(_patch_generation_task(row, text, language, code_candidates[0][0] if code_candidates else None))
+        tasks.append(
+            _patch_generation_task(
+                row, text, language, code_candidates[0][0] if code_candidates else None
+            )
+        )
     if ERROR_RE.search(text):
         tasks.append(_debugging_task(row, text, language))
     if test_signal:
-        tasks.append(_test_generation_task(row, text, language, code_candidates[0][0] if code_candidates else None))
+        tasks.append(
+            _test_generation_task(
+                row, text, language, code_candidates[0][0] if code_candidates else None
+            )
+        )
     for code, candidate_language in code_candidates[:2]:
         tasks.append(_code_review_task(row, text, _language(row, candidate_language), code))
     if implementation_signal or not tasks:
@@ -363,11 +422,15 @@ def extract_tasks(
                     if task.task_id in seen:
                         continue
                     seen.add(task.task_id)
-                    handle.write(json.dumps(task.model_dump(), ensure_ascii=False, sort_keys=True) + "\n")
+                    handle.write(
+                        json.dumps(task.model_dump(), ensure_ascii=False, sort_keys=True) + "\n"
+                    )
                     extracted += 1
                     emitted_for_row += 1
                     by_type[task.task_type] = by_type.get(task.task_type, 0) + 1
-                    by_language[task.language or "unknown"] = by_language.get(task.language or "unknown", 0) + 1
+                    by_language[task.language or "unknown"] = (
+                        by_language.get(task.language or "unknown", 0) + 1
+                    )
                     for category in task.metadata.get("security_categories") or []:
                         by_security_category[category] = by_security_category.get(category, 0) + 1
                     if extracted >= max_tasks:
@@ -398,8 +461,15 @@ def extract_tasks(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Extract bounded task candidates from governed Craftly JSONL.")
-    parser.add_argument("--input", action="append", required=True, help="Input JSONL path; repeat for multiple shards.")
+    parser = argparse.ArgumentParser(
+        description="Extract bounded task candidates from governed Craftly JSONL."
+    )
+    parser.add_argument(
+        "--input",
+        action="append",
+        required=True,
+        help="Input JSONL path; repeat for multiple shards.",
+    )
     parser.add_argument("--output", required=True)
     parser.add_argument("--max-tasks", type=int, default=10_000)
     parser.add_argument("--max-tasks-per-row", type=int, default=3)
@@ -414,10 +484,11 @@ def main() -> None:
     if args.report_out:
         report_target = Path(args.report_out)
         report_target.parent.mkdir(parents=True, exist_ok=True)
-        report_target.write_text(json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+        report_target.write_text(
+            json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8"
+        )
+    print_report(report)
 
 
 if __name__ == "__main__":
     main()
-

@@ -33,24 +33,38 @@ from src.craftly.learning.calibration_gate import (
     CalibrationDecision,
     validate_advancement_decision,
 )
-from src.craftly.learning.dataset_validation import DatasetValidationConfig, DatasetValidationReport, validate_dataset
-from src.craftly.learning.license_filter import LicenseFilterReport, filter_jsonl_by_license
+from src.craftly.learning.dataset_validation import (
+    DatasetValidationConfig,
+    DatasetValidationReport,
+    validate_dataset,
+)
+from src.craftly.learning.license_filter import filter_jsonl_by_license
 from src.craftly.learning.near_dedup import NearDedupReport, deduplicate_jsonl
-from src.craftly.learning.quality import DatasetQualityGate, QualityGateConfig, QualityGateReport, iter_jsonl, stable_hash
+from src.craftly.learning.quality import (
+    DatasetQualityGate,
+    QualityGateConfig,
+    iter_jsonl,
+    stable_hash,
+)
 from src.craftly.learning.source_budget import SourceBudgetPlan, write_source_budget_plan
-from src.craftly.learning.source_quality import SourceQualityReport, write_source_quality_report
+from src.craftly.learning.source_quality import write_source_quality_report
 from src.craftly.learning.source_registry import SourceRegistry, SourceRegistryReport
-from src.craftly.learning.source_reputation import SourceReputationReport, write_source_reputation_report
+from src.craftly.learning.source_reputation import (
+    SourceReputationReport,
+    write_source_reputation_report,
+)
 from src.craftly.learning.training_data_gate import (
     TrainingDataGateConfig,
-    TrainingDataGateReport,
     apply_training_data_gate,
     has_independent_review,
 )
-from src.craftly.shared.config_contracts import DatasetTrustPolicyContract, load_dataset_trust_policy
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.config_contracts import (
+    DatasetTrustPolicyContract,
+    load_dataset_trust_policy,
+)
 from src.craftly.shared.integrity import sha256_file as _sha256_file
-
+from src.craftly.shared.schemas import write_report, print_report
+from src.craftly.shared.schemas import StrictModel, write_report, print_report
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 CHECKOUT_RE = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
@@ -70,7 +84,9 @@ class ProductionDatasetConfig(StrictModel):
     advancement_decision_path: str | None = None
     tokenizer_path: str | None = None
     source_review_report_path: str | None = None
-    benchmark_holdout_paths: list[str] = Field(default_factory=lambda: ["data/eval/humaneval.jsonl", "data/eval/mbpp.jsonl"])
+    benchmark_holdout_paths: list[str] = Field(
+        default_factory=lambda: ["data/eval/humaneval.jsonl", "data/eval/mbpp.jsonl"]
+    )
     verified_patch_paths: list[str] = Field(default_factory=list)
     human_review_approved_paths: list[str] = Field(default_factory=list)
     dev_smoke: bool = False
@@ -92,12 +108,14 @@ class ProductionDatasetConfig(StrictModel):
     near_dedup_hamming_threshold: int = Field(default=3, ge=0, le=16)
 
     @model_validator(mode="after")
-    def validate_split(self) -> "ProductionDatasetConfig":
+    def validate_split(self) -> ProductionDatasetConfig:
         total = round(self.train_fraction + self.val_fraction + self.test_fraction, 6)
         if total != 1.0:
             raise ValueError("train_fraction + val_fraction + test_fraction must equal 1.0")
         if not self.dev_smoke and self.min_promoted_records != 100_000:
-            raise ValueError("production_100k requires exactly 100,000 as the minimum promoted row count")
+            raise ValueError(
+                "production_100k requires exactly 100,000 as the minimum promoted row count"
+            )
         return self
 
 
@@ -190,7 +208,7 @@ class ProductionDatasetManifest(StrictModel):
         root = Path(output_dir)
         root.mkdir(parents=True, exist_ok=True)
         target = root / "dataset_version_manifest.json"
-        target.write_text(json.dumps(self.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+        write_report(self, target)
         write_markdown(self, root / "dataset_version_manifest.md")
         return target
 
@@ -207,7 +225,7 @@ class VerifiedPatchEvidence(StrictModel):
     manifest_sha256: str
 
     @model_validator(mode="after")
-    def validate_contract(self) -> "VerifiedPatchEvidence":
+    def validate_contract(self) -> VerifiedPatchEvidence:
         checkout = self.vulnerable_checkout_hash.strip().lower()
         manifest = self.manifest_sha256.strip().lower()
         if CHECKOUT_RE.fullmatch(checkout) is None:
@@ -273,7 +291,9 @@ def _expand_input_paths(paths: list[str]) -> list[str]:
 def _row_text(row: dict[str, Any]) -> str:
     if row.get("prompt") and row.get("chosen"):
         return f"{row['prompt']}\n{row['chosen']}"
-    return str(row.get("text") or row.get("content") or row.get("prompt") or row.get("chosen") or "")
+    return str(
+        row.get("text") or row.get("content") or row.get("prompt") or row.get("chosen") or ""
+    )
 
 
 def _row_hash(row: dict[str, Any]) -> str:
@@ -310,7 +330,9 @@ def _quality_value(row: dict[str, Any]) -> float:
 
 def _source_identity(row: dict[str, Any]) -> tuple[str, str]:
     provenance = row.get("provenance") if isinstance(row.get("provenance"), dict) else {}
-    source_id = str(row.get("source_id") or provenance.get("source_id") or row.get("source") or "unknown")
+    source_id = str(
+        row.get("source_id") or provenance.get("source_id") or row.get("source") or "unknown"
+    )
     family = str(row.get("source_family") or provenance.get("source_family") or source_id)
     return source_id, family
 
@@ -381,8 +403,12 @@ def calculate_dataset_trust_metrics(
                 if evidence is not None:
                     verified_patch_evidence += 1
     denominator = max(1, policy_tokens)
-    source_fractions = {key: round(value / denominator, 8) for key, value in sorted(source_tokens.items())}
-    family_fractions = {key: round(value / denominator, 8) for key, value in sorted(family_tokens.items())}
+    source_fractions = {
+        key: round(value / denominator, 8) for key, value in sorted(source_tokens.items())
+    }
+    family_fractions = {
+        key: round(value / denominator, 8) for key, value in sorted(family_tokens.items())
+    }
     return DatasetTrustMetrics(
         records=records,
         policy_tokens=policy_tokens,
@@ -393,7 +419,9 @@ def calculate_dataset_trust_metrics(
         high_value_records=high_value,
         high_value_review_coverage=round(high_value_reviewed / max(1, high_value), 8),
         verified_patch_records=verified_patches,
-        verified_patch_evidence_coverage=round(verified_patch_evidence / max(1, verified_patches), 8),
+        verified_patch_evidence_coverage=round(
+            verified_patch_evidence / max(1, verified_patches), 8
+        ),
         secret_or_pii_hits=secret_or_pii_hits,
         source_token_fractions=source_fractions,
         source_family_token_fractions=family_fractions,
@@ -435,7 +463,9 @@ def _provenance_complete(row: dict[str, Any]) -> bool:
     return all(provenance.get(key) not in {None, "", "rolling"} for key in required)
 
 
-def _normalize_training_row(row: dict[str, Any], *, source_path: Path, default_category: str) -> dict[str, Any] | None:
+def _normalize_training_row(
+    row: dict[str, Any], *, source_path: Path, default_category: str
+) -> dict[str, Any] | None:
     text = _row_text(row)
     if not text.strip():
         return None
@@ -448,25 +478,33 @@ def _normalize_training_row(row: dict[str, Any], *, source_path: Path, default_c
     normalized["license"] = license_name
     normalized["category"] = category
     normalized["content_hash"] = str(row.get("content_hash") or stable_hash(text))
-    existing_provenance = normalized.get("provenance") if isinstance(normalized.get("provenance"), dict) else {}
+    existing_provenance = (
+        normalized.get("provenance") if isinstance(normalized.get("provenance"), dict) else {}
+    )
     normalized["provenance"] = {
         "source_path": str(source_path),
         "source": source,
         "license": license_name,
         **existing_provenance,
     }
-    existing_quality = normalized.get("quality") if isinstance(normalized.get("quality"), dict) else None
+    existing_quality = (
+        normalized.get("quality") if isinstance(normalized.get("quality"), dict) else None
+    )
     if existing_quality is None:
         decision = DatasetQualityGate(QualityGateConfig(require_license=True)).evaluate(normalized)
         if not decision.accepted:
             return None
         normalized["quality"] = decision.model_dump()
-    elif not bool(existing_quality.get("accepted")) or not isinstance(existing_quality.get("quality_score"), (int, float)):
+    elif not bool(existing_quality.get("accepted")) or not isinstance(
+        existing_quality.get("quality_score"), (int, float)
+    ):
         return None
     return normalized
 
 
-def _verified_patch_evidence(row: dict[str, Any]) -> tuple[VerifiedPatchEvidence | None, str | None]:
+def _verified_patch_evidence(
+    row: dict[str, Any],
+) -> tuple[VerifiedPatchEvidence | None, str | None]:
     verification = row.get("verification")
     if not isinstance(verification, dict):
         return None, "missing_verification_manifest"
@@ -476,7 +514,9 @@ def _verified_patch_evidence(row: dict[str, Any]) -> tuple[VerifiedPatchEvidence
         return None, f"invalid_verification_manifest:{exc}"
 
 
-def _write_normalized_rows(input_paths: list[str], output_path: str | Path, *, default_category: str) -> PatchTaskDatasetReport:
+def _write_normalized_rows(
+    input_paths: list[str], output_path: str | Path, *, default_category: str
+) -> PatchTaskDatasetReport:
     target = Path(output_path)
     target.parent.mkdir(parents=True, exist_ok=True)
     accepted = 0
@@ -496,7 +536,9 @@ def _write_normalized_rows(input_paths: list[str], output_path: str | Path, *, d
                     rejected += 1
                     rejection_reasons[evidence_error or "invalid_verification_manifest"] += 1
                     continue
-                normalized = _normalize_training_row(row, source_path=source_path, default_category=default_category)
+                normalized = _normalize_training_row(
+                    row, source_path=source_path, default_category=default_category
+                )
                 if normalized is None:
                     rejected += 1
                     rejection_reasons["invalid_or_unscored_training_row"] += 1
@@ -522,7 +564,9 @@ def _write_normalized_rows(input_paths: list[str], output_path: str | Path, *, d
     )
 
 
-def _write_human_review_rows(input_paths: list[str], output_path: str | Path) -> HumanReviewPromotionReport:
+def _write_human_review_rows(
+    input_paths: list[str], output_path: str | Path
+) -> HumanReviewPromotionReport:
     target = Path(output_path)
     target.parent.mkdir(parents=True, exist_ok=True)
     approved = 0
@@ -539,7 +583,9 @@ def _write_human_review_rows(input_paths: list[str], output_path: str | Path) ->
             for row in iter_jsonl(source_path):
                 review = row.get("review", {}) if isinstance(row.get("review"), dict) else {}
                 status = str(review.get("status") or row.get("review_status") or "").lower()
-                decisions = review.get("decisions") if isinstance(review.get("decisions"), list) else []
+                decisions = (
+                    review.get("decisions") if isinstance(review.get("decisions"), list) else []
+                )
                 reviewer_ids = {
                     str(item.get("reviewer_id") or "")
                     for item in decisions
@@ -550,25 +596,41 @@ def _write_human_review_rows(input_paths: list[str], output_path: str | Path) ->
                     for item in decisions
                     if isinstance(item, dict) and item.get("decision") in {"approve", "reject"}
                 ]
-                adjudication = review.get("adjudication") if isinstance(review.get("adjudication"), dict) else {}
-                independently_approved = len(reviewer_ids) >= 2 and len(decision_values) >= 2 and set(decision_values) == {"approve"}
+                adjudication = (
+                    review.get("adjudication")
+                    if isinstance(review.get("adjudication"), dict)
+                    else {}
+                )
+                independently_approved = (
+                    len(reviewer_ids) >= 2
+                    and len(decision_values) >= 2
+                    and set(decision_values) == {"approve"}
+                )
                 adjudicated_approval = (
                     len(reviewer_ids) >= 2
                     and len(set(decision_values)) > 1
                     and adjudication.get("decision") == "approve"
                     and adjudication.get("adjudicator_id") not in reviewer_ids
                 )
-                if status not in {"approved", "human_approved"} or not (independently_approved or adjudicated_approval):
+                if status not in {"approved", "human_approved"} or not (
+                    independently_approved or adjudicated_approval
+                ):
                     rejected += 1
                     continue
-                normalized = _normalize_training_row(row, source_path=source_path, default_category="human_review_approved")
+                normalized = _normalize_training_row(
+                    row, source_path=source_path, default_category="human_review_approved"
+                )
                 if normalized is None:
                     rejected += 1
                     continue
                 if not _provenance_complete(normalized):
                     rejected += 1
                     continue
-                normalized["human_review"] = {"status": "approved", "source_path": str(source_path), **review}
+                normalized["human_review"] = {
+                    "status": "approved",
+                    "source_path": str(source_path),
+                    **review,
+                }
                 categories[_record_category(normalized)] += 1
                 handle.write(json.dumps(normalized, ensure_ascii=False, sort_keys=True) + "\n")
                 approved += 1
@@ -576,9 +638,17 @@ def _write_human_review_rows(input_paths: list[str], output_path: str | Path) ->
                 pair_counts[(decision_values[0], decision_values[1])] += 1
     paired_reviews = sum(pair_counts.values())
     if paired_reviews:
-        observed = sum(count for pair, count in pair_counts.items() if pair[0] == pair[1]) / paired_reviews
-        reviewer_1_approve = sum(count for pair, count in pair_counts.items() if pair[0] == "approve") / paired_reviews
-        reviewer_2_approve = sum(count for pair, count in pair_counts.items() if pair[1] == "approve") / paired_reviews
+        observed = (
+            sum(count for pair, count in pair_counts.items() if pair[0] == pair[1]) / paired_reviews
+        )
+        reviewer_1_approve = (
+            sum(count for pair, count in pair_counts.items() if pair[0] == "approve")
+            / paired_reviews
+        )
+        reviewer_2_approve = (
+            sum(count for pair, count in pair_counts.items() if pair[1] == "approve")
+            / paired_reviews
+        )
         expected = (reviewer_1_approve * reviewer_2_approve) + (
             (1 - reviewer_1_approve) * (1 - reviewer_2_approve)
         )
@@ -621,7 +691,13 @@ def _load_holdout_hashes(paths: list[str]) -> set[str]:
         if not source.exists():
             continue
         for row in iter_jsonl(source):
-            text = str(row.get("prompt") or row.get("canonical_solution") or row.get("code") or row.get("text") or "")
+            text = str(
+                row.get("prompt")
+                or row.get("canonical_solution")
+                or row.get("code")
+                or row.get("text")
+                or ""
+            )
             if text:
                 hashes.add(stable_hash(text))
             task_id = row.get("task_id") or row.get("id")
@@ -636,7 +712,10 @@ def _holdout_contaminated(row: dict[str, Any], holdout_hashes: set[str]) -> bool
     if digest in holdout_hashes or stable_hash(text) in holdout_hashes:
         return True
     lowered = text.lower()
-    return any(marker in lowered for marker in ("canonical_solution", "humaneval", "mbpp", "swe-bench", "cyberseceval"))
+    return any(
+        marker in lowered
+        for marker in ("canonical_solution", "humaneval", "mbpp", "swe-bench", "cyberseceval")
+    )
 
 
 def enforce_benchmark_holdout(
@@ -652,7 +731,10 @@ def enforce_benchmark_holdout(
     removed_target = Path(removed_path)
     target.parent.mkdir(parents=True, exist_ok=True)
     removed_target.parent.mkdir(parents=True, exist_ok=True)
-    with target.open("w", encoding="utf-8") as clean_handle, removed_target.open("w", encoding="utf-8") as removed_handle:
+    with (
+        target.open("w", encoding="utf-8") as clean_handle,
+        removed_target.open("w", encoding="utf-8") as removed_handle,
+    ):
         for row in iter_jsonl(input_path):
             scanned += 1
             if _holdout_contaminated(row, holdout_hashes):
@@ -676,7 +758,10 @@ def _split_group(row: dict[str, Any]) -> tuple[str, str]:
     candidates = [
         ("repository", row.get("repository") or row.get("repo") or metadata.get("repository")),
         ("project_family", row.get("project_family") or metadata.get("project_family")),
-        ("vulnerability_family", row.get("vulnerability_family") or metadata.get("vulnerability_family")),
+        (
+            "vulnerability_family",
+            row.get("vulnerability_family") or metadata.get("vulnerability_family"),
+        ),
         ("patch_lineage", row.get("patch_lineage") or metadata.get("patch_lineage")),
         ("task_signature", row.get("task_signature") or metadata.get("task_signature")),
         ("document_family", row.get("document_family") or metadata.get("document_family")),
@@ -685,7 +770,9 @@ def _split_group(row: dict[str, Any]) -> tuple[str, str]:
     for kind, value in candidates:
         if value not in {None, ""}:
             return kind, str(value)
-    source_id = row.get("source_id") or provenance.get("source_id") or row.get("source") or "unknown"
+    source_id = (
+        row.get("source_id") or provenance.get("source_id") or row.get("source") or "unknown"
+    )
     return "source_content", f"{source_id}:{_row_hash(row)}"
 
 
@@ -701,7 +788,9 @@ def _assign_group_split(group_key: str, config: ProductionDatasetConfig) -> str:
     return "test"
 
 
-def split_train_val_test(input_path: str | Path, output_dir: str | Path, config: ProductionDatasetConfig) -> SplitManifest:
+def split_train_val_test(
+    input_path: str | Path, output_dir: str | Path, config: ProductionDatasetConfig
+) -> SplitManifest:
     root = Path(output_dir)
     root.mkdir(parents=True, exist_ok=True)
     paths = {
@@ -749,7 +838,9 @@ def split_train_val_test(input_path: str | Path, output_dir: str | Path, config:
                 normalized = dict(row)
                 normalized["split"] = split
                 normalized["split_group"] = {"kind": group_kind, "hash": group_hash}
-                handles[split].write(json.dumps(normalized, ensure_ascii=False, sort_keys=True) + "\n")
+                handles[split].write(
+                    json.dumps(normalized, ensure_ascii=False, sort_keys=True) + "\n"
+                )
                 counts[split] += 1
                 if sum(counts.values()) % 10_000 == 0:
                     connection.commit()
@@ -767,7 +858,11 @@ def split_train_val_test(input_path: str | Path, output_dir: str | Path, config:
         val_records=counts["val"],
         test_records=counts["test"],
         holdout_records=0,
-        fractions={"train": config.train_fraction, "val": config.val_fraction, "test": config.test_fraction},
+        fractions={
+            "train": config.train_fraction,
+            "val": config.val_fraction,
+            "test": config.test_fraction,
+        },
         seed=config.seed,
         split_groups=dict(sorted(group_counts.items())),
         group_assignments_sha256=digest.hexdigest(),
@@ -783,7 +878,10 @@ def _copy_file(source: str | Path, target: str | Path) -> int:
         dst.write_text("", encoding="utf-8")
         return 0
     count = 0
-    with src.open("r", encoding="utf-8", errors="replace") as source_handle, dst.open("w", encoding="utf-8") as target_handle:
+    with (
+        src.open("r", encoding="utf-8", errors="replace") as source_handle,
+        dst.open("w", encoding="utf-8") as target_handle,
+    ):
         for line in source_handle:
             if line.strip():
                 count += 1
@@ -792,7 +890,9 @@ def _copy_file(source: str | Path, target: str | Path) -> int:
 
 
 def _version_id(config: ProductionDatasetConfig, artifacts: dict[str, str]) -> str:
-    digest_input = json.dumps({"config": config.model_dump(), "artifacts": artifacts}, sort_keys=True)
+    digest_input = json.dumps(
+        {"config": config.model_dump(), "artifacts": artifacts}, sort_keys=True
+    )
     return stable_hash(digest_input)[:16]
 
 
@@ -808,11 +908,17 @@ def _build_issues(
 ) -> list[str]:
     issues: list[str] = []
     if final_records < config.min_promoted_records:
-        issues.append(f"promoted_records_below_minimum:{final_records}<{config.min_promoted_records}")
+        issues.append(
+            f"promoted_records_below_minimum:{final_records}<{config.min_promoted_records}"
+        )
     if split_manifest.train_records < config.min_train_records:
-        issues.append(f"train_records_below_minimum:{split_manifest.train_records}<{config.min_train_records}")
+        issues.append(
+            f"train_records_below_minimum:{split_manifest.train_records}<{config.min_train_records}"
+        )
     if patch_report.accepted < config.min_verified_patch_records:
-        issues.append(f"verified_patch_records_below_minimum:{patch_report.accepted}<{config.min_verified_patch_records}")
+        issues.append(
+            f"verified_patch_records_below_minimum:{patch_report.accepted}<{config.min_verified_patch_records}"
+        )
     if review_report.approved < config.min_human_review_approved_records:
         issues.append(
             f"human_review_approved_records_below_minimum:{review_report.approved}<{config.min_human_review_approved_records}"
@@ -852,7 +958,10 @@ def _write_source_manifests(
         output_dir / "source_snapshot_manifest.json",
         {
             "registry_snapshot_sha256": source_registry_report.source_snapshot_sha256,
-            "sources": sorted(sources.values(), key=lambda item: (item["source_id"], item["source_snapshot_sha256"])),
+            "sources": sorted(
+                sources.values(),
+                key=lambda item: (item["source_id"], item["source_snapshot_sha256"]),
+            ),
         },
     )
     license_path = _write_json(
@@ -882,7 +991,9 @@ def _promotion_decision(
     source_limits = policy.source_limits
     residual_near_duplicate_fraction = 0.0
     contamination = benchmark_report.rejected + holdout_report.removed_records
-    human_sample_acceptance = review_report.approved / max(1, review_report.approved + review_report.rejected)
+    human_sample_acceptance = review_report.approved / max(
+        1, review_report.approved + review_report.rejected
+    )
     governed_sources = True
     for item in source_reputation_report.sources:
         source_fraction = trust_metrics.source_token_fractions.get(item.source, 0.0)
@@ -906,27 +1017,35 @@ def _promotion_decision(
         "average_quality": trust_metrics.average_quality >= threshold.minimum_average_quality,
         "p10_quality": trust_metrics.p10_quality >= threshold.minimum_p10_quality,
         "license_coverage": trust_metrics.license_coverage >= threshold.required_license_coverage,
-        "provenance_coverage": trust_metrics.provenance_coverage >= threshold.required_provenance_coverage,
+        "provenance_coverage": trust_metrics.provenance_coverage
+        >= threshold.required_provenance_coverage,
         "high_value_review_coverage": (
-            trust_metrics.high_value_review_coverage >= threshold.required_high_value_review_coverage
+            trust_metrics.high_value_review_coverage
+            >= threshold.required_high_value_review_coverage
         ),
         "verified_patch_evidence_coverage": (
-            trust_metrics.verified_patch_evidence_coverage >= threshold.required_verified_patch_evidence_coverage
+            trust_metrics.verified_patch_evidence_coverage
+            >= threshold.required_verified_patch_evidence_coverage
         ),
-        "secret_or_pii_hits": trust_metrics.secret_or_pii_hits <= threshold.maximum_secret_or_pii_hits,
+        "secret_or_pii_hits": trust_metrics.secret_or_pii_hits
+        <= threshold.maximum_secret_or_pii_hits,
         "benchmark_contamination": contamination <= threshold.maximum_benchmark_contamination,
         "residual_near_duplicate_fraction": (
             residual_near_duplicate_fraction <= threshold.maximum_residual_near_duplicate_fraction
         ),
-        "source_token_cap": trust_metrics.maximum_source_token_fraction <= source_limits.source_max_token_fraction,
+        "source_token_cap": trust_metrics.maximum_source_token_fraction
+        <= source_limits.source_max_token_fraction,
         "source_family_token_cap": (
-            trust_metrics.maximum_source_family_token_fraction <= source_limits.source_family_max_token_fraction
+            trust_metrics.maximum_source_family_token_fraction
+            <= source_limits.source_family_max_token_fraction
         ),
         "cross_split_group_collisions": split_manifest.cross_split_group_collisions == 0,
         "exact_duplicates_after_promotion": True,
         "governed_source_reputation": governed_sources,
-        "reviewer_agreement": review_report.reviewer_agreement >= policy.review.reviewer_agreement_minimum,
-        "human_sample_acceptance": human_sample_acceptance >= policy.review.sampled_acceptance_minimum,
+        "reviewer_agreement": review_report.reviewer_agreement
+        >= policy.review.reviewer_agreement_minimum,
+        "human_sample_acceptance": human_sample_acceptance
+        >= policy.review.sampled_acceptance_minimum,
         "verified_patch_report_consistent": patch_report.accepted == patch_report.verified_evidence,
     }
     issues = [name for name, passed in checks.items() if not passed]
@@ -966,7 +1085,7 @@ def write_quality_dashboard(
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     check_rows = "".join(
-        f"<tr><td>{html.escape(name)}</td><td class=\"{'ok' if passed else 'bad'}\">"
+        f'<tr><td>{html.escape(name)}</td><td class="{"ok" if passed else "bad"}">'
         f"{'PASS' if passed else 'FAIL'}</td></tr>"
         for name, passed in sorted(decision.checks.items())
     )
@@ -1043,7 +1162,9 @@ def validate_dataset_manifest_for_promotion(
             raise ValueError(f"dataset artifact hash mismatch: {role}")
     if not manifest.dev_smoke:
         if not manifest.advancement_decision_path or not manifest.advancement_decision_sha256:
-            raise ValueError("production dataset manifest is missing calibration_5k advancement evidence")
+            raise ValueError(
+                "production dataset manifest is missing calibration_5k advancement evidence"
+            )
         if _sha256_file(manifest.advancement_decision_path) != manifest.advancement_decision_sha256:
             raise ValueError("production dataset advancement decision hash changed")
         required_paths = {
@@ -1121,7 +1242,9 @@ def build_production_dataset(config: ProductionDatasetConfig) -> ProductionDatas
                 else None
             ),
             "decision_sha256": advancement_decision_sha256,
-            "decision": advancement_decision.model_dump(mode="json") if advancement_decision else None,
+            "decision": advancement_decision.model_dump(mode="json")
+            if advancement_decision
+            else None,
             "dev_smoke_bypass": config.dev_smoke,
         },
     )
@@ -1136,7 +1259,9 @@ def build_production_dataset(config: ProductionDatasetConfig) -> ProductionDatas
     _write_json(reports_dir / "license_filter_report.json", license_report)
 
     quality_clean = work_dir / "02_quality_clean.jsonl"
-    quality_report = DatasetQualityGate(QualityGateConfig(require_license=True)).filter_jsonl(license_clean, quality_clean)
+    quality_report = DatasetQualityGate(QualityGateConfig(require_license=True)).filter_jsonl(
+        license_clean, quality_clean
+    )
     _write_json(reports_dir / "quality_gate_report.json", quality_report)
 
     no_benchmark = work_dir / "03_benchmark_clean.jsonl"
@@ -1150,7 +1275,9 @@ def build_production_dataset(config: ProductionDatasetConfig) -> ProductionDatas
             require_all=not config.dev_smoke,
         )
     elif not config.dev_smoke:
-        protected_holdout_issue = "production promotion requires all protected benchmark holdout files"
+        protected_holdout_issue = (
+            "production promotion requires all protected benchmark holdout files"
+        )
     benchmark_report = filter_benchmark_contamination_jsonl(
         [quality_clean],
         no_benchmark,
@@ -1167,7 +1294,9 @@ def build_production_dataset(config: ProductionDatasetConfig) -> ProductionDatas
     )
     _write_json(reports_dir / "near_duplicate_report.json", dedup_report)
 
-    source_quality_report = write_source_quality_report([deduped], reports_dir / "source_quality_report.json")
+    source_quality_report = write_source_quality_report(
+        [deduped], reports_dir / "source_quality_report.json"
+    )
     source_reputation_report = write_source_reputation_report(
         reports_dir / "source_reputation_report.json",
         source_quality_report_path=reports_dir / "source_quality_report.json",
@@ -1207,14 +1336,20 @@ def build_production_dataset(config: ProductionDatasetConfig) -> ProductionDatas
         decisions_path=decisions,
         reputation_report_path=reports_dir / "source_reputation_report.json",
         config=TrainingDataGateConfig(
-            min_quality_score=min(config.min_quality_score, 0.30) if config.dev_smoke else config.min_quality_score,
-            min_source_reputation_score=0.0 if config.dev_smoke else config.min_source_reputation_score,
+            min_quality_score=min(config.min_quality_score, 0.30)
+            if config.dev_smoke
+            else config.min_quality_score,
+            min_source_reputation_score=0.0
+            if config.dev_smoke
+            else config.min_source_reputation_score,
             min_reputation_lower_bound=policy.source_limits.minimum_reputation_lower_bound,
             require_governed_sources=not config.dev_smoke,
             allow_governed_quarantine=not config.dev_smoke,
             reject_noise_flags=not config.dev_smoke,
             require_high_value_review=not config.dev_smoke,
-            routine_review_fraction=0.0 if config.dev_smoke else policy.review.routine_sample_fraction,
+            routine_review_fraction=0.0
+            if config.dev_smoke
+            else policy.review.routine_sample_fraction,
             eval_holdout_fraction=config.eval_holdout_fraction,
             seed=config.seed,
         ),
@@ -1222,7 +1357,9 @@ def build_production_dataset(config: ProductionDatasetConfig) -> ProductionDatas
     _write_json(reports_dir / "training_data_gate_report.json", gate_report)
 
     patch_rows = work_dir / "06_verified_patch_tasks.jsonl"
-    patch_report = _write_normalized_rows(config.verified_patch_paths, patch_rows, default_category="verified_security_patch")
+    patch_report = _write_normalized_rows(
+        config.verified_patch_paths, patch_rows, default_category="verified_security_patch"
+    )
     _write_json(reports_dir / "verified_patch_task_report.json", patch_report)
 
     human_rows = work_dir / "07_human_review_approved.jsonl"
@@ -1243,13 +1380,19 @@ def build_production_dataset(config: ProductionDatasetConfig) -> ProductionDatas
 
     holdout_clean = work_dir / "10_holdout_clean.jsonl"
     removed_holdout = reports_dir / "benchmark_holdout_removed.jsonl"
-    holdout_report = enforce_benchmark_holdout(final_deduped, holdout_clean, removed_holdout, config.benchmark_holdout_paths)
+    holdout_report = enforce_benchmark_holdout(
+        final_deduped, holdout_clean, removed_holdout, config.benchmark_holdout_paths
+    )
     _write_json(reports_dir / "benchmark_holdout_separation_report.json", holdout_report)
 
     split_manifest = split_train_val_test(holdout_clean, final_dir, config)
     _copy_file(holdout, split_manifest.holdout_path)
     split_manifest = split_manifest.model_copy(
-        update={"holdout_records": sum(1 for _ in iter_jsonl(split_manifest.holdout_path)) if Path(split_manifest.holdout_path).exists() else 0}
+        update={
+            "holdout_records": sum(1 for _ in iter_jsonl(split_manifest.holdout_path))
+            if Path(split_manifest.holdout_path).exists()
+            else 0
+        }
     )
     _write_json(reports_dir / "train_val_test_split_manifest.json", split_manifest)
 
@@ -1290,7 +1433,9 @@ def build_production_dataset(config: ProductionDatasetConfig) -> ProductionDatas
     )
     validation_report.write(reports_dir / "dataset_validation")
 
-    final_records = split_manifest.train_records + split_manifest.val_records + split_manifest.test_records
+    final_records = (
+        split_manifest.train_records + split_manifest.val_records + split_manifest.test_records
+    )
     issues = _build_issues(
         config=config,
         final_records=final_records,
@@ -1315,8 +1460,14 @@ def build_production_dataset(config: ProductionDatasetConfig) -> ProductionDatas
         promotion_decision = promotion_decision.model_copy(
             update={
                 "status": "rejected",
-                "checks": {**promotion_decision.checks, "source_registry_production_contract": False},
-                "issues": [*promotion_decision.issues, f"source_registry:{source_registry_production_issue}"],
+                "checks": {
+                    **promotion_decision.checks,
+                    "source_registry_production_contract": False,
+                },
+                "issues": [
+                    *promotion_decision.issues,
+                    f"source_registry:{source_registry_production_issue}",
+                ],
             }
         )
     if protected_holdout_issue:
@@ -1324,7 +1475,10 @@ def build_production_dataset(config: ProductionDatasetConfig) -> ProductionDatas
             update={
                 "status": "rejected",
                 "checks": {**promotion_decision.checks, "protected_benchmark_registry": False},
-                "issues": [*promotion_decision.issues, f"protected_holdouts:{protected_holdout_issue}"],
+                "issues": [
+                    *promotion_decision.issues,
+                    f"protected_holdouts:{protected_holdout_issue}",
+                ],
             }
         )
     issues.extend(f"promotion:{issue}" for issue in promotion_decision.issues)
@@ -1333,7 +1487,9 @@ def build_production_dataset(config: ProductionDatasetConfig) -> ProductionDatas
         non_validation_issues = [issue for issue in issues if issue == "dataset_validation_failed"]
         status = "passed" if not non_validation_issues else "failed"
 
-    promotion_decision_path = _write_json(reports_dir / "promotion_decision.json", promotion_decision)
+    promotion_decision_path = _write_json(
+        reports_dir / "promotion_decision.json", promotion_decision
+    )
     quality_dashboard = write_quality_dashboard(
         reports_dir / "dataset_quality_dashboard.html",
         dataset_id=config.dataset_id,
@@ -1418,8 +1574,12 @@ def build_production_dataset(config: ProductionDatasetConfig) -> ProductionDatas
         advancement_decision_sha256=advancement_decision_sha256,
         governance_paths={
             "source_registry_path": str(Path(config.source_registry_path).resolve()),
-            "protected_benchmark_config_path": str(Path(config.protected_benchmark_config_path).resolve()),
-            "protected_benchmark_manifest_path": str(Path(config.protected_benchmark_manifest_path).resolve()),
+            "protected_benchmark_config_path": str(
+                Path(config.protected_benchmark_config_path).resolve()
+            ),
+            "protected_benchmark_manifest_path": str(
+                Path(config.protected_benchmark_manifest_path).resolve()
+            ),
             "reviewer_roster_path": str(Path(config.reviewer_roster_path).resolve()),
             "legal_evidence_dir": str(Path(config.legal_evidence_dir).resolve()),
             "trust_policy_path": str(Path(config.trust_policy_path).resolve()),
@@ -1461,7 +1621,9 @@ def write_markdown(manifest: ProductionDatasetManifest, path: str | Path) -> Pat
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build a governed production dataset pack for Craftly scratch training.")
+    parser = argparse.ArgumentParser(
+        description="Build a governed production dataset pack for Craftly scratch training."
+    )
     parser.add_argument("--input", nargs="+", required=True)
     parser.add_argument("--output-dir", default="data/production/craftly-corpus")
     parser.add_argument("--dataset-id", default="craftly-corpus")
@@ -1505,7 +1667,8 @@ def main() -> None:
         advancement_decision_path=args.advancement_decision,
         tokenizer_path=args.tokenizer,
         source_review_report_path=args.source_review_report,
-        benchmark_holdout_paths=args.benchmark_holdout or ["data/eval/humaneval.jsonl", "data/eval/mbpp.jsonl"],
+        benchmark_holdout_paths=args.benchmark_holdout
+        or ["data/eval/humaneval.jsonl", "data/eval/mbpp.jsonl"],
         verified_patch_paths=args.verified_patch,
         human_review_approved_paths=args.human_review_approved,
         dev_smoke=args.dev_smoke,
@@ -1517,7 +1680,7 @@ def main() -> None:
         seed=args.seed,
     )
     manifest = build_production_dataset(config)
-    print(json.dumps(manifest.model_dump(), indent=2, sort_keys=True))
+    print_report(manifest)
     if manifest.status not in {"passed", "promoted"}:
         raise SystemExit(2)
 

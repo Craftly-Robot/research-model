@@ -11,7 +11,6 @@ from pathlib import Path
 
 from alembic import op
 
-
 revision = "0008_rag_operations"
 down_revision = "0007_hybrid_rag"
 branch_labels = None
@@ -19,7 +18,9 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute(Path("src/craftly/db/migrations/0008_rag_operations.sql").read_text(encoding="utf-8"))
+    op.execute(
+        Path("src/craftly/db/migrations/0008_rag_operations.sql").read_text(encoding="utf-8")
+    )
 
 
 def downgrade() -> None:

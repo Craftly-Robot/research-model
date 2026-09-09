@@ -37,8 +37,8 @@ from src.craftly.deployment.production_proof import (
     run_native_serving_load_test,
     run_production_proof,
 )
-from src.craftly.learning.calibration_gate import CalibrationDecision, CalibrationPreflightReport
 from src.craftly.learning.ablation_runner import verify_promotion_chain
+from src.craftly.learning.calibration_gate import CalibrationDecision, CalibrationPreflightReport
 from src.craftly.learning.production_dataset import (
     ProductionDatasetManifest,
     validate_dataset_manifest_for_promotion,
@@ -46,7 +46,6 @@ from src.craftly.learning.production_dataset import (
 from src.craftly.model_ops.tokenizer_pipeline import TokenizerAuditReport
 from src.craftly.shared.integrity import canonical_json_bytes, sha256_file
 from src.craftly.shared.schemas import StrictModel
-
 
 QualificationStatus = Literal["passed", "failed", "blocked", "not_run"]
 HEX_SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -66,7 +65,7 @@ class LoadStagePolicy(StrictModel):
     minimum_throughput_rps: float = Field(gt=0.0)
 
     @model_validator(mode="after")
-    def validate_stage(self) -> "LoadStagePolicy":
+    def validate_stage(self) -> LoadStagePolicy:
         if self.streaming_requests > self.requests:
             raise ValueError("streaming_requests cannot exceed requests")
         if self.requests < self.concurrency:
@@ -101,7 +100,7 @@ class QualificationPolicy(StrictModel):
     maximum_checkpoint_reload_logit_difference: float = Field(default=0.005, ge=0.0)
 
     @model_validator(mode="after")
-    def validate_policy(self) -> "QualificationPolicy":
+    def validate_policy(self) -> QualificationPolicy:
         if self.minimum_internal_canary_users > self.maximum_internal_canary_users:
             raise ValueError("minimum_internal_canary_users exceeds maximum")
         if sorted(self.required_canary_percentages) != self.required_canary_percentages:
@@ -116,12 +115,17 @@ class QualificationPolicy(StrictModel):
             raise ValueError("load stage concurrency values must be unique")
         if self.tokenizer_selection_mode == "fixed" and self.required_tokenizer_vocab_size is None:
             raise ValueError("fixed tokenizer selection requires required_tokenizer_vocab_size")
-        if self.tokenizer_selection_mode == "evidence_selected" and self.required_tokenizer_vocab_size is not None:
-            raise ValueError("evidence-selected tokenizer policy cannot hard-code a vocabulary size")
+        if (
+            self.tokenizer_selection_mode == "evidence_selected"
+            and self.required_tokenizer_vocab_size is not None
+        ):
+            raise ValueError(
+                "evidence-selected tokenizer policy cannot hard-code a vocabulary size"
+            )
         return self
 
     @classmethod
-    def from_file(cls, path: str | Path) -> "QualificationPolicy":
+    def from_file(cls, path: str | Path) -> QualificationPolicy:
         source = Path(path).expanduser().resolve(strict=True)
         if source.stat().st_size > 1_048_576:
             raise ValueError("qualification policy exceeds 1 MiB")
@@ -230,7 +234,7 @@ class SecurityReviewEvidence(StrictModel):
         return value
 
     @model_validator(mode="after")
-    def validate_independence(self) -> "SecurityReviewEvidence":
+    def validate_independence(self) -> SecurityReviewEvidence:
         normalized = {reviewer.strip().lower() for reviewer in self.reviewers}
         if len(normalized) != len(self.reviewers):
             raise ValueError("security reviewers must be distinct")
@@ -280,7 +284,7 @@ class OperatorNotificationEvidence(StrictModel):
         return value
 
     @model_validator(mode="after")
-    def validate_deliveries(self) -> "OperatorNotificationEvidence":
+    def validate_deliveries(self) -> OperatorNotificationEvidence:
         if hmac.compare_digest(self.firing_delivery_id, self.recovery_delivery_id):
             raise ValueError("firing and recovery delivery IDs must be distinct")
         return self
@@ -395,7 +399,9 @@ def verify_qualification_report(
         if report.signature_algorithm != "HMAC-SHA256" or not report.signature:
             raise ValueError("qualification report signature metadata is incomplete")
         if not signing_key:
-            raise ValueError("qualification report signature cannot be verified without signing key")
+            raise ValueError(
+                "qualification report signature cannot be verified without signing key"
+            )
         expected_signature = hmac.new(
             signing_key.encode("utf-8"),
             report.report_sha256.encode("ascii"),
@@ -428,9 +434,7 @@ def bind_evidence(
         raise ValueError(f"{evidence_id} exceeds the 128 MiB evidence limit")
     age = max(0.0, time.time() - stat.st_mtime)
     if age > maximum_age_seconds:
-        raise ValueError(
-            f"{evidence_id} is stale: age={age:.0f}s, maximum={maximum_age_seconds}s"
-        )
+        raise ValueError(f"{evidence_id} is stale: age={age:.0f}s, maximum={maximum_age_seconds}s")
     return EvidenceBinding(
         evidence_id=evidence_id,
         path=str(source),
@@ -476,7 +480,11 @@ def _git_commit() -> str:
         timeout=10,
     )
     value = completed.stdout.strip().lower()
-    return value if completed.returncode == 0 and re.fullmatch(r"[0-9a-f]{40}", value) else "unavailable"
+    return (
+        value
+        if completed.returncode == 0 and re.fullmatch(r"[0-9a-f]{40}", value)
+        else "unavailable"
+    )
 
 
 def run_fixed_functional_gates(output_dir: Path, *, timeout_seconds: int) -> QualificationCheck:
@@ -646,20 +654,12 @@ def validate_training_proofs(
         if not isinstance(rows, list):
             raise ValueError("training proof report proofs must be a list")
         statuses = {
-            str(row.get("name")): str(row.get("status"))
-            for row in rows
-            if isinstance(row, dict)
+            str(row.get("name")): str(row.get("status")) for row in rows if isinstance(row, dict)
         }
         missing_failure = [
-            name
-            for name in policy.required_training_proofs
-            if statuses.get(name) != "passed"
+            name for name in policy.required_training_proofs if statuses.get(name) != "passed"
         ]
-        proof_by_name = {
-            str(row.get("name")): row
-            for row in rows
-            if isinstance(row, dict)
-        }
+        proof_by_name = {str(row.get("name")): row for row in rows if isinstance(row, dict)}
         semantic_errors = [
             error
             for name in policy.required_training_proofs
@@ -782,7 +782,11 @@ def _validate_dataset_artifacts(dataset: ProductionDatasetManifest) -> list[str]
         blockers.append("dataset split is not proven family-safe")
     promotion = dataset.promotion_decision
     checks = promotion.get("checks") if isinstance(promotion, dict) else None
-    if not isinstance(checks, dict) or not checks or not all(value is True for value in checks.values()):
+    if (
+        not isinstance(checks, dict)
+        or not checks
+        or not all(value is True for value in checks.values())
+    ):
         blockers.append("dataset promotion checks are missing or contain a failure")
     return blockers
 
@@ -904,7 +908,9 @@ def validate_scratch_training_chain(
         )
         active_trust_policy = dataset.governance_paths.get("trust_policy_path")
         if not active_trust_policy:
-            blockers.append("production dataset manifest is missing its active trust-policy binding")
+            blockers.append(
+                "production dataset manifest is missing its active trust-policy binding"
+            )
         else:
             try:
                 replayed_dataset = validate_dataset_manifest_for_promotion(
@@ -924,7 +930,9 @@ def validate_scratch_training_chain(
                     dataset.advancement_decision_sha256,
                 )
                 if replay_identity != parsed_identity:
-                    blockers.append("production dataset authority replay returned a different manifest identity")
+                    blockers.append(
+                        "production dataset authority replay returned a different manifest identity"
+                    )
             except Exception as exc:
                 blockers.append(f"production dataset authority replay failed: {exc}")
         tokenizer = TokenizerAuditReport.model_validate(
@@ -951,17 +959,24 @@ def validate_scratch_training_chain(
         ):
             blockers.append("calibration_5k decision did not unlock production_100k")
         if calibration_5k.prior_decision_sha256 != bindings["calibration-200-decision"].sha256:
-            blockers.append("calibration_5k is not hash-bound to the supplied calibration_200 decision")
+            blockers.append(
+                "calibration_5k is not hash-bound to the supplied calibration_200 decision"
+            )
 
         if dataset.status != "promoted" or dataset.dev_smoke:
             blockers.append("production dataset manifest is not a non-smoke promoted version")
-        if int(dataset.metrics.get("promoted_records", 0)) < active_policy.minimum_promoted_dataset_records:
+        if (
+            int(dataset.metrics.get("promoted_records", 0))
+            < active_policy.minimum_promoted_dataset_records
+        ):
             blockers.append(
                 "production dataset has fewer than "
                 f"{active_policy.minimum_promoted_dataset_records:,} promoted records"
             )
         if dataset.advancement_decision_sha256 != bindings["calibration-5k-decision"].sha256:
-            blockers.append("production dataset is not hash-bound to the supplied calibration_5k decision")
+            blockers.append(
+                "production dataset is not hash-bound to the supplied calibration_5k decision"
+            )
         if dataset.promotion_decision.get("status") != "promoted":
             blockers.append("dataset promotion decision is not promoted")
         blockers.extend(_validate_dataset_artifacts(dataset))
@@ -1001,10 +1016,11 @@ def validate_scratch_training_chain(
         ):
             blockers.append("evidence-selected tokenizer qualification did not pass")
         if tokenizer.dataset_manifest_sha256 != bindings["production-dataset-manifest"].sha256:
-            blockers.append("tokenizer is not hash-bound to the supplied production dataset manifest")
+            blockers.append(
+                "tokenizer is not hash-bound to the supplied production dataset manifest"
+            )
         if active_policy.require_family_safe_tokenizer_split and (
-            not tokenizer.family_safe_split
-            or tokenizer.split_strategy != "pre_split_family_safe"
+            not tokenizer.family_safe_split or tokenizer.split_strategy != "pre_split_family_safe"
         ):
             blockers.append("tokenizer corpus split is not family-safe")
         tokenizer_bound_files = {
@@ -1035,7 +1051,10 @@ def validate_scratch_training_chain(
         shard_payload = tokenizer.shard_manifest
         if str(shard_payload.get("tokenizer_sha256") or "") != tokenizer.tokenizer_sha256:
             blockers.append("token shard manifest tokenizer hash mismatch")
-        if str(shard_payload.get("dataset_manifest_sha256") or "") != tokenizer.dataset_manifest_sha256:
+        if (
+            str(shard_payload.get("dataset_manifest_sha256") or "")
+            != tokenizer.dataset_manifest_sha256
+        ):
             blockers.append("token shard manifest dataset hash mismatch")
         if str(shard_payload.get("split_strategy") or "") != tokenizer.split_strategy:
             blockers.append("token shard manifest split strategy mismatch")
@@ -1048,7 +1067,10 @@ def validate_scratch_training_chain(
             if not math.isfinite(relative_drop) or relative_drop < max(0.20, required_drop):
                 blockers.append("controlled overfit loss did not drop by the required amount")
             overfit_training = overfit.get("training_report")
-            if not isinstance(overfit_training, dict) or overfit_training.get("scratch_only") is not True:
+            if (
+                not isinstance(overfit_training, dict)
+                or overfit_training.get("scratch_only") is not True
+            ):
                 blockers.append("controlled overfit report is not bound to a scratch training run")
             elif (
                 overfit_training.get("checkpoint_reload_verified") is not True
@@ -1061,7 +1083,9 @@ def validate_scratch_training_chain(
             if not isinstance(payload, dict):
                 blockers.append(f"{name} training report must be an object")
                 continue
-            model = payload.get("model_config") if isinstance(payload.get("model_config"), dict) else {}
+            model = (
+                payload.get("model_config") if isinstance(payload.get("model_config"), dict) else {}
+            )
             if payload.get("status") not in {"passed", "early_stopped"}:
                 blockers.append(f"{name} training status did not pass")
             if payload.get("scratch_only") is not True:
@@ -1083,13 +1107,19 @@ def validate_scratch_training_chain(
             if (
                 int(model.get("hidden_size", 0)) < active_policy.t4_minimum_hidden_size
                 or int(model.get("num_layers", 0)) < active_policy.t4_minimum_layers
-                or int(model.get("max_sequence_length", 0)) < active_policy.t4_minimum_sequence_length
+                or int(model.get("max_sequence_length", 0))
+                < active_policy.t4_minimum_sequence_length
             ):
                 blockers.append(f"{name} model is below the T4 technical qualification profile")
-            if selected_vocab_size is None or int(model.get("vocab_size", 0)) != selected_vocab_size:
+            if (
+                selected_vocab_size is None
+                or int(model.get("vocab_size", 0)) != selected_vocab_size
+            ):
                 blockers.append(f"{name} model vocabulary does not match the qualified tokenizer")
             if payload.get("dataset_manifest_sha256") != tokenizer.shard_manifest_sha256:
-                blockers.append(f"{name} training dataset does not match the qualified shard manifest")
+                blockers.append(
+                    f"{name} training dataset does not match the qualified shard manifest"
+                )
             if payload.get("shard_manifest_sha256") != tokenizer.shard_manifest_sha256:
                 blockers.append(f"{name} shard manifest lineage mismatch")
             if payload.get("tokenizer_sha256") != tokenizer.tokenizer_sha256:
@@ -1108,9 +1138,13 @@ def validate_scratch_training_chain(
                 except Exception as exc:
                     blockers.append(str(exc))
             losses = payload.get("train_losses")
-            if not isinstance(losses, list) or not losses or any(
-                not isinstance(value, (int, float)) or not math.isfinite(float(value))
-                for value in losses
+            if (
+                not isinstance(losses, list)
+                or not losses
+                or any(
+                    not isinstance(value, (int, float)) or not math.isfinite(float(value))
+                    for value in losses
+                )
             ):
                 blockers.append(f"{name} training loss evidence is missing or non-finite")
             validation_losses = payload.get("validation_losses")
@@ -1124,18 +1158,20 @@ def validate_scratch_training_chain(
             ):
                 blockers.append(f"{name} validation loss evidence is non-finite")
 
-        metrics.update({
-            "calibration_200": calibration_200.status,
-            "calibration_5k": calibration_5k.status,
-            "promoted_records": int(dataset.metrics.get("promoted_records", 0)),
-            "dataset_manifest_sha256": bindings["production-dataset-manifest"].sha256,
-            "tokenizer_vocab_size": tokenizer.vocab_size_actual,
-            "tokenizer_sha256": tokenizer.tokenizer_sha256,
-            "token_shard_manifest_sha256": tokenizer.shard_manifest_sha256,
-            "overfit_relative_loss_drop": float(overfit.get("relative_loss_drop", -1.0)),
-            "t4_1k_steps": int(t4_reports["t4_1k"].get("steps", 0)),
-            "t4_10k_steps": int(t4_reports["t4_10k"].get("steps", 0)),
-        })
+        metrics.update(
+            {
+                "calibration_200": calibration_200.status,
+                "calibration_5k": calibration_5k.status,
+                "promoted_records": int(dataset.metrics.get("promoted_records", 0)),
+                "dataset_manifest_sha256": bindings["production-dataset-manifest"].sha256,
+                "tokenizer_vocab_size": tokenizer.vocab_size_actual,
+                "tokenizer_sha256": tokenizer.tokenizer_sha256,
+                "token_shard_manifest_sha256": tokenizer.shard_manifest_sha256,
+                "overfit_relative_loss_drop": float(overfit.get("relative_loss_drop", -1.0)),
+                "t4_1k_steps": int(t4_reports["t4_1k"].get("steps", 0)),
+                "t4_10k_steps": int(t4_reports["t4_10k"].get("steps", 0)),
+            }
+        )
     except Exception as exc:
         blockers.append(str(exc))
 
@@ -1216,8 +1252,7 @@ def _validate_training_proof_semantics(
             errors.append(f"{name}: idempotent duplicate rejection is missing")
         database = evidence.get("database")
         if not isinstance(database, dict) or any(
-            int(database.get(key, 0)) < 1
-            for key in ("job_rows", "attempt_rows", "ingress_rows")
+            int(database.get(key, 0)) < 1 for key in ("job_rows", "attempt_rows", "ingress_rows")
         ):
             errors.append(f"{name}: durable Postgres lifecycle evidence is incomplete")
     elif name == "ordered_event_stress_1000000":
@@ -1284,12 +1319,9 @@ def validate_security_review(
             blockers.append("security review has unresolved critical/high findings")
         if review.decision != "approved":
             blockers.append("security review decision is not approved")
-        if (
-            expected_scanner_report_sha256
-            and not hmac.compare_digest(
-                review.scanner_report_sha256,
-                expected_scanner_report_sha256,
-            )
+        if expected_scanner_report_sha256 and not hmac.compare_digest(
+            review.scanner_report_sha256,
+            expected_scanner_report_sha256,
         ):
             blockers.append("manual review is not bound to the current automated scanner report")
         return QualificationCheck(
@@ -1370,7 +1402,10 @@ def validate_canary(
             status="passed" if not blockers else "failed",
             summary="Internal users and progressive 1/10/50/100 percent traffic canary.",
             evidence=[binding],
-            metrics={"canary_id": canary.canary_id, "stages": [row.model_dump() for row in canary.stages]},
+            metrics={
+                "canary_id": canary.canary_id,
+                "stages": [row.model_dump() for row in canary.stages],
+            },
             blockers=blockers,
         )
     except Exception as exc:
@@ -1449,7 +1484,9 @@ async def check_observability(
                 or not notification.firing_delivered
                 or not notification.recovery_delivered
             ):
-                raise ValueError("operator firing and recovery notifications were not both delivered")
+                raise ValueError(
+                    "operator firing and recovery notifications were not both delivered"
+                )
         validated = {
             name: _validated_service_url(
                 str(value),
@@ -1459,7 +1496,13 @@ async def check_observability(
             for name, value in endpoints.items()
         }
         async with httpx.AsyncClient(timeout=10.0) as client:
-            metric_response, prometheus_response, grafana_response, otel_response, alertmanager_response = await asyncio.gather(
+            (
+                metric_response,
+                prometheus_response,
+                grafana_response,
+                otel_response,
+                alertmanager_response,
+            ) = await asyncio.gather(
                 client.get(validated["metrics"]),
                 client.get(validated["prometheus"]),
                 client.get(validated["grafana"]),
@@ -1532,9 +1575,7 @@ async def prove_alert_lifecycle(
     firing = [
         {
             "labels": labels,
-            "annotations": {
-                "summary": "Synthetic qualification alert; routed to null receiver"
-            },
+            "annotations": {"summary": "Synthetic qualification alert; routed to null receiver"},
             "startsAt": now.isoformat(),
             "endsAt": datetime.fromtimestamp(now.timestamp() + 300, UTC).isoformat(),
             "generatorURL": "https://craftly.invalid/qualification",
@@ -1558,8 +1599,7 @@ async def prove_alert_lifecycle(
         )
         response.raise_for_status()
         return any(
-            isinstance(row, dict)
-            and row.get("labels", {}).get("craftly_proof_id") == proof_id
+            isinstance(row, dict) and row.get("labels", {}).get("craftly_proof_id") == proof_id
             for row in response.json()
         )
 
@@ -1607,11 +1647,7 @@ def _map_live_proof(report: ProductionProofReport) -> tuple[QualificationCheck, 
         failed = [row for row in rows if row.status == "failed"]
         blocked = [row for row in rows if row.status in {"skipped", "blocked", "not_run"}]
         status: QualificationStatus = (
-            "failed"
-            if failed
-            else "blocked"
-            if blocked or missing
-            else "passed"
+            "failed" if failed else "blocked" if blocked or missing else "passed"
         )
         return QualificationCheck(
             subsystem=subsystem,
@@ -1657,8 +1693,7 @@ async def run_qualification(args: argparse.Namespace) -> tuple[ProductionQualifi
         redis_url=args.redis_url or os.environ.get("CRAFTLY_REDIS_URL"),
         object_store_uri=args.object_store_uri or os.environ.get("CRAFTLY_OBJECT_STORE_URI"),
         object_store_endpoint_url=(
-            args.object_store_endpoint_url
-            or os.environ.get("CRAFTLY_OBJECT_STORE_ENDPOINT_URL")
+            args.object_store_endpoint_url or os.environ.get("CRAFTLY_OBJECT_STORE_ENDPOINT_URL")
         ),
         qdrant_url=args.qdrant_url or os.environ.get("CRAFTLY_QDRANT_URL"),
         allowed_insecure_service_hosts=args.allow_insecure_service_host,
@@ -1754,7 +1789,9 @@ async def run_qualification(args: argparse.Namespace) -> tuple[ProductionQualifi
             else live_security.error
             or str(live_security.details.get("reason") or live_security.status)
         )
-        security.status = "failed" if live_security and live_security.status == "failed" else "blocked"
+        security.status = (
+            "failed" if live_security and live_security.status == "failed" else "blocked"
+        )
         security.blockers.append(f"automated security audit: {reason}")
     canary = validate_canary(args.canary_report, policy=policy)
     checks = [
@@ -1902,10 +1939,7 @@ def main() -> None:
                 "report_id": report.report_id,
                 "report_path": str(path),
                 "report_sha256": report.report_sha256,
-                "checks": {
-                    check.subsystem: check.status
-                    for check in report.checks
-                },
+                "checks": {check.subsystem: check.status for check in report.checks},
             },
             indent=2,
             sort_keys=True,

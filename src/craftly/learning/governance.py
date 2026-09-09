@@ -1,4 +1,4 @@
-﻿"""Source governance, license approval, and human review operations."""
+"""Source governance, license approval, and human review operations."""
 
 from __future__ import annotations
 
@@ -11,8 +11,7 @@ from typing import Any, Literal
 
 from pydantic import Field
 
-from src.craftly.shared.schemas import StrictModel
-
+from src.craftly.shared.schemas import StrictModel, print_report
 
 ApprovalStatus = Literal["pending", "approved", "rejected"]
 ReviewStatus = Literal["queued", "approved", "rejected"]
@@ -78,7 +77,10 @@ class GovernanceStore:
         decided_by: str,
         reason: str,
     ) -> SourceApprovalRequest:
-        rows = [SourceApprovalRequest.model_validate(row) for row in self._read_jsonl(self.approvals_path)]
+        rows = [
+            SourceApprovalRequest.model_validate(row)
+            for row in self._read_jsonl(self.approvals_path)
+        ]
         updated: list[SourceApprovalRequest] = []
         selected: SourceApprovalRequest | None = None
         for row in rows:
@@ -123,8 +125,13 @@ class GovernanceStore:
         return selected
 
     def report(self) -> GovernanceReport:
-        approvals = [SourceApprovalRequest.model_validate(row) for row in self._read_jsonl(self.approvals_path)]
-        reviews = [HumanReviewItem.model_validate(row) for row in self._read_jsonl(self.review_path)]
+        approvals = [
+            SourceApprovalRequest.model_validate(row)
+            for row in self._read_jsonl(self.approvals_path)
+        ]
+        reviews = [
+            HumanReviewItem.model_validate(row) for row in self._read_jsonl(self.review_path)
+        ]
         return GovernanceReport(
             approvals_pending=sum(1 for item in approvals if item.status == "pending"),
             approvals_approved=sum(1 for item in approvals if item.status == "approved"),
@@ -132,7 +139,9 @@ class GovernanceStore:
             review_queued=sum(1 for item in reviews if item.status == "queued"),
             review_approved=sum(1 for item in reviews if item.status == "approved"),
             review_rejected=sum(1 for item in reviews if item.status == "rejected"),
-            high_priority_review=sum(1 for item in reviews if item.status == "queued" and item.priority >= 8),
+            high_priority_review=sum(
+                1 for item in reviews if item.status == "queued" and item.priority >= 8
+            ),
         )
 
     def _append(self, path: Path, payload: dict[str, Any]) -> None:
@@ -159,7 +168,9 @@ class GovernanceStore:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Manage Craftly source governance and human review queues.")
+    parser = argparse.ArgumentParser(
+        description="Manage Craftly source governance and human review queues."
+    )
     parser.add_argument("--store", default="artifacts/craftly/governance")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -217,15 +228,18 @@ def main() -> None:
         )
     elif args.command == "enqueue-review":
         result = store.enqueue_review(
-            HumanReviewItem(kind=args.kind, priority=args.priority, payload=json.loads(args.payload_json))
+            HumanReviewItem(
+                kind=args.kind, priority=args.priority, payload=json.loads(args.payload_json)
+            )
         )
     elif args.command == "decide-review":
-        result = store.decide_review(args.item_id, status=args.status, reviewer=args.reviewer, reason=args.reason)
+        result = store.decide_review(
+            args.item_id, status=args.status, reviewer=args.reviewer, reason=args.reason
+        )
     else:
         result = store.report()
-    print(json.dumps(result.model_dump(), indent=2, sort_keys=True))
+    print_report(result)
 
 
 if __name__ == "__main__":
     main()
-

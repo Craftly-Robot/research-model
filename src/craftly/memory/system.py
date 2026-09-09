@@ -1,4 +1,4 @@
-﻿"""Unified memory system for Craftly."""
+"""Unified memory system for Craftly."""
 
 from __future__ import annotations
 
@@ -12,9 +12,15 @@ from src.craftly.db import LocalStore
 from src.craftly.indexing.vector_index import cosine, hashed_embedding
 from src.craftly.shared.schemas import StrictModel
 
-
 MemoryLayer = Literal["working", "project", "episodic", "semantic", "user", "verified_fix"]
-ALLOWED_MEMORY_LAYERS: set[str] = {"working", "project", "episodic", "semantic", "user", "verified_fix"}
+ALLOWED_MEMORY_LAYERS: set[str] = {
+    "working",
+    "project",
+    "episodic",
+    "semantic",
+    "user",
+    "verified_fix",
+}
 ALLOWED_INGESTION_KINDS: set[str] = {
     "benchmark_pass",
     "project_fact",
@@ -69,7 +75,9 @@ class MemoryRetrievalReport(StrictModel):
     hits: list[MemoryRetrievalHit]
 
 
-def recency_weight(created_at: float, *, now: float | None = None, half_life_seconds: float = 30 * 24 * 60 * 60) -> float:
+def recency_weight(
+    created_at: float, *, now: float | None = None, half_life_seconds: float = 30 * 24 * 60 * 60
+) -> float:
     active_now = now or time.time()
     age = max(0.0, active_now - created_at)
     return 0.5 ** (age / half_life_seconds)
@@ -92,7 +100,13 @@ def memory_rank_score(
 class UnifiedMemoryManager:
     """Typed memory manager with strict anti-pollution ingestion rules."""
 
-    def __init__(self, *, project_id: str | None = "default", store: LocalStore | None = None, dims: int = 384) -> None:
+    def __init__(
+        self,
+        *,
+        project_id: str | None = "default",
+        store: LocalStore | None = None,
+        dims: int = 384,
+    ) -> None:
         self.project_id = project_id
         self.store = store
         self.dims = dims
@@ -159,20 +173,35 @@ class UnifiedMemoryManager:
         )
         return entry.model_dump()
 
-    def retrieve(self, query: str, *, limit: int = 5, layers: list[MemoryLayer] | None = None) -> dict[str, Any]:
+    def retrieve(
+        self, query: str, *, limit: int = 5, layers: list[MemoryLayer] | None = None
+    ) -> dict[str, Any]:
         return self.retrieve_report(query, limit=limit, layers=layers).model_dump()
 
-    def retrieve_report(self, query: str, *, limit: int = 5, layers: list[MemoryLayer] | None = None) -> MemoryRetrievalReport:
-        active_layers = layers or ["verified_fix", "project", "episodic", "semantic", "user", "working"]
+    def retrieve_report(
+        self, query: str, *, limit: int = 5, layers: list[MemoryLayer] | None = None
+    ) -> MemoryRetrievalReport:
+        active_layers = layers or [
+            "verified_fix",
+            "project",
+            "episodic",
+            "semantic",
+            "user",
+            "working",
+        ]
         unknown_layers = [layer for layer in active_layers if layer not in ALLOWED_MEMORY_LAYERS]
         if unknown_layers:
-            raise ValueError(f"unsupported memory layer(s): {', '.join(str(layer) for layer in unknown_layers)}")
+            raise ValueError(
+                f"unsupported memory layer(s): {', '.join(str(layer) for layer in unknown_layers)}"
+            )
         entries = self._load_entries(active_layers)
         query_vector = hashed_embedding(query, dims=self.dims)
         hits: list[MemoryRetrievalHit] = []
         now = time.time()
         for entry in entries:
-            vector_similarity = max(0.0, cosine(query_vector, hashed_embedding(entry.text(), dims=self.dims)))
+            vector_similarity = max(
+                0.0, cosine(query_vector, hashed_embedding(entry.text(), dims=self.dims))
+            )
             recency = recency_weight(entry.created_at_unix, now=now)
             usage = usage_count_weight(entry.usage_count)
             final_score = memory_rank_score(
@@ -214,7 +243,9 @@ class UnifiedMemoryManager:
             hits=selected,
         )
 
-    def archive_low_quality(self, *, min_success_rate: float = 0.25, min_usage_count: int = 0) -> list[MemoryEntry]:
+    def archive_low_quality(
+        self, *, min_success_rate: float = 0.25, min_usage_count: int = 0
+    ) -> list[MemoryEntry]:
         archived: list[MemoryEntry] = []
         kept: list[MemoryEntry] = []
         for entry in self.entries:
@@ -270,4 +301,3 @@ class UnifiedMemoryManager:
 
 
 CraftlyMemory = UnifiedMemoryManager
-

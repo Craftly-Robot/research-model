@@ -1,4 +1,4 @@
-﻿"""Consolidated Craftly command line entrypoint."""
+"""Consolidated Craftly command line entrypoint."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ import asyncio
 import json
 import subprocess
 import sys
-import urllib.request
 import urllib.error
+import urllib.request
 from pathlib import Path
 
 from src.craftly.runtime.engine import CraftlyRuntime
@@ -96,12 +96,8 @@ examples:
     p_run = sub.add_parser("run", help="Run the agent on a prompt")
     p_run.add_argument("--prompt", default="build a secure login API with tests")
     p_run.add_argument("--workspace", type=Path, default=Path("."))
-    p_run.add_argument(
-        "--policy-mode", choices=["strict", "development"], default="development"
-    )
-    p_run.add_argument(
-        "--agent-backend-mode", choices=["auto", "active", "mock"], default="mock"
-    )
+    p_run.add_argument("--policy-mode", choices=["strict", "development"], default="development")
+    p_run.add_argument("--agent-backend-mode", choices=["auto", "active", "mock"], default="mock")
     p_run.add_argument("--max-agent-nodes", type=int, default=3)
     p_run.add_argument("--no-verifier", action="store_true")
     p_run.add_argument("--no-security", action="store_true")

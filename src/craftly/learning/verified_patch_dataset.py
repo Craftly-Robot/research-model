@@ -1,4 +1,4 @@
-﻿"""Build verified defensive security patch datasets from approved Git history."""
+"""Build verified defensive security patch datasets from approved Git history."""
 
 from __future__ import annotations
 
@@ -15,8 +15,8 @@ from pydantic import Field
 
 from src.craftly.learning.quality import stable_hash
 from src.craftly.learning.repo_patch_extraction import SECURITY_PATCH_TERMS
-from src.craftly.shared.schemas import StrictModel
-
+from src.craftly.shared.schemas import print_report
+from src.craftly.shared.schemas import StrictModel, print_report
 
 DEFAULT_ALLOWED_LICENSES = {
     "apache-2.0",
@@ -61,7 +61,14 @@ class VerifiedPatchDatasetReport(StrictModel):
     created_at_unix: float = Field(default_factory=time.time)
 
 
-def run_git(repo: Path, args: list[str], *, input_text: str | None = None, timeout: int = 30, max_bytes: int = 4_000_000) -> subprocess.CompletedProcess[str]:
+def run_git(
+    repo: Path,
+    args: list[str],
+    *,
+    input_text: str | None = None,
+    timeout: int = 30,
+    max_bytes: int = 4_000_000,
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["git", "-C", str(repo), *args],
         input=input_text,
@@ -133,8 +140,14 @@ def verify_patch_applies(repo: Path, parent: str, patch: str) -> dict[str, Any]:
             return {"status": "failed", "method": "git_clone", "stderr": clone.stderr[:1000]}
         checkout = run_git(worktree, ["checkout", "--quiet", parent], timeout=30)
         if checkout.returncode != 0:
-            return {"status": "failed", "method": "git_checkout_parent", "stderr": checkout.stderr[:1000]}
-        check = run_git(worktree, ["apply", "--check", "--whitespace=nowarn", "-"], input_text=patch, timeout=30)
+            return {
+                "status": "failed",
+                "method": "git_checkout_parent",
+                "stderr": checkout.stderr[:1000],
+            }
+        check = run_git(
+            worktree, ["apply", "--check", "--whitespace=nowarn", "-"], input_text=patch, timeout=30
+        )
         return {
             "status": "passed" if check.returncode == 0 else "failed",
             "method": "git_apply_check_on_parent",
@@ -152,7 +165,9 @@ def build_prompt(*, subject: str, files: list[str], before_after: dict[str, dict
         f"Files changed: {', '.join(files[:20])}",
     ]
     for path, versions in list(before_after.items())[:3]:
-        context_parts.append(f"\n<file path=\"{path}\" before>\n{versions.get('before', '')[:4000]}\n</file>")
+        context_parts.append(
+            f'\n<file path="{path}" before>\n{versions.get("before", "")[:4000]}\n</file>'
+        )
     return "\n".join(context_parts)
 
 
@@ -211,7 +226,11 @@ def build_verified_patch_dataset(
                     skipped += 1
                     continue
                 parent = parent_result.stdout.strip()
-                patch = _must_git(repo, ["show", "--format=", "--patch", "--find-renames", "--binary", commit], max_bytes=max_patch_chars)
+                patch = _must_git(
+                    repo,
+                    ["show", "--format=", "--patch", "--find-renames", "--binary", commit],
+                    max_bytes=max_patch_chars,
+                )
                 if not patch.strip() or not looks_security_relevant(subject + "\n" + patch):
                     skipped += 1
                     continue
@@ -252,7 +271,9 @@ def build_verified_patch_dataset(
                     verification=verification,
                     content_hash=digest,
                 )
-                handle.write(json.dumps(record.model_dump(), ensure_ascii=False, sort_keys=True) + "\n")
+                handle.write(
+                    json.dumps(record.model_dump(), ensure_ascii=False, sort_keys=True) + "\n"
+                )
                 extracted += 1
     return VerifiedPatchDatasetReport(
         output_path=str(target),
@@ -266,8 +287,15 @@ def build_verified_patch_dataset(
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build verified defensive security patch JSONL from approved Git repos.")
-    parser.add_argument("--repo", action="append", required=True, help="Approved local Git repository path. Repeatable.")
+    parser = argparse.ArgumentParser(
+        description="Build verified defensive security patch JSONL from approved Git repos."
+    )
+    parser.add_argument(
+        "--repo",
+        action="append",
+        required=True,
+        help="Approved local Git repository path. Repeatable.",
+    )
     parser.add_argument("--output", required=True)
     parser.add_argument("--license", required=True)
     parser.add_argument("--max-commits-per-repo", type=int, default=500)
@@ -285,10 +313,11 @@ def main() -> None:
         max_patch_chars=args.max_patch_chars,
     )
     report_path = Path(args.output).with_suffix(".report.json")
-    report_path.write_text(json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    report_path.write_text(
+        json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8"
+    )
+    print_report(report)
 
 
 if __name__ == "__main__":
     main()
-

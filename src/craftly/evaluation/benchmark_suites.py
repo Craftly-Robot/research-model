@@ -1,4 +1,4 @@
-﻿"""Adapters for external-style benchmark suites.
+"""Adapters for external-style benchmark suites.
 
 These adapters intentionally require local files. Craftly does not silently
 download protected benchmarks into training or eval runs.
@@ -26,13 +26,13 @@ from src.craftly.model_ops.checkpoint_compare import (
 from src.craftly.model_ops.tokenizer_pipeline import load_tokenizer
 from src.craftly.model_ops.torch_decoder import select_torch_device
 from src.craftly.shared.integrity import sha256_file
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import write_report, print_report
+from src.craftly.shared.schemas import StrictModel, write_report, print_report
 from src.craftly.tools.sandbox import (
     DockerSandboxRunner,
     HardenedSandboxPolicy,
     SandboxRunRequest,
 )
-
 
 SuiteKind = Literal[
     "swe_bench_style",
@@ -81,7 +81,7 @@ class BenchmarkSuitesReport(StrictModel):
         root = Path(output_dir)
         root.mkdir(parents=True, exist_ok=True)
         target = root / "benchmark_suites_report.json"
-        target.write_text(json.dumps(self.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+        write_report(self, target)
         write_markdown(self, root / "benchmark_suites_report.md")
         return target
 
@@ -138,7 +138,9 @@ def code_style_to_tasks(path: str | Path, *, tag: str) -> list[BenchmarkTask]:
         prompt = str(row.get("prompt") or row.get("text") or row.get("question") or "")
         solution = str(row.get("canonical_solution") or row.get("code") or row.get("answer") or "")
         expected = row.get("expected_terms") or (["def"] if tag == "human_eval_style" else [])
-        source_text = f"{prompt}\n{solution}".strip() if tag == "human_eval_style" else (solution or prompt)
+        source_text = (
+            f"{prompt}\n{solution}".strip() if tag == "human_eval_style" else (solution or prompt)
+        )
         tasks.append(
             BenchmarkTask(
                 task_id=task_id,
@@ -285,7 +287,9 @@ def _long_context_prompt(row: dict[str, Any], *, reverse_segments: bool = False)
         raise ValueError("long-context row requires question or prompt")
     raw_segments = row.get("segments")
     if isinstance(raw_segments, list):
-        segments = [str(item.get("text") if isinstance(item, dict) else item) for item in raw_segments]
+        segments = [
+            str(item.get("text") if isinstance(item, dict) else item) for item in raw_segments
+        ]
     else:
         segments = [str(row.get("context") or "")]
     if reverse_segments:
@@ -325,9 +329,7 @@ def _score_long_context_output(output: str, row: dict[str, Any]) -> tuple[float,
     if isinstance(forbidden, str):
         forbidden = [forbidden]
     forbidden_hits = [
-        str(item)
-        for item in forbidden
-        if _normalized_answer(str(item)) in normalized_output
+        str(item) for item in forbidden if _normalized_answer(str(item)) in normalized_output
     ]
     unsupported = bool(forbidden_hits)
     return (1.0 if answer_hit and not unsupported else 0.0), unsupported, forbidden_hits
@@ -343,7 +345,9 @@ def run_long_context_benchmark_suites(
         if spec.kind not in {"ruler_style", "helmet_style", "repoqa_style"}
     ]
     if unsupported_kinds:
-        raise ValueError("long-context runner received unsupported suites: " + ", ".join(unsupported_kinds))
+        raise ValueError(
+            "long-context runner received unsupported suites: " + ", ".join(unsupported_kinds)
+        )
     device = select_torch_device(config.device)
     model, manifest = _load_model(config.checkpoint_manifest, device=device)
     tokenizer = load_tokenizer(config.tokenizer_path)
@@ -378,7 +382,9 @@ def run_long_context_benchmark_suites(
         order_deltas: list[float] = []
         for index, row in enumerate(rows):
             context_size = len(
-                json.dumps(row.get("segments", row.get("context", "")), ensure_ascii=False).encode("utf-8")
+                json.dumps(row.get("segments", row.get("context", "")), ensure_ascii=False).encode(
+                    "utf-8"
+                )
             )
             if context_size > config.maximum_context_bytes:
                 raise ValueError(
@@ -599,9 +605,7 @@ def run_executable_benchmark_suites(
     config: ExecutableBenchmarkConfig,
 ) -> BenchmarkSuitesReport:
     unsupported = [
-        spec.name
-        for spec in specs
-        if spec.kind not in {"human_eval_style", "mbpp_style"}
+        spec.name for spec in specs if spec.kind not in {"human_eval_style", "mbpp_style"}
     ]
     if unsupported:
         raise ValueError(
@@ -818,7 +822,9 @@ def write_markdown(report: BenchmarkSuitesReport, path: str | Path) -> Path:
         "|---|---|---|---:|---:|---:|---|---|",
     ]
     for suite in report.suites:
-        pass_at_k = ", ".join(f"{key}={value:.4f}" for key, value in sorted(suite.pass_at_k.items()))
+        pass_at_k = ", ".join(
+            f"{key}={value:.4f}" for key, value in sorted(suite.pass_at_k.items())
+        )
         lines.append(
             f"| {suite.name} | {suite.kind} | {suite.status} | {suite.score:.4f} | "
             f"{suite.total} | {suite.passed} | {pass_at_k} | {suite.reason} |"
@@ -828,14 +834,20 @@ def write_markdown(report: BenchmarkSuitesReport, path: str | Path) -> Path:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run local SWE-Bench/CyberSecEval-style benchmark adapters.")
+    parser = argparse.ArgumentParser(
+        description="Run local SWE-Bench/CyberSecEval-style benchmark adapters."
+    )
     parser.add_argument(
         "--mode",
         choices=["dataset-validation", "executable-model", "long-context-model"],
         default="dataset-validation",
     )
-    parser.add_argument("--suite", action="append", nargs=3, metavar=("NAME", "KIND", "PATH"), default=[])
-    parser.add_argument("--optional-suite", action="append", nargs=3, metavar=("NAME", "KIND", "PATH"), default=[])
+    parser.add_argument(
+        "--suite", action="append", nargs=3, metavar=("NAME", "KIND", "PATH"), default=[]
+    )
+    parser.add_argument(
+        "--optional-suite", action="append", nargs=3, metavar=("NAME", "KIND", "PATH"), default=[]
+    )
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--checkpoint-manifest")
     parser.add_argument("--tokenizer-path")
@@ -899,11 +911,10 @@ def main() -> None:
     else:
         report = run_benchmark_suites(specs)
     report.write(args.output_dir)
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
     if report.status != "passed":
         raise SystemExit(2)
 
 
 if __name__ == "__main__":
     main()
-

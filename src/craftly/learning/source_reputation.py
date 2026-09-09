@@ -1,4 +1,4 @@
-﻿"""Source reputation scoring for production data acquisition."""
+"""Source reputation scoring for production data acquisition."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from typing import Any
 
 from pydantic import Field
 
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import StrictModel, write_report, print_report
 
 
 class SourceReputationScore(StrictModel):
@@ -95,14 +95,21 @@ def _duplicate_rate(dedup_report: dict[str, Any], source: str) -> float:
     accepted = int(item.get("accepted", 0))
     duplicates = sum(
         int(item.get(key, 0))
-        for key in ("exact_duplicates", "structural_duplicates", "lineage_duplicates", "near_duplicates")
+        for key in (
+            "exact_duplicates",
+            "structural_duplicates",
+            "lineage_duplicates",
+            "near_duplicates",
+        )
     )
     return _clamp(duplicates / max(1, accepted + duplicates))
 
 
 def _contamination_rate(contamination_report: dict[str, Any], source: str, rows: int) -> float:
     hits = contamination_report.get("hits", []) if contamination_report else []
-    source_hits = sum(1 for hit in hits if str(hit.get("source") or hit.get("source_id") or "unknown") == source)
+    source_hits = sum(
+        1 for hit in hits if str(hit.get("source") or hit.get("source_id") or "unknown") == source
+    )
     return _clamp(source_hits / max(1, rows))
 
 
@@ -134,13 +141,17 @@ def build_source_reputation_report(
         rows = int(item.get("rows", 0))
         security_coverage = _clamp(float(item.get("defensive_security_rows", 0)) / max(1, rows))
         code_coverage = _clamp(float(item.get("code_rows", 0)) / max(1, rows))
-        task_evidence = task_by_source.get(source_name, {}) if isinstance(task_by_source, dict) else {}
+        task_evidence = (
+            task_by_source.get(source_name, {}) if isinstance(task_by_source, dict) else {}
+        )
         if isinstance(task_evidence, dict):
             task_count = int(task_evidence.get("extracted", task_evidence.get("tasks", 0)))
             task_coverage = _clamp(task_count / max(1, rows))
         else:
             task_coverage = 0.0
-        feedback_evidence = feedback_by_source.get(source_name, {}) if isinstance(feedback_by_source, dict) else {}
+        feedback_evidence = (
+            feedback_by_source.get(source_name, {}) if isinstance(feedback_by_source, dict) else {}
+        )
         benchmark_feedback_score = _clamp(
             float(feedback_evidence.get("score", 0.0))
             if isinstance(feedback_evidence, dict)
@@ -193,7 +204,15 @@ def build_source_reputation_report(
         elif trust_tier == "quarantine" or reviewed_records < minimum_reviewed_records:
             action = "quarantine"
         else:
-            action = "promote" if reputation >= 0.82 else "watch" if reputation >= 0.64 else "throttle" if reputation >= 0.46 else "block"
+            action = (
+                "promote"
+                if reputation >= 0.82
+                else "watch"
+                if reputation >= 0.64
+                else "throttle"
+                if reputation >= 0.46
+                else "block"
+            )
         scores.append(
             SourceReputationScore(
                 source=source_name,
@@ -220,11 +239,13 @@ def build_source_reputation_report(
     return SourceReputationReport(sources=scores)
 
 
-def write_source_reputation_report(output_path: str | Path, **kwargs: object) -> SourceReputationReport:
+def write_source_reputation_report(
+    output_path: str | Path, **kwargs: object
+) -> SourceReputationReport:
     report = build_source_reputation_report(**kwargs)
     target = Path(output_path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+    write_report(report, target)
     return report
 
 
@@ -251,9 +272,8 @@ def main() -> None:
         source_registry_path=args.source_registry,
         minimum_reviewed_records=args.minimum_reviewed_records,
     )
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
 
 
 if __name__ == "__main__":
     main()
-
