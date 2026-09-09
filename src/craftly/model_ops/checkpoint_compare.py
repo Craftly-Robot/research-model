@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import re
 import time
 from pathlib import Path
@@ -198,6 +197,8 @@ def _banned_next_tokens(tokens: list[int], ngram_size: int) -> set[int]:
 
 
 def _apply_repetition_controls(logits: Any, generated: list[int], config: GenerationConfig) -> Any:
+    require_torch()
+    assert torch is not None
     if not generated:
         return logits
     if config.repetition_penalty > 1.0:
@@ -322,6 +323,8 @@ def generate_text(
     device: "torch.device",
     config: GenerationConfig,
 ) -> tuple[str, int]:
+    require_torch()
+    assert torch is not None
     encoded = tokenizer.encode(prompt).ids
     if not encoded:
         encoded = [0]

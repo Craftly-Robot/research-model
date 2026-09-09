@@ -43,7 +43,6 @@ from src.craftly.evaluation.benchmark_suites import (
 from src.craftly.evaluation.checkpoint_eval import evaluate_checkpoint
 from src.craftly.model_ops.checkpoint_compare import (
     CheckpointComparisonReport,
-    CheckpointSideReport,
     GenerationConfig,
     compare_checkpoints,
     evaluate_checkpoint_prompt_suite,
@@ -1361,7 +1360,6 @@ def run_defensive_stage(
         )
     finally:
         progress.close()
-    training_report_path = Path(root / "train" / "pretrain_report.json").resolve(strict=True)
     stage_training_report = stage_root / "training_report.json"
     _atomic_json(stage_training_report, training)
     best_manifest = Path(str(training["best_checkpoint_manifest"])).resolve(strict=True)

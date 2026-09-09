@@ -11,7 +11,6 @@ from typing import Any
 from src.craftly.model_ops.foundation import CheckpointManifest
 from src.craftly.model_ops.torch_decoder import (
     CraftlyDecoderLM,
-    ScratchDecoderConfig,
     require_torch,
     save_trusted_checkpoint,
     select_torch_device,
@@ -25,6 +24,8 @@ except ImportError:  # pragma: no cover
 
 
 def gpu_name(device: "torch.device") -> str:
+    require_torch()
+    assert torch is not None
     if device.type == "cuda":
         return str(torch.cuda.get_device_name(device))
     return "cpu"

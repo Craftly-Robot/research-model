@@ -650,7 +650,6 @@ class RepositoryIndexer:
         if estimate_tokens(content) <= max_chunk_tokens:
             yield chunk
             return
-        lines = content.splitlines()
         max_chars = max_chunk_tokens * 4
         overlap_chars = overlap_tokens * 4
         start = 0

@@ -6,7 +6,6 @@ import argparse
 import json
 import statistics
 from pathlib import Path
-from typing import Any
 
 from pydantic import Field
 

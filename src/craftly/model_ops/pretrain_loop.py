@@ -60,6 +60,8 @@ def build_learning_rate_scheduler(
     schedule: LearningRateSchedule,
     minimum_learning_rate_ratio: float,
 ) -> Any:
+    require_torch()
+    assert torch is not None
     if total_steps < 1:
         raise ValueError("total_steps must be positive")
     if not 0 <= warmup_steps < total_steps:
@@ -92,6 +94,8 @@ def validate_runtime_versions(
     expected_cuda: str | None,
     device: Any,
 ) -> dict[str, str]:
+    require_torch()
+    assert torch is not None
     actual = {
         "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
         "pytorch": str(torch.__version__).split("+", 1)[0],
@@ -326,28 +330,36 @@ def write_cluster_training_plan(*, output_path: str | Path, plan: dict[str, Any]
 
 def distributed_is_initialized() -> bool:
     require_torch()
+    assert torch is not None
     return bool(torch.distributed.is_available() and torch.distributed.is_initialized())
 
 
 def distributed_rank() -> int:
+    require_torch()
+    assert torch is not None
     if distributed_is_initialized():
         return int(torch.distributed.get_rank())
     return 0
 
 
 def distributed_world_size() -> int:
+    require_torch()
+    assert torch is not None
     if distributed_is_initialized():
         return int(torch.distributed.get_world_size())
     return 1
 
 
 def distributed_barrier() -> None:
+    require_torch()
+    assert torch is not None
     if distributed_is_initialized():
         torch.distributed.barrier()
 
 
 def initialize_distributed_runtime(strategy: DistributedStrategy, requested_device: "torch.device") -> dict[str, Any]:
     require_torch()
+    assert torch is not None
     if strategy == "none":
         return {"enabled": False, "strategy": "none", "rank": 0, "world_size": 1, "local_rank": 0}
     if is_deepspeed_strategy(strategy):
@@ -465,6 +477,8 @@ def wrap_for_deepspeed(
 
 
 def autocast_dtype(name: str) -> "torch.dtype":
+    require_torch()
+    assert torch is not None
     if name == "bf16":
         return torch.bfloat16
     if name == "fp16":
@@ -574,6 +588,8 @@ def _save_dcp_checkpoint(
     scheduler: "torch.optim.lr_scheduler.LRScheduler | None",
     trainer_state: dict[str, Any],
 ) -> None:
+    require_torch()
+    assert torch is not None
     import torch.distributed.checkpoint as dcp
     from torch.distributed.checkpoint.state_dict import get_state_dict
 
@@ -620,6 +636,8 @@ def _load_dcp_checkpoint(
     expected_tokenizer_sha256: str | None = None,
     expected_training_invariants: dict[str, Any] | None = None,
 ) -> tuple[int, int]:
+    require_torch()
+    assert torch is not None
     import torch.distributed.checkpoint as dcp
     from torch.distributed.checkpoint.state_dict import get_state_dict, set_state_dict
 
@@ -782,6 +800,7 @@ def git_commit(root: str | Path = ".") -> str:
 
 def training_environment_report(*, device: "torch.device", dtype: str, distributed_strategy: DistributedStrategy) -> dict[str, Any]:
     require_torch()
+    assert torch is not None
     cuda_available = bool(torch.cuda.is_available())
     return {
         "python": __import__("sys").version.split()[0],
@@ -933,6 +952,8 @@ def checkpoint_logit_probe(
     device: "torch.device",
 ) -> "torch.Tensor":
     """Capture deterministic logits used to prove a checkpoint reload is exact enough."""
+    require_torch()
+    assert torch is not None
     sequence_length = min(8, config.max_sequence_length)
     token_ids = torch.arange(sequence_length, dtype=torch.long, device=device).remainder(
         config.vocab_size
@@ -1089,6 +1110,8 @@ def validate_production_training_args(
 
 
 def tensor_batch(batch: list[list[int]], *, device: "torch.device") -> "torch.Tensor":
+    require_torch()
+    assert torch is not None
     return torch.tensor(batch, dtype=torch.long, device=device)
 
 
@@ -1176,6 +1199,8 @@ def validation_loss(
     max_batches: int,
     dtype: str,
 ) -> float:
+    require_torch()
+    assert torch is not None
     model.eval()
     losses: list[float] = []
     use_autocast = device.type == "cuda" and dtype in {"bf16", "fp16"}
@@ -1276,6 +1301,7 @@ def run_pretraining_loop(
     ewc_fisher_samples: int = 256,
 ) -> dict[str, Any]:
     require_torch()
+    assert torch is not None
     if steps < 1:
         raise ValueError("steps must be >= 1")
     if gradient_accumulation_steps < 1:

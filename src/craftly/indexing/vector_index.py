@@ -23,6 +23,7 @@ from pydantic import Field
 
 from src.craftly.db import LocalStore
 from src.craftly.learning.quality import SECRET_RE
+from src.craftly.model_ops.torch_decoder import require_torch
 from src.craftly.shared.schemas import StrictModel
 
 try:
@@ -483,6 +484,8 @@ def split_embedding_pairs(
 
 
 def _tokenize_embedding_texts(tokenizer: Any, texts: list[str], *, max_length: int, device: Any) -> tuple[Any, Any]:
+    require_torch()
+    assert torch is not None
     encoded = [tokenizer.encode(text).ids[:max_length] for text in texts]
     if not encoded or any(not item for item in encoded):
         raise ValueError("tokenizer produced an empty embedding sequence")
@@ -499,6 +502,8 @@ def _tokenize_embedding_texts(tokenizer: Any, texts: list[str], *, max_length: i
 
 
 def _save_optimizer_safely(optimizer: Any, output_dir: Path) -> None:
+    require_torch()
+    assert torch is not None
     try:
         from safetensors.torch import save_file
     except ImportError as exc:
@@ -542,6 +547,8 @@ def evaluate_embedding_model(
     device: Any,
     max_pairs: int = 2000,
 ) -> EmbeddingRetrievalMetrics:
+    require_torch()
+    assert torch is not None
     selected = pairs[:max_pairs]
     model.eval()
     query_vectors: list[Any] = []
@@ -658,6 +665,8 @@ def _validation_loss(
     device: Any,
     batch_size: int,
 ) -> float:
+    require_torch()
+    assert torch is not None
     model.eval()
     total = 0.0
     observations = 0

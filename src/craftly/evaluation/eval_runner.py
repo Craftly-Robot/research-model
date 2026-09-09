@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import time
 from pathlib import Path
 from typing import Any
@@ -25,7 +24,6 @@ from src.craftly.model_ops.tokenizer_pipeline import load_tokenizer
 from src.craftly.model_ops.torch_decoder import select_torch_device
 from src.craftly.shared.config_contracts import (
     EvalBenchmarkContract as EvalBenchmarkSpec,
-    EvalSafetyContract as EvalSafetyConfig,
     EvalScheduleContract as EvalSchedule,
     load_eval_schedule_contract,
 )

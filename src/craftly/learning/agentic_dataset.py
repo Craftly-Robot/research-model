@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import re
-from pathlib import Path
 from typing import Any
 
 from pydantic import Field
@@ -88,7 +87,6 @@ def parse_agentic_output(text: str) -> ParsedAgentStep:
     thought = None
     tool_call = None
     patch = None
-    explanation = text
 
     # 1. Parse Thought
     thought_match = re.search(r"<\|thought_start\|>(.*?)<\|thought_end\|>", text, re.DOTALL)

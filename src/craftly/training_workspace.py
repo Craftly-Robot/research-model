@@ -21,7 +21,6 @@ import re
 import secrets
 import shlex
 import socket
-import subprocess  # nosec B404 - fixed executable allowlist and argv-only invocation
 import sys
 import tempfile
 import time

@@ -49,6 +49,7 @@ def require_torch() -> None:
 def select_torch_device(requested: str) -> "torch.device":
     """Resolve a requested PyTorch device with consistent CUDA fail-fast behavior."""
     require_torch()
+    assert torch is not None
     normalized = requested.strip().lower()
     if normalized == "auto":
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -68,12 +69,14 @@ def save_trusted_checkpoint(payload: dict[str, Any], path: str | Path) -> None:
     checkpoints must not be loaded through this path.
     """
     require_torch()
+    assert torch is not None
     torch.save(payload, path)  # nosec B614 # nosemgrep: trailofbits.python.pickles-in-pytorch.pickles-in-pytorch
 
 
 def load_trusted_checkpoint(path: str | Path, *, map_location: Any = "cpu") -> dict[str, Any]:
     """Load a Craftly-owned checkpoint with PyTorch's restricted unpickler."""
     require_torch()
+    assert torch is not None
     checkpoint_path = Path(path).resolve()
     if checkpoint_path.suffix != ".pt":
         raise ValueError(f"unsupported checkpoint suffix: {checkpoint_path.suffix}")
@@ -89,20 +92,26 @@ def load_trusted_checkpoint(path: str | Path, *, map_location: Any = "cpu") -> d
     return payload
 
 
-class RMSNorm(nn.Module):  # type: ignore[misc]
+class RMSNorm(nn.Module):  # pyright: ignore[reportOptionalMemberAccess]
     def __init__(self, hidden_size: int, eps: float) -> None:
         require_torch()
+        assert nn is not None
+        assert torch is not None
         super().__init__()
         self.weight = nn.Parameter(torch.ones(hidden_size))
         self.eps = eps
 
     def forward(self, x: "torch.Tensor") -> "torch.Tensor":
+        require_torch()
+        assert torch is not None
         variance = x.float().pow(2).mean(dim=-1, keepdim=True)
         x = x * torch.rsqrt(variance + self.eps)
         return self.weight * x.to(dtype=self.weight.dtype)
 
 
 def rotate_half(x: "torch.Tensor") -> "torch.Tensor":
+    require_torch()
+    assert torch is not None
     left, right = x[..., ::2], x[..., 1::2]
     return torch.stack((-right, left), dim=-1).flatten(-2)
 
@@ -111,7 +120,7 @@ def apply_rope(x: "torch.Tensor", cos: "torch.Tensor", sin: "torch.Tensor") -> "
     return (x * cos) + (rotate_half(x) * sin)
 
 
-class RotaryEmbedding(nn.Module):  # type: ignore[misc]
+class RotaryEmbedding(nn.Module):  # pyright: ignore[reportOptionalMemberAccess]
     """RoPE without a sequence-length-sized persistent allocation.
 
     A 1M context profile must not allocate multi-gigabyte cosine/sine tables at
@@ -129,6 +138,7 @@ class RotaryEmbedding(nn.Module):  # type: ignore[misc]
         scaling_factor: float = 1.0,
     ) -> None:
         require_torch()
+        assert torch is not None
         super().__init__()
         inv_freq = 1.0 / (theta ** (torch.arange(0, dim, 2).float() / dim))
         self.register_buffer("inv_freq", inv_freq, persistent=False)
@@ -137,6 +147,8 @@ class RotaryEmbedding(nn.Module):  # type: ignore[misc]
         self.scaling_factor = scaling_factor
 
     def forward(self, q: "torch.Tensor", k: "torch.Tensor", *, position_offset: int = 0) -> tuple["torch.Tensor", "torch.Tensor"]:
+        require_torch()
+        assert torch is not None
         seq_len = q.size(-2)
         end = position_offset + seq_len
         if end > self.max_position:
@@ -151,9 +163,10 @@ class RotaryEmbedding(nn.Module):  # type: ignore[misc]
         return apply_rope(q, cos, sin), apply_rope(k, cos, sin)
 
 
-class CausalSelfAttention(nn.Module):  # type: ignore[misc]
+class CausalSelfAttention(nn.Module):  # pyright: ignore[reportOptionalMemberAccess]
     def __init__(self, config: ScratchDecoderConfig) -> None:
         require_torch()
+        assert nn is not None
         super().__init__()
         self.config = config
         self.q_proj = nn.Linear(config.hidden_size, config.hidden_size, bias=False)
@@ -181,6 +194,8 @@ class CausalSelfAttention(nn.Module):  # type: ignore[misc]
         past_len: int,
         device: "torch.device",
     ) -> "torch.Tensor | None":
+        require_torch()
+        assert torch is not None
         if self.config.attention_window is None and past_len == 0:
             return None
         query_positions = torch.arange(past_len, past_len + query_len, device=device)[:, None]
@@ -198,6 +213,9 @@ class CausalSelfAttention(nn.Module):  # type: ignore[misc]
         *,
         mask: "torch.Tensor | None",
     ) -> "torch.Tensor":
+        require_torch()
+        assert torch is not None
+        assert F is not None
         scale = 1.0 / math.sqrt(self.config.head_dim)
         scores = torch.matmul(q.float(), k.float().transpose(-2, -1)) * scale
         if mask is not None:
@@ -217,6 +235,9 @@ class CausalSelfAttention(nn.Module):  # type: ignore[misc]
         past_key_value: tuple["torch.Tensor", "torch.Tensor"] | None = None,
         use_cache: bool = False,
     ) -> tuple["torch.Tensor", tuple["torch.Tensor", "torch.Tensor"] | None]:
+        require_torch()
+        assert torch is not None
+        assert F is not None
         batch, seq_len, _ = x.shape
         past_len = 0 if past_key_value is None else int(past_key_value[0].size(-2))
         q = self.q_proj(x).view(batch, seq_len, self.config.num_attention_heads, self.config.head_dim).transpose(1, 2)
@@ -249,7 +270,7 @@ class CausalSelfAttention(nn.Module):  # type: ignore[misc]
         return self.o_proj(attn), present
 
 
-class MultiLatentAttention(nn.Module):  # type: ignore[misc]
+class MultiLatentAttention(nn.Module):  # pyright: ignore[reportOptionalMemberAccess]
     """DeepSeek-style latent attention with a compressed inference cache.
 
     The cache stores the latent KV representation and the decoupled rotary key,
@@ -259,6 +280,7 @@ class MultiLatentAttention(nn.Module):  # type: ignore[misc]
 
     def __init__(self, config: ScratchDecoderConfig) -> None:
         require_torch()
+        assert nn is not None
         super().__init__()
         if config.attention_architecture != "mla":
             raise ValueError("MultiLatentAttention requires an MLA config")
@@ -325,6 +347,8 @@ class MultiLatentAttention(nn.Module):  # type: ignore[misc]
         return past_len
 
     def _mask(self, *, query_len: int, key_len: int, past_len: int, device: "torch.device") -> "torch.Tensor | None":
+        require_torch()
+        assert torch is not None
         if self.config.attention_window is None and past_len == 0:
             return None
         query_positions = torch.arange(past_len, past_len + query_len, device=device)[:, None]
@@ -342,6 +366,9 @@ class MultiLatentAttention(nn.Module):  # type: ignore[misc]
         *,
         mask: "torch.Tensor | None",
     ) -> "torch.Tensor":
+        require_torch()
+        assert torch is not None
+        assert F is not None
         scale = 1.0 / math.sqrt(self.nope_dim + self.rope_dim)
         scores = torch.matmul(q.float(), k.float().transpose(-2, -1)) * scale
         if mask is None:
@@ -360,6 +387,9 @@ class MultiLatentAttention(nn.Module):  # type: ignore[misc]
         past_key_value: tuple["torch.Tensor", "torch.Tensor"] | None = None,
         use_cache: bool = False,
     ) -> tuple["torch.Tensor", tuple["torch.Tensor", "torch.Tensor"] | None]:
+        require_torch()
+        assert torch is not None
+        assert F is not None
         batch, sequence, _ = x.shape
         past_len = 0 if past_key_value is None else self._validate_cache(past_key_value, x=x)
         q = self.q_up(self.q_norm(self.q_down(x))).view(
@@ -418,9 +448,10 @@ class MultiLatentAttention(nn.Module):  # type: ignore[misc]
         return self.o_proj(attended), present
 
 
-class SwiGLU(nn.Module):  # type: ignore[misc]
+class SwiGLU(nn.Module):  # pyright: ignore[reportOptionalMemberAccess]
     def __init__(self, config: ScratchDecoderConfig, *, intermediate_size: int | None = None) -> None:
         require_torch()
+        assert nn is not None
         super().__init__()
         width = config.intermediate_size if intermediate_size is None else intermediate_size
         self.gate_proj = nn.Linear(config.hidden_size, width, bias=False)
@@ -428,10 +459,12 @@ class SwiGLU(nn.Module):  # type: ignore[misc]
         self.down_proj = nn.Linear(width, config.hidden_size, bias=False)
 
     def forward(self, x: "torch.Tensor") -> "torch.Tensor":
+        require_torch()
+        assert F is not None
         return self.down_proj(F.silu(self.gate_proj(x)) * self.up_proj(x))
 
 
-class DroplessMixtureOfExperts(nn.Module):  # type: ignore[misc]
+class DroplessMixtureOfExperts(nn.Module):  # pyright: ignore[reportOptionalMemberAccess]
     """Top-k routed MoE that never discards tokens.
 
     This reference dispatcher intentionally favors transparent correctness over
@@ -442,6 +475,8 @@ class DroplessMixtureOfExperts(nn.Module):  # type: ignore[misc]
 
     def __init__(self, config: ScratchDecoderConfig) -> None:
         require_torch()
+        assert nn is not None
+        assert torch is not None
         super().__init__()
         if config.feed_forward_architecture != "moe":
             raise ValueError("DroplessMixtureOfExperts requires an MoE config")
@@ -458,6 +493,8 @@ class DroplessMixtureOfExperts(nn.Module):  # type: ignore[misc]
         self.last_metrics: dict[str, float] = {}
 
     def forward(self, x: "torch.Tensor") -> tuple["torch.Tensor", dict[str, float]]:
+        require_torch()
+        assert torch is not None
         original_shape = x.shape
         flat = x.reshape(-1, self.config.hidden_size)
         raw_logits = self.router(flat).float()
@@ -510,7 +547,7 @@ class DroplessMixtureOfExperts(nn.Module):  # type: ignore[misc]
         return output.view(original_shape), metrics
 
 
-class DecoderBlock(nn.Module):  # type: ignore[misc]
+class DecoderBlock(nn.Module):  # pyright: ignore[reportOptionalMemberAccess]
     def __init__(
         self,
         config: ScratchDecoderConfig,
@@ -557,7 +594,7 @@ class DecoderBlock(nn.Module):  # type: ignore[misc]
         return x, present, router_metrics
 
 
-class MultiTokenPredictionLayer(nn.Module):  # type: ignore[misc]
+class MultiTokenPredictionLayer(nn.Module):  # pyright: ignore[reportOptionalMemberAccess]
     """Training-only next-next-token prediction transformer.
 
     For position ``t`` the layer combines the main decoder state at ``t`` with
@@ -569,6 +606,7 @@ class MultiTokenPredictionLayer(nn.Module):  # type: ignore[misc]
 
     def __init__(self, config: ScratchDecoderConfig) -> None:
         require_torch()
+        assert nn is not None
         super().__init__()
         self.hidden_norm = RMSNorm(config.hidden_size, config.norm_eps)
         self.next_embedding_norm = RMSNorm(config.hidden_size, config.norm_eps)
@@ -581,6 +619,8 @@ class MultiTokenPredictionLayer(nn.Module):  # type: ignore[misc]
         hidden_states: "torch.Tensor",
         next_token_embeddings: "torch.Tensor",
     ) -> "torch.Tensor":
+        require_torch()
+        assert torch is not None
         if hidden_states.shape != next_token_embeddings.shape:
             raise ValueError("MTP hidden states and next-token embeddings must have identical shapes")
         fused = self.fusion(
@@ -598,9 +638,10 @@ class MultiTokenPredictionLayer(nn.Module):  # type: ignore[misc]
         return self.output_norm(predicted)
 
 
-class CraftlyDecoderLM(nn.Module):  # type: ignore[misc]
+class CraftlyDecoderLM(nn.Module):  # pyright: ignore[reportOptionalMemberAccess]
     def __init__(self, config: ScratchDecoderConfig) -> None:
         require_torch()
+        assert nn is not None
         super().__init__()
         if config.runtime_backend != "native_reference":
             raise RuntimeError(
@@ -625,6 +666,8 @@ class CraftlyDecoderLM(nn.Module):  # type: ignore[misc]
         self.gradient_checkpointing = config.gradient_checkpointing
 
     def _init_weights(self, module: nn.Module) -> None:
+        require_torch()
+        assert nn is not None
         if isinstance(module, nn.Linear):
             nn.init.normal_(module.weight, mean=0.0, std=self.config.initializer_range)
         elif isinstance(module, nn.Embedding):
@@ -643,6 +686,9 @@ class CraftlyDecoderLM(nn.Module):  # type: ignore[misc]
         past_key_values: tuple[tuple["torch.Tensor", "torch.Tensor"], ...] | None = None,
         use_cache: bool | None = None,
     ) -> DecoderForwardOutput:
+        require_torch()
+        assert torch is not None
+        assert F is not None
         if input_ids.ndim != 2:
             raise ValueError("input_ids must be [batch, sequence]")
         if input_ids.size(0) < 1 or input_ids.size(1) < 1:
@@ -723,7 +769,6 @@ class CraftlyDecoderLM(nn.Module):  # type: ignore[misc]
             router_metrics=tuple(router_metrics),
         )
 
-    @torch.no_grad()
     def generate(
         self,
         input_ids: "torch.Tensor",
@@ -733,28 +778,32 @@ class CraftlyDecoderLM(nn.Module):  # type: ignore[misc]
         top_k: int | None = None,
         eos_token_id: int | None = None,
     ) -> "torch.Tensor":
+        require_torch()
+        assert torch is not None
+        assert F is not None
         if max_new_tokens < 1:
             return input_ids
         self.eval()
         generated = input_ids
         past: tuple[tuple["torch.Tensor", "torch.Tensor"], ...] | None = None
         next_input = input_ids
-        for _ in range(max_new_tokens):
-            output = self(next_input, past_key_values=past, use_cache=True)
-            past = output.past_key_values
-            logits = output.logits[:, -1, :]
-            if temperature and temperature > 0:
-                logits = logits / temperature
-                if top_k is not None and top_k > 0:
-                    values, _indices = torch.topk(logits, min(top_k, logits.size(-1)))
-                    logits = logits.masked_fill(logits < values[:, [-1]], torch.finfo(logits.dtype).min)
-                next_token = torch.multinomial(F.softmax(logits, dim=-1), num_samples=1)
-            else:
-                next_token = logits.argmax(dim=-1, keepdim=True)
-            generated = torch.cat([generated, next_token], dim=1)
-            next_input = next_token
-            if eos_token_id is not None and bool((next_token == eos_token_id).all()):
-                break
+        with torch.no_grad():
+            for _ in range(max_new_tokens):
+                output = self(next_input, past_key_values=past, use_cache=True)
+                past = output.past_key_values
+                logits = output.logits[:, -1, :]
+                if temperature and temperature > 0:
+                    logits = logits / temperature
+                    if top_k is not None and top_k > 0:
+                        values, _indices = torch.topk(logits, min(top_k, logits.size(-1)))
+                        logits = logits.masked_fill(logits < values[:, [-1]], torch.finfo(logits.dtype).min)
+                    next_token = torch.multinomial(F.softmax(logits, dim=-1), num_samples=1)
+                else:
+                    next_token = logits.argmax(dim=-1, keepdim=True)
+                generated = torch.cat([generated, next_token], dim=1)
+                next_input = next_token
+                if eos_token_id is not None and bool((next_token == eos_token_id).all()):
+                    break
         return generated
 
     def export_checkpoint(self, output_dir: str | Path, *, dtype: str = "float32") -> Path:

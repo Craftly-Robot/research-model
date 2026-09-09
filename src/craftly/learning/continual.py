@@ -10,7 +10,6 @@ Provides full-parameter anti-forgetting techniques for scratch-origin models:
 from __future__ import annotations
 
 import copy
-import json
 import math
 import random
 import time
@@ -19,14 +18,10 @@ from typing import Any, Literal
 
 from pydantic import Field
 
-from src.craftly.model_ops.foundation import ScratchDecoderConfig
-from src.craftly.model_ops.tokenizer_pipeline import load_tokenizer
 from src.craftly.model_ops.torch_decoder import (
-    CraftlyDecoderLM,
     load_trusted_checkpoint,
     require_torch,
     save_trusted_checkpoint,
-    select_torch_device,
 )
 from src.craftly.shared.schemas import StrictModel
 
@@ -209,6 +204,8 @@ class ReferenceModelKLLoss:
             mask: (batch_size, seq_len) boolean or int mask where 1 = compute KL
         """
         require_torch()
+        assert torch is not None
+        assert F is not None
         t = self.temperature
         # P = active distribution, Q = reference base distribution
         log_p = F.log_softmax(active_logits / t, dim=-1)
@@ -558,6 +555,9 @@ class ElasticWeightConsolidation:
         Returns:
             Dictionary of parameter_name -> fisher_value.
         """
+        require_torch()
+        assert torch is not None
+
         # Set model to train mode to enable gradients
         self.model.train()
 
@@ -618,13 +618,15 @@ class ElasticWeightConsolidation:
 
         return {name: float(fisher.mean()) for name, fisher in self.fisher.items()}
 
-    @torch.no_grad()
     def _save_optimal_weights(self) -> None:
         """Save a snapshot of the current weights as the reference point."""
+        require_torch()
+        assert torch is not None
         self.optimal_weights = {}
-        for name, param in self.model.named_parameters():
-            if param.requires_grad:
-                self.optimal_weights[name] = param.data.clone()
+        with torch.no_grad():
+            for name, param in self.model.named_parameters():
+                if param.requires_grad:
+                    self.optimal_weights[name] = param.data.clone()
 
     def penalty(self) -> Any:
         """Compute the EWC penalty term.
@@ -638,6 +640,7 @@ class ElasticWeightConsolidation:
             Scalar tensor representing the total EWC penalty.
         """
         require_torch()
+        assert torch is not None
         penalty = torch.tensor(0.0, device=next(self.model.parameters()).device)
 
         for name, param in self.model.named_parameters():

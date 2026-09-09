@@ -136,6 +136,7 @@ class NativeServingState:
             "scratch_only": True,
         }
         if self.device.type == "cuda":
+            assert torch is not None
             payload["cuda_memory"] = {
                 "allocated_bytes": int(torch.cuda.memory_allocated(self.device)),
                 "reserved_bytes": int(torch.cuda.memory_reserved(self.device)),

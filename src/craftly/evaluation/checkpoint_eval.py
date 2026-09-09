@@ -8,7 +8,6 @@ import math
 from pathlib import Path
 from typing import Any
 
-from pydantic import Field
 
 from src.craftly.evaluation.benchmarks import BenchmarkHarness, BenchmarkRunReport, built_in_security_tasks
 from src.craftly.model_ops.foundation import CheckpointManifest, sha256_file

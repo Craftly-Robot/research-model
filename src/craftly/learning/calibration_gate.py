@@ -914,7 +914,7 @@ async def run_calibration(
     reviewer_qualification_path = Path(reviewer_qualification_report_path).expanduser().resolve(strict=True)
 
     registry = SourceRegistry.from_file(sources_path)
-    registry_report = registry.validate(production=True)
+    _registry_report = registry.validate(production=True)
     policy = load_dataset_trust_policy(trust_policy_path)
     protected_manifest_file = Path(protected_manifest_path).resolve()
     protected_manifest = validate_protected_benchmark_manifest(protected_config_path, protected_manifest_file)

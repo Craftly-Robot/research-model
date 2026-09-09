@@ -34,16 +34,15 @@ from src.craftly.learning.calibration_gate import (
     validate_advancement_decision,
 )
 from src.craftly.learning.dataset_validation import DatasetValidationConfig, DatasetValidationReport, validate_dataset
-from src.craftly.learning.license_filter import LicenseFilterReport, filter_jsonl_by_license
+from src.craftly.learning.license_filter import filter_jsonl_by_license
 from src.craftly.learning.near_dedup import NearDedupReport, deduplicate_jsonl
-from src.craftly.learning.quality import DatasetQualityGate, QualityGateConfig, QualityGateReport, iter_jsonl, stable_hash
+from src.craftly.learning.quality import DatasetQualityGate, QualityGateConfig, iter_jsonl, stable_hash
 from src.craftly.learning.source_budget import SourceBudgetPlan, write_source_budget_plan
-from src.craftly.learning.source_quality import SourceQualityReport, write_source_quality_report
+from src.craftly.learning.source_quality import write_source_quality_report
 from src.craftly.learning.source_registry import SourceRegistry, SourceRegistryReport
 from src.craftly.learning.source_reputation import SourceReputationReport, write_source_reputation_report
 from src.craftly.learning.training_data_gate import (
     TrainingDataGateConfig,
-    TrainingDataGateReport,
     apply_training_data_gate,
     has_independent_review,
 )

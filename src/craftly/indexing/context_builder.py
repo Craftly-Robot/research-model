@@ -594,7 +594,6 @@ class HybridRAGEngine:
                 if value
             }
             path = str(chunk.get("path") or "").lower()
-            symbol = str(chunk.get("symbol_name") or "").lower()
             links = sum(1 for value in dependencies if value in seed_symbols or any(value in seed for seed in seed_paths))
             resolved_links = len((resolved_targets | called_by).intersection(seed_ids))
             query_links = sum(1 for term in terms if any(term in value for value in dependencies))
