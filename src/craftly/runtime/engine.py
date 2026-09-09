@@ -12,6 +12,7 @@ from typing import Any
 from pydantic import Field
 
 from src.craftly.db import LocalStore
+from src.craftly.gateway.api import resolve_registered_repo_path
 from src.craftly.indexing import ContextBuilder, RepositoryIndexer
 from src.craftly.model_ops.backends import build_active_backend
 from src.craftly.planning.engine import IntentPlanningEngine
@@ -486,7 +487,7 @@ class CraftlyRuntime:
             )
             route = self.router.route(request.prompt, top_k=request.max_agent_nodes or 4)
             store = LocalStore()
-            workspace = str(Path(request.workspace).resolve())
+            workspace = str(resolve_registered_repo_path(request.workspace))
             project = store.create_project(name=f"runtime-{time.time_ns()}", repo_path=workspace)
             index_report = RepositoryIndexer(store).index_project(project_id=project["id"])
             context = ContextBuilder(store).build(
