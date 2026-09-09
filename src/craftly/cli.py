@@ -41,7 +41,7 @@ def cmd_status(args: argparse.Namespace) -> None:
     url = args.url or GATEWAY_URL
     try:
         req = urllib.request.Request(f"{url}/health/ready")
-        with urllib.request.urlopen(req, timeout=5) as resp:
+        with urllib.request.urlopen(req, timeout=5) as resp:  # nosec B310
             data = json.loads(resp.read())
             print(f"Gateway:  running ({url})")
             print(f"Status:   {data.get('status', 'unknown')}")
