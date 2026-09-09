@@ -10,6 +10,7 @@ from pathlib import Path
 
 from src.craftly.learning.continual import (
     CANONICAL_FORGETTING_SUITE,
+    ElasticWeightConsolidation,
     ExperienceReplayBuffer,
     ReferenceModelKLLoss,
     WeightMerger,
@@ -151,6 +152,163 @@ class TestContinualLearning(unittest.TestCase):
         self.assertGreater(report.perplexity_general, 0.0)
         self.assertGreaterEqual(report.general_retention_score, 0.0)
         self.assertLessEqual(report.general_retention_score, 100.0)
+
+    def test_ewc_initialization(self) -> None:
+        model = CraftlyDecoderLM(self.tiny_config)
+        ewc = ElasticWeightConsolidation(model, lambda_=1.0)
+        self.assertEqual(ewc.lambda_, 1.0)
+        self.assertEqual(len(ewc.fisher), 0)
+        self.assertEqual(len(ewc.optimal_weights), 0)
+
+    def test_ewc_lambda_clamping(self) -> None:
+        model = CraftlyDecoderLM(self.tiny_config)
+        # Negative lambda should be clamped to 0
+        ewc = ElasticWeightConsolidation(model, lambda_=-1.0)
+        self.assertEqual(ewc.lambda_, 0.0)
+
+    def test_ewc_compute_fisher(self) -> None:
+        model = CraftlyDecoderLM(self.tiny_config)
+        ewc = ElasticWeightConsolidation(model, lambda_=1.0)
+
+        # Create a simple dataloader
+        batch_size = 2
+        seq_len = 16
+        dataloader = [
+            (torch.randint(0, 1000, (batch_size, seq_len)), torch.randint(0, 1000, (batch_size, seq_len)))
+            for _ in range(3)
+        ]
+
+        fisher = ewc.compute_fisher(dataloader, max_samples=10)
+
+        # Fisher should have entries for all parameters with gradients
+        self.assertGreater(len(fisher), 0)
+        # All fisher values should be non-negative
+        for name, value in fisher.items():
+            self.assertGreaterEqual(value, 0.0, f"Fisher value for {name} should be non-negative")
+
+    def test_ewc_optimal_weights_saved(self) -> None:
+        model = CraftlyDecoderLM(self.tiny_config)
+        ewc = ElasticWeightConsolidation(model, lambda_=1.0)
+
+        # Save initial weights
+        initial_weights = {name: param.data.clone() for name, param in model.named_parameters()}
+
+        # Compute fisher (which saves optimal weights)
+        batch_size = 2
+        seq_len = 16
+        dataloader = [
+            (torch.randint(0, 1000, (batch_size, seq_len)), torch.randint(0, 1000, (batch_size, seq_len)))
+        ]
+        ewc.compute_fisher(dataloader, max_samples=10)
+
+        # Optimal weights should match initial weights
+        for name, param in model.named_parameters():
+            if name in ewc.optimal_weights:
+                self.assertTrue(
+                    torch.equal(ewc.optimal_weights[name], initial_weights[name]),
+                    f"Optimal weights for {name} should match initial weights"
+                )
+
+    def test_ewc_penalty_zero_at_optimal(self) -> None:
+        model = CraftlyDecoderLM(self.tiny_config)
+        ewc = ElasticWeightConsolidation(model, lambda_=1.0)
+
+        # Compute fisher on some data
+        batch_size = 2
+        seq_len = 16
+        dataloader = [
+            (torch.randint(0, 1000, (batch_size, seq_len)), torch.randint(0, 1000, (batch_size, seq_len)))
+        ]
+        ewc.compute_fisher(dataloader, max_samples=10)
+
+        # Penalty should be zero when weights are at optimal
+        penalty = ewc.penalty()
+        self.assertAlmostEqual(penalty.item(), 0.0, places=5)
+
+    def test_ewc_penalty_positive_after_drift(self) -> None:
+        model = CraftlyDecoderLM(self.tiny_config)
+        ewc = ElasticWeightConsolidation(model, lambda_=1.0)
+
+        # Compute fisher on some data
+        batch_size = 2
+        seq_len = 16
+        dataloader = [
+            (torch.randint(0, 1000, (batch_size, seq_len)), torch.randint(0, 1000, (batch_size, seq_len)))
+        ]
+        ewc.compute_fisher(dataloader, max_samples=10)
+
+        # Perturb weights
+        for param in model.parameters():
+            param.data.add_(0.1)
+
+        # Penalty should be positive
+        penalty = ewc.penalty()
+        self.assertGreater(penalty.item(), 0.0)
+
+    def test_ewc_penalty_gradient_flows(self) -> None:
+        model = CraftlyDecoderLM(self.tiny_config)
+        ewc = ElasticWeightConsolidation(model, lambda_=1.0)
+
+        # Compute fisher
+        batch_size = 2
+        seq_len = 16
+        dataloader = [
+            (torch.randint(0, 1000, (batch_size, seq_len)), torch.randint(0, 1000, (batch_size, seq_len)))
+        ]
+        ewc.compute_fisher(dataloader, max_samples=10)
+
+        # Perturb weights
+        for param in model.parameters():
+            param.data.add_(0.1)
+
+        # Compute penalty and backprop
+        penalty = ewc.penalty()
+        penalty.backward()
+
+        # Gradients should exist
+        has_grad = any(param.grad is not None for param in model.parameters() if param.requires_grad)
+        self.assertTrue(has_grad, "Gradients should flow through EWC penalty")
+
+    def test_ewc_state_dict_roundtrip(self) -> None:
+        model = CraftlyDecoderLM(self.tiny_config)
+        ewc = ElasticWeightConsolidation(model, lambda_=2.5)
+
+        # Compute fisher
+        batch_size = 2
+        seq_len = 16
+        dataloader = [
+            (torch.randint(0, 1000, (batch_size, seq_len)), torch.randint(0, 1000, (batch_size, seq_len)))
+        ]
+        ewc.compute_fisher(dataloader, max_samples=10)
+
+        # Export and reload
+        state = ewc.state_dict()
+        ewc2 = ElasticWeightConsolidation(model, lambda_=0.0)
+        ewc2.load_state_dict(state)
+
+        self.assertEqual(ewc2.lambda_, 2.5)
+        self.assertEqual(set(ewc2.fisher.keys()), set(ewc.fisher.keys()))
+        self.assertEqual(set(ewc2.optimal_weights.keys()), set(ewc.optimal_weights.keys()))
+
+    def test_ewc_zero_lambda_no_penalty(self) -> None:
+        model = CraftlyDecoderLM(self.tiny_config)
+        ewc = ElasticWeightConsolidation(model, lambda_=0.0)
+
+        # Compute fisher
+        batch_size = 2
+        seq_len = 16
+        dataloader = [
+            (torch.randint(0, 1000, (batch_size, seq_len)), torch.randint(0, 1000, (batch_size, seq_len)))
+        ]
+        ewc.compute_fisher(dataloader, max_samples=10)
+
+        # Perturb weights
+        for param in model.parameters():
+            param.data.add_(0.1)
+
+        # Penalty should be zero when lambda is zero
+        penalty = ewc.penalty()
+        self.assertAlmostEqual(penalty.item(), 0.0, places=5)
 
 
 if __name__ == "__main__":

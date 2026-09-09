@@ -532,7 +532,6 @@ class ElasticWeightConsolidation:
         # Reference weights: the "optimal" weights we want to stay close to
         self.optimal_weights: dict[str, Any] = {}
 
-    @torch.no_grad()
     def compute_fisher(
         self,
         dataloader: Any,
@@ -559,8 +558,8 @@ class ElasticWeightConsolidation:
         Returns:
             Dictionary of parameter_name -> fisher_value.
         """
-        # Set model to eval mode for stable Fisher estimation
-        self.model.eval()
+        # Set model to train mode to enable gradients
+        self.model.train()
 
         # Initialize Fisher accumulators for each parameter
         fisher_accum: dict[str, Any] = {}
@@ -588,16 +587,17 @@ class ElasticWeightConsolidation:
 
             # Forward pass with gradient tracking
             self.model.zero_grad()
-            output = self.model(input_ids, labels=labels)
+            with torch.enable_grad():
+                output = self.model(input_ids, labels=labels)
 
-            # Use provided loss function or default cross-entropy
-            if loss_fn is not None:
-                loss = loss_fn(output, labels)
-            else:
-                loss = output.loss
+                # Use provided loss function or default cross-entropy
+                if loss_fn is not None:
+                    loss = loss_fn(output, labels)
+                else:
+                    loss = output.loss
 
-            # Backward pass to get gradients
-            loss.backward()
+                # Backward pass to get gradients
+                loss.backward()
 
             # Accumulate squared gradients (Fisher diagonal approximation)
             for name, param in self.model.named_parameters():
