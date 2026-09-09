@@ -1,4 +1,4 @@
-﻿"""Postgres migration runner for Craftly production deployments."""
+"""Postgres migration runner for Craftly production deployments."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
 
@@ -52,7 +51,9 @@ def expand_psql_includes(sql: str, *, base_dir: Path | None = None) -> str:
     return "\n".join(output)
 
 
-async def apply_migrations(database_url: str, *, dry_run: bool = False) -> dict[str, Any]:
+async def apply_migrations(
+    database_url: str, *, dry_run: bool = False
+) -> dict[str, Any]:
     import asyncpg
 
     migrations = load_migrations()
@@ -68,12 +69,16 @@ async def apply_migrations(database_url: str, *, dry_run: bool = False) -> dict[
                 )
                 """
             )
-            rows = await connection.fetch("SELECT version, checksum FROM schema_migrations")
+            rows = await connection.fetch(
+                "SELECT version, checksum FROM schema_migrations"
+            )
             existing = {row["version"]: row["checksum"] for row in rows}
             for migration in migrations:
                 if migration.version in existing:
                     if existing[migration.version] != migration.checksum:
-                        raise RuntimeError(f"migration checksum mismatch: {migration.version}")
+                        raise RuntimeError(
+                            f"migration checksum mismatch: {migration.version}"
+                        )
                     continue
                 if dry_run:
                     applied.append(migration.version)
@@ -87,12 +92,19 @@ async def apply_migrations(database_url: str, *, dry_run: bool = False) -> dict[
                         migration.checksum,
                     )
                     applied.append(migration.version)
-    return {"status": "ok", "applied": applied, "migration_count": len(migrations), "dry_run": dry_run}
+    return {
+        "status": "ok",
+        "applied": applied,
+        "migration_count": len(migrations),
+        "dry_run": dry_run,
+    }
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Apply Craftly Postgres migrations.")
-    parser.add_argument("--database-url", default=os.environ.get("CRAFTLY_DATABASE_URL", ""))
+    parser.add_argument(
+        "--database-url", default=os.environ.get("CRAFTLY_DATABASE_URL", "")
+    )
     parser.add_argument("--dry-run", action="store_true")
     return parser.parse_args()
 
@@ -107,4 +119,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

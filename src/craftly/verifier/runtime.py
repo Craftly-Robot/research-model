@@ -1,26 +1,31 @@
-﻿"""MVP verifier runtime for tests and defensive static checks."""
+"""MVP verifier runtime for tests and defensive static checks."""
 
 from __future__ import annotations
 
 import re
 import time
 import uuid
+from pathlib import Path
 from typing import Any
 
 from pydantic import Field
 
 from src.craftly.db import LocalStore
 from src.craftly.shared.config import ROOT
-from src.craftly.shared.config_contracts import VerifierPolicyContract, load_verifier_policy_contract
+from src.craftly.shared.config_contracts import (
+    VerifierPolicyContract,
+    load_verifier_policy_contract,
+)
 from src.craftly.shared.schemas import StrictModel
 from src.craftly.tools import HardenedToolExecutor, SecurityScanner, ToolExecuteRequest
 from src.craftly.tools.policy import project_root
 
-
 SECRET_PATTERNS = [
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
     re.compile(r"-----BEGIN (RSA |EC |OPENSSH |)PRIVATE KEY-----"),
-    re.compile(r"(?i)\b(api[_-]?key|secret|token)\s*[:=]\s*['\"][A-Za-z0-9_\-]{24,}['\"]"),
+    re.compile(
+        r"(?i)\b(api[_-]?key|secret|token)\s*[:=]\s*['\"][A-Za-z0-9_\-]{24,}['\"]"
+    ),
 ]
 
 
@@ -84,7 +89,9 @@ class VerifierRuntime:
             security_results.append(self.secret_scan(request.project_id))
         scanner = SecurityScanner(project_root(self.store, request.project_id))
         if request.run_semgrep:
-            security_results.append(scanner.run_semgrep(timeout_ms=request.timeout_ms).model_dump())
+            security_results.append(
+                scanner.run_semgrep(timeout_ms=request.timeout_ms).model_dump()
+            )
         if request.run_codeql:
             security_results.append(
                 scanner.run_codeql(
@@ -93,13 +100,20 @@ class VerifierRuntime:
                 ).model_dump()
             )
         failed_tests = [item for item in test_results if item["status"] != "ok"]
-        failed_security = [item for item in security_results if item["status"] == "failed"]
+        failed_security = [
+            item for item in security_results if item["status"] == "failed"
+        ]
         unavailable_security = [
             item
             for item in security_results
-            if item["status"] in {"skipped", "timeout"} and request.fail_on_tool_unavailable
+            if item["status"] in {"skipped", "timeout"}
+            and request.fail_on_tool_unavailable
         ]
-        status = "passed" if not failed_tests and not failed_security and not unavailable_security else "failed"
+        status = (
+            "passed"
+            if not failed_tests and not failed_security and not unavailable_security
+            else "failed"
+        )
         return VerificationResponse(
             project_id=request.project_id,
             run_id=request.run_id,
@@ -114,13 +128,17 @@ class VerifierRuntime:
             duration_ms=(time.perf_counter() - started) * 1000,
         )
 
-    def _apply_policy_profile(self, request: VerificationRequest) -> VerificationRequest:
+    def _apply_policy_profile(
+        self, request: VerificationRequest
+    ) -> VerificationRequest:
         if not request.policy_profile:
             return request
         policy = load_verifier_policy()
         profile = policy.profiles.get(request.policy_profile)
         if profile is None:
-            raise ValueError(f"unknown verifier policy profile: {request.policy_profile}")
+            raise ValueError(
+                f"unknown verifier policy profile: {request.policy_profile}"
+            )
         updates = {
             "run_secret_scan": profile.run_secret_scan,
             "run_semgrep": profile.run_semgrep,
@@ -137,7 +155,9 @@ class VerifierRuntime:
             raise KeyError(f"unknown project: {project_id}")
         findings = []
         for chunk in self.store.list_chunks(project_id):
-            for line_no, line in enumerate(str(chunk["content"]).splitlines(), start=chunk["start_line"]):
+            for line_no, line in enumerate(
+                str(chunk["content"]).splitlines(), start=chunk["start_line"]
+            ):
                 if any(pattern.search(line) for pattern in SECRET_PATTERNS):
                     findings.append(
                         {
@@ -158,11 +178,22 @@ class VerifierRuntime:
         lowered = prompt.lower()
         risks = [
             term
-            for term in ["delete", "secret", "password", "token", "unsafe", "eval", "exploit", "malware"]
+            for term in [
+                "delete",
+                "secret",
+                "password",
+                "token",
+                "unsafe",
+                "eval",
+                "exploit",
+                "malware",
+            ]
             if term in lowered
         ]
         confidence = 0.9 if not risks else 0.65
-        return GuardrailReview(accepted=confidence >= 0.6, confidence=confidence, risks=risks)
+        return GuardrailReview(
+            accepted=confidence >= 0.6, confidence=confidence, risks=risks
+        )
 
     def critic_review(self, artifact: str, *, prompt: str = "") -> GuardrailReview:
         issues: list[str] = []
@@ -173,9 +204,12 @@ class VerifierRuntime:
         if prompt and "security" in prompt.lower() and "test" not in artifact.lower():
             issues.append("security-related artifact does not mention tests")
         confidence = 0.9 if not issues else 0.55
-        return GuardrailReview(accepted=confidence >= 0.6, confidence=confidence, risks=[], issues=issues)
+        return GuardrailReview(
+            accepted=confidence >= 0.6, confidence=confidence, risks=[], issues=issues
+        )
 
 
 def load_verifier_policy(path: str | None = None) -> VerifierPolicyContract:
-    return load_verifier_policy_contract(Path(path) if path else ROOT / "config" / "verifier_policy.json")
-
+    return load_verifier_policy_contract(
+        Path(path) if path else ROOT / "config" / "verifier_policy.json"
+    )

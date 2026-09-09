@@ -7,10 +7,8 @@ masked cross-entropy loss focused strictly on defensive completion tokens.
 
 from __future__ import annotations
 
-import contextlib
 import json
 import math
-import os
 import shutil
 import time
 from pathlib import Path
@@ -19,7 +17,7 @@ from typing import Any
 from pydantic import Field
 
 from src.craftly.learning.continual import ExperienceReplayBuffer, ReferenceModelKLLoss
-from src.craftly.learning.sft_dataset import SFTDatasetEngine, SFTRecord, encode_sft_record
+from src.craftly.learning.sft_dataset import SFTDatasetEngine, encode_sft_record
 from src.craftly.model_ops.foundation import CheckpointManifest, ScratchDecoderConfig
 from src.craftly.model_ops.tokenizer_pipeline import load_tokenizer
 from src.craftly.model_ops.torch_decoder import (
@@ -29,8 +27,6 @@ from src.craftly.model_ops.torch_decoder import (
     save_trusted_checkpoint,
     select_torch_device,
 )
-from src.craftly.model_ops.pretrain_loop import git_commit
-from src.craftly.shared.integrity import sha256_file
 from src.craftly.shared.progress import NullProgressReporter, ProgressReporter
 from src.craftly.shared.schemas import StrictModel
 
@@ -45,10 +41,14 @@ except ImportError:  # pragma: no cover
 class SFTRunConfig(StrictModel):
     """Configuration for an SFT instruction-tuning execution."""
 
-    base_checkpoint: str = Field(description="Path to base pretrained checkpoint or manifest")
+    base_checkpoint: str = Field(
+        description="Path to base pretrained checkpoint or manifest"
+    )
     tokenizer_path: str = Field(description="Path to tokenizer.json")
     output_dir: str = Field(description="Output directory for SFT checkpoints and logs")
-    dataset_path: str | None = Field(default=None, description="Optional path to existing SFT JSONL dataset")
+    dataset_path: str | None = Field(
+        default=None, description="Optional path to existing SFT JSONL dataset"
+    )
     steps: int = Field(default=1000, ge=1, le=100_000)
     batch_size: int = Field(default=4, ge=1, le=64)
     gradient_accumulation_steps: int = Field(default=4, ge=1, le=128)
@@ -62,12 +62,23 @@ class SFTRunConfig(StrictModel):
     keep_last_n_checkpoints: int = Field(default=3, ge=1)
     seed: int = 1337
     dtype: str = Field(default="bf16", pattern=r"^(bf16|fp16|fp32)$")
-    device: str = Field(default="auto", description="PyTorch device ('auto', 'cuda', 'cpu')")
-    replay_ratio: float = Field(default=0.0, ge=0.0, le=0.8, description="Proportion of pretraining code replay")
-    kl_penalty_weight: float = Field(default=0.0, ge=0.0, le=10.0, description="Weight for reference model KL penalty")
+    device: str = Field(
+        default="auto", description="PyTorch device ('auto', 'cuda', 'cpu')"
+    )
+    replay_ratio: float = Field(
+        default=0.0, ge=0.0, le=0.8, description="Proportion of pretraining code replay"
+    )
+    kl_penalty_weight: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=10.0,
+        description="Weight for reference model KL penalty",
+    )
 
 
-def resolve_base_model_assets(base_checkpoint_ref: str | Path) -> tuple[Path, dict[str, Any], dict[str, Any]]:
+def resolve_base_model_assets(
+    base_checkpoint_ref: str | Path,
+) -> tuple[Path, dict[str, Any], dict[str, Any]]:
     """Resolve model weights state_dict and architecture config from a checkpoint or manifest."""
     ref_path = Path(base_checkpoint_ref).resolve()
     if not ref_path.exists():
@@ -76,6 +87,7 @@ def resolve_base_model_assets(base_checkpoint_ref: str | Path) -> tuple[Path, di
     # Case 0: Zip archive containing model bundle
     if ref_path.suffix == ".zip":
         import zipfile
+
         extract_dir = ref_path.parent / f"_extracted_{ref_path.stem}"
         if not (extract_dir / "model.pt").exists():
             extract_dir.mkdir(parents=True, exist_ok=True)
@@ -98,7 +110,9 @@ def resolve_base_model_assets(base_checkpoint_ref: str | Path) -> tuple[Path, di
         config_file = ref_path.parent / "config.json"
 
     if not model_file.exists():
-        raise FileNotFoundError(f"Missing model.pt in checkpoint asset tree: {model_file}")
+        raise FileNotFoundError(
+            f"Missing model.pt in checkpoint asset tree: {model_file}"
+        )
 
     raw_payload = load_trusted_checkpoint(model_file, map_location="cpu")
 
@@ -114,12 +128,20 @@ def resolve_base_model_assets(base_checkpoint_ref: str | Path) -> tuple[Path, di
             config_dict = json.load(f)
 
     if not config_dict:
-        raise ValueError(f"Unable to resolve architecture configuration for model at: {model_file}")
+        raise ValueError(
+            f"Unable to resolve architecture configuration for model at: {model_file}"
+        )
 
     return model_file, state_dict, config_dict
 
 
-def build_cosine_lr(step: int, total_steps: int, warmup_steps: int, base_lr: float, min_lr_ratio: float = 0.1) -> float:
+def build_cosine_lr(
+    step: int,
+    total_steps: int,
+    warmup_steps: int,
+    base_lr: float,
+    min_lr_ratio: float = 0.1,
+) -> float:
     """Compute learning rate with linear warmup and cosine decay."""
     if step < warmup_steps:
         return base_lr * float(step + 1) / float(max(1, warmup_steps))
@@ -128,12 +150,18 @@ def build_cosine_lr(step: int, total_steps: int, warmup_steps: int, base_lr: flo
     return base_lr * (min_lr_ratio + (1.0 - min_lr_ratio) * cosine)
 
 
-def prune_sft_checkpoints(output_dir: Path, keep_last_n: int = 3, preserve_dirs: set[Path] | None = None) -> list[Path]:
+def prune_sft_checkpoints(
+    output_dir: Path, keep_last_n: int = 3, preserve_dirs: set[Path] | None = None
+) -> list[Path]:
     """Prune older intermediate checkpoints to preserve disk space."""
     preserve = preserve_dirs or set()
     pruned: list[Path] = []
     checkpoint_dirs = sorted(
-        [p for p in output_dir.iterdir() if p.is_dir() and p.name.startswith("checkpoint-sft-step-")],
+        [
+            p
+            for p in output_dir.iterdir()
+            if p.is_dir() and p.name.startswith("checkpoint-sft-step-")
+        ],
         key=lambda p: p.name,
     )
     if len(checkpoint_dirs) > keep_last_n:
@@ -159,7 +187,9 @@ def run_sft(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # 2. Resolve base model assets
-    base_file, state_dict, config_dict = resolve_base_model_assets(run_config.base_checkpoint)
+    base_file, state_dict, config_dict = resolve_base_model_assets(
+        run_config.base_checkpoint
+    )
     arch_config = ScratchDecoderConfig(**config_dict)
 
     # 3. Initialize Model and Load Scratch Weights
@@ -180,7 +210,10 @@ def run_sft(
         engine = SFTDatasetEngine.load_jsonl(run_config.dataset_path)
     else:
         engine = SFTDatasetEngine()
-        engine.expand_dataset(target_count=max(600, run_config.steps * run_config.batch_size), seed=run_config.seed)
+        engine.expand_dataset(
+            target_count=max(600, run_config.steps * run_config.batch_size),
+            seed=run_config.seed,
+        )
         dataset_save_file = out_dir / "sft_training_corpus.jsonl"
         engine.save_jsonl(dataset_save_file)
 
@@ -222,7 +255,9 @@ def run_sft(
 
     replay_buffer = None
     if run_config.replay_ratio > 0.0:
-        replay_buffer = ExperienceReplayBuffer(replay_ratio=run_config.replay_ratio, seed=run_config.seed)
+        replay_buffer = ExperienceReplayBuffer(
+            replay_ratio=run_config.replay_ratio, seed=run_config.seed
+        )
 
     ref_model = None
     kl_loss_fn = None
@@ -255,7 +290,9 @@ def run_sft(
 
             replay_count = 0
             if replay_buffer and run_config.replay_ratio > 0.0:
-                replay_count = max(1, int(round(run_config.batch_size * run_config.replay_ratio)))
+                replay_count = max(
+                    1, int(round(run_config.batch_size * run_config.replay_ratio))
+                )
                 replay_count = min(replay_count, max(1, run_config.batch_size - 1))
 
             sft_count = max(1, run_config.batch_size - replay_count)
@@ -286,7 +323,9 @@ def run_sft(
             unmasked = int((lbl_tensor != -100).sum().item())
             trained_tokens += unmasked
 
-            with torch.autocast(device_type=device.type, dtype=autocast_dtype, enabled=use_autocast):
+            with torch.autocast(
+                device_type=device.type, dtype=autocast_dtype, enabled=use_autocast
+            ):
                 output = model(inp_tensor, labels=lbl_tensor)
                 if output.loss is None:
                     raise RuntimeError("SFT model forward pass did not return loss")
@@ -294,7 +333,9 @@ def run_sft(
                 if kl_loss_fn and ref_model and run_config.kl_penalty_weight > 0.0:
                     with torch.no_grad():
                         ref_out = ref_model(inp_tensor)
-                    kl_val = kl_loss_fn.compute(output.logits, ref_out.logits, mask=lbl_tensor)
+                    kl_val = kl_loss_fn.compute(
+                        output.logits, ref_out.logits, mask=lbl_tensor
+                    )
                     raw_loss = raw_loss + (run_config.kl_penalty_weight * kl_val)
 
                 loss = raw_loss / run_config.gradient_accumulation_steps
@@ -304,7 +345,9 @@ def run_sft(
 
         # Optimizer step
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-        curr_lr = build_cosine_lr(step, run_config.steps, run_config.warmup_steps, run_config.learning_rate)
+        curr_lr = build_cosine_lr(
+            step, run_config.steps, run_config.warmup_steps, run_config.learning_rate
+        )
         for pg in optimizer.param_groups:
             pg["lr"] = curr_lr
 
@@ -348,7 +391,11 @@ def run_sft(
                     v_inp_t = torch.tensor(v_inps, dtype=torch.long, device=device)
                     v_lbl_t = torch.tensor(v_lbls, dtype=torch.long, device=device)
 
-                    with torch.autocast(device_type=device.type, dtype=autocast_dtype, enabled=use_autocast):
+                    with torch.autocast(
+                        device_type=device.type,
+                        dtype=autocast_dtype,
+                        enabled=use_autocast,
+                    ):
                         val_out = model(v_inp_t, labels=v_lbl_t)
                         if val_out.loss is not None:
                             val_loss_sum += float(val_out.loss.detach().cpu())
@@ -398,7 +445,9 @@ def run_sft(
                 },
                 ckpt_dir / "model.pt",
             )
-            (ckpt_dir / "config.json").write_text(json.dumps(arch_config.model_dump(), indent=2), encoding="utf-8")
+            (ckpt_dir / "config.json").write_text(
+                json.dumps(arch_config.model_dump(), indent=2), encoding="utf-8"
+            )
 
             manifest = CheckpointManifest.from_directory(
                 architecture_name=arch_config.name,
@@ -409,7 +458,11 @@ def run_sft(
                 metrics={"train_loss": avg_loss, "best_val_loss": best_val_loss},
             )
             manifest.write_atomic(out_dir / "checkpoint_manifest.json")
-            prune_sft_checkpoints(out_dir, keep_last_n=run_config.keep_last_n_checkpoints, preserve_dirs={ckpt_dir})
+            prune_sft_checkpoints(
+                out_dir,
+                keep_last_n=run_config.keep_last_n_checkpoints,
+                preserve_dirs={ckpt_dir},
+            )
 
             if callable(on_checkpoint):
                 try:
@@ -429,7 +482,9 @@ def run_sft(
         },
         final_ckpt_dir / "model.pt",
     )
-    (final_ckpt_dir / "config.json").write_text(json.dumps(arch_config.model_dump(), indent=2), encoding="utf-8")
+    (final_ckpt_dir / "config.json").write_text(
+        json.dumps(arch_config.model_dump(), indent=2), encoding="utf-8"
+    )
 
     manifest = CheckpointManifest.from_directory(
         architecture_name=arch_config.name,
@@ -437,7 +492,10 @@ def run_sft(
         step=step,
         trained_tokens=trained_tokens,
         checkpoint_dir=final_ckpt_dir,
-        metrics={"final_train_loss": train_losses[-1] if train_losses else 0.0, "best_val_loss": best_val_loss},
+        metrics={
+            "final_train_loss": train_losses[-1] if train_losses else 0.0,
+            "best_val_loss": best_val_loss,
+        },
     )
     manifest_path = manifest.write_atomic(out_dir / "checkpoint_manifest.json")
 

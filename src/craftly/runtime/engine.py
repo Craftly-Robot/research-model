@@ -24,9 +24,13 @@ from src.craftly.runtime.collaboration import (
     FailureIntelligence,
     MessageKind,
 )
-from src.craftly.runtime.taskgraph import AgentRunCreateRequest, TaskCompleteRequest, TaskFailRequest, TaskGraphRuntime
+from src.craftly.runtime.taskgraph import (
+    AgentRunCreateRequest,
+    TaskCompleteRequest,
+    TaskFailRequest,
+    TaskGraphRuntime,
+)
 from src.craftly.shared.schemas import CraftlyRunReport, CraftlyRunRequest, StrictModel
-
 
 AgentWorker = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 
@@ -110,7 +114,9 @@ class AgentWorkerPool:
         self.handlers: dict[str, AgentWorker] = {}
         self.registrations: dict[str, WorkerRegistration] = {}
         self.collaboration = collaboration or CollaborationRuntime(runtime.store)
-        self.failure_intelligence = failure_intelligence or FailureIntelligence(runtime.store)
+        self.failure_intelligence = failure_intelligence or FailureIntelligence(
+            runtime.store
+        )
         self.worker_id = f"pool-{uuid.uuid4()}"
 
     def register(
@@ -157,7 +163,9 @@ class AgentWorkerPool:
             if cancellation_event is not None and cancellation_event.is_set():
                 state = self.runtime.cancel(task_graph_id)
                 cancelled += sum(
-                    1 for task in self.runtime.store.list_tasks(task_graph_id) if task["status"] == "cancelled"
+                    1
+                    for task in self.runtime.store.list_tasks(task_graph_id)
+                    if task["status"] == "cancelled"
                 )
                 return self._report(
                     state.status,
@@ -209,7 +217,10 @@ class AgentWorkerPool:
                 )
             peak_parallelism = max(peak_parallelism, len(claimed))
             outcomes = await asyncio.gather(
-                *(self._execute_claimed(task, cancellation_event=cancellation_event) for task in claimed)
+                *(
+                    self._execute_claimed(task, cancellation_event=cancellation_event)
+                    for task in claimed
+                )
             )
             for outcome, task_kind in outcomes:
                 if outcome == "completed":
@@ -261,7 +272,9 @@ class AgentWorkerPool:
         heartbeat_task: asyncio.Task[None] | None = None
         cancellation_task: asyncio.Task[bool] | None = None
         try:
-            handler_task = asyncio.create_task(handler(task), name=f"craftly-agent-{kind}-{task['id']}")
+            handler_task = asyncio.create_task(
+                handler(task), name=f"craftly-agent-{kind}-{task['id']}"
+            )
             heartbeat_task = asyncio.create_task(
                 self._renew_lease(str(task["id"])),
                 name=f"craftly-lease-{task['id']}",
@@ -285,13 +298,17 @@ class AgentWorkerPool:
                     raise asyncio.TimeoutError
                 outputs = handler_task.result()
             else:
-                outputs = await asyncio.wait_for(handler_task, timeout=registration.timeout_seconds)
+                outputs = await asyncio.wait_for(
+                    handler_task, timeout=registration.timeout_seconds
+                )
             if not isinstance(outputs, dict):
                 raise TypeError(f"worker {kind} must return a dictionary")
             message = self._record_worker_output(task, outputs, registration.role)
             self.runtime.complete_task(
                 task["id"],
-                TaskCompleteRequest(outputs={**outputs, "agent_message_id": message.message_id}),
+                TaskCompleteRequest(
+                    outputs={**outputs, "agent_message_id": message.message_id}
+                ),
                 claim_next=False,
             )
             return "completed", kind
@@ -299,9 +316,13 @@ class AgentWorkerPool:
             if handler_task is not None and not handler_task.done():
                 handler_task.cancel()
                 await asyncio.gather(handler_task, return_exceptions=True)
-            error = f"worker {kind} exceeded timeout of {registration.timeout_seconds:.3f}s"
+            error = (
+                f"worker {kind} exceeded timeout of {registration.timeout_seconds:.3f}s"
+            )
             self._record_failure(task, error, failure_kind="timeout")
-            self.runtime.fail_task(task["id"], TaskFailRequest(error=error), claim_next=False)
+            self.runtime.fail_task(
+                task["id"], TaskFailRequest(error=error), claim_next=False
+            )
             return "timeout", kind
         except asyncio.CancelledError:
             if handler_task is not None:
@@ -312,14 +333,20 @@ class AgentWorkerPool:
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
             self._record_failure(task, error, failure_kind="worker_exception")
-            self.runtime.fail_task(task["id"], TaskFailRequest(error=error), claim_next=False)
+            self.runtime.fail_task(
+                task["id"], TaskFailRequest(error=error), claim_next=False
+            )
             return "failed", kind
         finally:
             for background in (heartbeat_task, cancellation_task):
                 if background is not None:
                     background.cancel()
             await asyncio.gather(
-                *(task for task in (heartbeat_task, cancellation_task) if task is not None),
+                *(
+                    task
+                    for task in (heartbeat_task, cancellation_task)
+                    if task is not None
+                ),
                 return_exceptions=True,
             )
 
@@ -353,7 +380,9 @@ class AgentWorkerPool:
         )
         payload = dict(outputs)
         payload.setdefault("artifact_type", TASK_ARTIFACT_TYPE[task_kind])
-        evidence_refs = [str(item) for item in payload.pop("evidence_refs", []) if str(item)][:128]
+        evidence_refs = [
+            str(item) for item in payload.pop("evidence_refs", []) if str(item)
+        ][:128]
         message = self.collaboration.publish(
             AgentMessage(
                 run_id=str(task["run_id"]),
@@ -376,14 +405,22 @@ class AgentWorkerPool:
             if message_kind == MessageKind.PROPOSAL
             else BlackboardKind.FACT
         )
-        verified = bool(payload.get("accepted") or payload.get("passed")) if board_kind == BlackboardKind.DECISION else False
+        verified = (
+            bool(payload.get("accepted") or payload.get("passed"))
+            if board_kind == BlackboardKind.DECISION
+            else False
+        )
         self.collaboration.write_blackboard(
             BlackboardWrite(
                 run_id=message.run_id,
                 task_graph_id=message.task_graph_id,
                 entry_key=f"task/{task['id']}/{board_kind.value}",
                 kind=board_kind,
-                value={"message_id": message.message_id, "task_kind": task_kind, "payload": message.payload},
+                value={
+                    "message_id": message.message_id,
+                    "task_kind": task_kind,
+                    "payload": message.payload,
+                },
                 expected_version=0,
                 verified=verified,
                 source_message_id=message.message_id,
@@ -391,7 +428,9 @@ class AgentWorkerPool:
         )
         return message
 
-    def _record_failure(self, task: dict[str, Any], error: str, *, failure_kind: str) -> None:
+    def _record_failure(
+        self, task: dict[str, Any], error: str, *, failure_kind: str
+    ) -> None:
         run = self.runtime.store.get_run(str(task["run_id"])) or {}
         self.failure_intelligence.observe(
             error,
@@ -436,16 +475,37 @@ class AgentRouter:
     def route(self, prompt: str, *, top_k: int = 4) -> dict[str, object]:
         lowered = prompt.lower()
         candidates: list[dict[str, object]] = []
-        if any(term in lowered for term in ["security", "vulnerability", "cve", "secret", "xss", "sql injection"]):
+        if any(
+            term in lowered
+            for term in [
+                "security",
+                "vulnerability",
+                "cve",
+                "secret",
+                "xss",
+                "sql injection",
+            ]
+        ):
             candidates.append({"role": "security", "score": 0.95})
-        if any(term in lowered for term in ["test", "pytest", "fail", "bug", "regression"]):
+        if any(
+            term in lowered for term in ["test", "pytest", "fail", "bug", "regression"]
+        ):
             candidates.append({"role": "testing", "score": 0.9})
-        if any(term in lowered for term in ["code", "build", "implement", "fix", "refactor"]):
+        if any(
+            term in lowered
+            for term in ["code", "build", "implement", "fix", "refactor"]
+        ):
             candidates.append({"role": "coding", "score": 0.88})
-        if any(term in lowered for term in ["design", "architecture", "plan", "system"]):
+        if any(
+            term in lowered for term in ["design", "architecture", "plan", "system"]
+        ):
             candidates.append({"role": "architect", "score": 0.84})
         candidates.append({"role": "planner", "score": 0.75})
-        return {"route": candidates[:top_k], "top_role": candidates[0]["role"], "router": "native"}
+        return {
+            "route": candidates[:top_k],
+            "top_role": candidates[0]["role"],
+            "router": "native",
+        }
 
 
 class CraftlyRuntime:
@@ -460,14 +520,23 @@ class CraftlyRuntime:
             plan = await self.planner.plan_structured(
                 request.prompt,
                 backend=backend,
-                allow_dev_fallback=backend.name == "mock" or request.policy_mode == "development",
+                allow_dev_fallback=backend.name == "mock"
+                or request.policy_mode == "development",
             )
-            route = self.router.route(request.prompt, top_k=request.max_agent_nodes or 4)
+            route = self.router.route(
+                request.prompt, top_k=request.max_agent_nodes or 4
+            )
             store = LocalStore()
             workspace = str(Path(request.workspace).resolve())
-            project = store.create_project(name=f"runtime-{time.time_ns()}", repo_path=workspace)
-            index_report = RepositoryIndexer(store).index_project(project_id=project["id"])
-            context = ContextBuilder(store).build(project_id=project["id"], query=request.prompt, token_budget=8000)
+            project = store.create_project(
+                name=f"runtime-{time.time_ns()}", repo_path=workspace
+            )
+            index_report = RepositoryIndexer(store).index_project(
+                project_id=project["id"]
+            )
+            context = ContextBuilder(store).build(
+                project_id=project["id"], query=request.prompt, token_budget=8000
+            )
             agent_run = TaskGraphRuntime(store).create_agent_run(
                 AgentRunCreateRequest(
                     project_id=project["id"],
@@ -493,11 +562,17 @@ class CraftlyRuntime:
             prompt=request.prompt,
             workspace=workspace,
             final_answer=answer,
-            route={"intent": plan.expansion.get("intent"), "runtime": "native-taskgraph", **route},
+            route={
+                "intent": plan.expansion.get("intent"),
+                "runtime": "native-taskgraph",
+                **route,
+            },
             plan=plan.model_dump(),
             memory={
                 "context_id": context.context_id,
-                "chunks": [chunk.model_dump(exclude={"content"}) for chunk in context.chunks],
+                "chunks": [
+                    chunk.model_dump(exclude={"content"}) for chunk in context.chunks
+                ],
             },
             verification=None,
             security=None,

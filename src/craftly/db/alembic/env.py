@@ -1,4 +1,4 @@
-﻿"""Alembic environment for Craftly production Postgres migrations."""
+"""Alembic environment for Craftly production Postgres migrations."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ import os
 from logging.config import fileConfig
 
 from alembic import context
-
 
 config = context.config
 if config.config_file_name is not None:
@@ -16,7 +15,9 @@ target_metadata = None
 
 
 def database_url() -> str:
-    url = os.environ.get("CRAFTLY_DATABASE_URL") or config.get_main_option("sqlalchemy.url")
+    url = os.environ.get("CRAFTLY_DATABASE_URL") or config.get_main_option(
+        "sqlalchemy.url"
+    )
     if not url:
         raise RuntimeError("CRAFTLY_DATABASE_URL or alembic sqlalchemy.url is required")
     return url
@@ -47,4 +48,3 @@ if context.is_offline_mode():
     run_migrations_offline()
 else:
     run_migrations_online()
-

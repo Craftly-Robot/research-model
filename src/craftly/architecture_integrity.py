@@ -13,12 +13,11 @@ import hashlib
 import json
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Iterable
 
 from pydantic import Field
 
 from src.craftly.shared.schemas import StrictModel
-
 
 AUTHORITATIVE_MODULES = {
     "canonical_integrity": "src.craftly.shared.integrity",
@@ -87,7 +86,9 @@ class ArchitectureIntegrityReport(StrictModel):
     ownership_violations: list[OwnershipViolation] = Field(default_factory=list)
     duplicate_function_bodies: list[DuplicateFunctionBody] = Field(default_factory=list)
     import_cycles: list[ImportCycle] = Field(default_factory=list)
-    authoritative_modules: dict[str, str] = Field(default_factory=lambda: dict(AUTHORITATIVE_MODULES))
+    authoritative_modules: dict[str, str] = Field(
+        default_factory=lambda: dict(AUTHORITATIVE_MODULES)
+    )
 
     def write(self, output_dir: str | Path) -> Path:
         root = Path(output_dir)
@@ -133,30 +134,54 @@ def _import_targets(tree: ast.Module) -> set[str]:
     targets: set[str] = set()
     for node in _top_level_nodes(tree.body):
         if isinstance(node, ast.Import):
-            targets.update(alias.name for alias in node.names if alias.name.startswith("src.craftly"))
-        elif isinstance(node, ast.ImportFrom) and node.module and node.module.startswith("src.craftly"):
+            targets.update(
+                alias.name
+                for alias in node.names
+                if alias.name.startswith("src.craftly")
+            )
+        elif (
+            isinstance(node, ast.ImportFrom)
+            and node.module
+            and node.module.startswith("src.craftly")
+        ):
             targets.add(node.module)
     return targets
 
 
-def _function_fingerprint(node: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[str, int, int] | None:
+def _function_fingerprint(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> tuple[str, int, int] | None:
     body = list(node.body)
-    if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+    if (
+        body
+        and isinstance(body[0], ast.Expr)
+        and isinstance(body[0].value, ast.Constant)
+    ):
         if isinstance(body[0].value.value, str):
             body = body[1:]
-    statement_count = sum(1 for child in ast.walk(ast.Module(body=body, type_ignores=[])) if isinstance(child, ast.stmt))
+    statement_count = sum(
+        1
+        for child in ast.walk(ast.Module(body=body, type_ignores=[]))
+        if isinstance(child, ast.stmt)
+    )
     line_count = max(1, int(getattr(node, "end_lineno", node.lineno)) - node.lineno + 1)
     if statement_count < 5 or line_count < 8:
         return None
     payload = ast.dump(ast.Module(body=body, type_ignores=[]), include_attributes=False)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest(), statement_count, line_count
+    return (
+        hashlib.sha256(payload.encode("utf-8")).hexdigest(),
+        statement_count,
+        line_count,
+    )
 
 
 def _canonical_cycle(cycle: list[str]) -> tuple[str, ...]:
     core = cycle[:-1] if len(cycle) > 1 and cycle[0] == cycle[-1] else cycle
     variants: list[tuple[str, ...]] = []
     for values in (core, list(reversed(core))):
-        variants.extend(tuple(values[index:] + values[:index]) for index in range(len(values)))
+        variants.extend(
+            tuple(values[index:] + values[:index]) for index in range(len(values))
+        )
     return min(variants)
 
 
@@ -214,7 +239,10 @@ def run_architecture_integrity(
         for node in ast.walk(tree):
             if isinstance(node, ast.ClassDef):
                 for capability, symbols in OWNED_CLASS_NAMES.items():
-                    if node.name in symbols and module != AUTHORITATIVE_MODULES[capability]:
+                    if (
+                        node.name in symbols
+                        and module != AUTHORITATIVE_MODULES[capability]
+                    ):
                         ownership_violations.append(
                             OwnershipViolation(
                                 capability=capability,
@@ -270,7 +298,9 @@ def run_architecture_integrity(
         duplicates.append(
             DuplicateFunctionBody(
                 digest=digest,
-                locations=sorted(locations, key=lambda item: (item.module, item.line, item.name)),
+                locations=sorted(
+                    locations, key=lambda item: (item.module, item.line, item.name)
+                ),
                 statement_count=statements,
                 line_count=lines,
             )
@@ -294,9 +324,13 @@ def run_architecture_integrity(
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run Craftly static architecture integrity checks.")
+    parser = argparse.ArgumentParser(
+        description="Run Craftly static architecture integrity checks."
+    )
     parser.add_argument("--repository-root", default=".")
-    parser.add_argument("--output-dir", default="artifacts/craftly/architecture-integrity")
+    parser.add_argument(
+        "--output-dir", default="artifacts/craftly/architecture-integrity"
+    )
     return parser.parse_args()
 
 

@@ -1,9 +1,9 @@
-﻿"""Streaming token-shard dataloader for scratch pretraining."""
+"""Streaming token-shard dataloader for scratch pretraining."""
 
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import os
 import queue
 import random
@@ -45,7 +45,12 @@ class ArtifactCache:
         if parsed.netloc not in {"", "localhost"}:
             raise ValueError("file URI must not reference a remote host")
         value = unquote(parsed.path)
-        if os.name == "nt" and value.startswith("/") and len(value) > 3 and value[2] == ":":
+        if (
+            os.name == "nt"
+            and value.startswith("/")
+            and len(value) > 3
+            and value[2] == ":"
+        ):
             value = value[1:]
         return Path(value).expanduser().resolve()
 
@@ -54,7 +59,9 @@ class ArtifactCache:
         suffix = Path(parsed.path).suffix[:16]
         return self.root / f"{hashlib.sha256(uri.encode('utf-8')).hexdigest()}{suffix}"
 
-    def materialize(self, uri: str | Path, *, expected_sha256: str | None = None) -> Path:
+    def materialize(
+        self, uri: str | Path, *, expected_sha256: str | None = None
+    ) -> Path:
         value = str(uri)
         local = self._local_path(value)
         if local is not None:
@@ -67,7 +74,9 @@ class ArtifactCache:
         if parsed.scheme != "s3" or not parsed.netloc or not parsed.path.strip("/"):
             raise ValueError(f"unsupported training artifact URI: {value!r}")
         target = self._target(value)
-        if target.is_file() and (not expected_sha256 or sha256_file(target) == expected_sha256):
+        if target.is_file() and (
+            not expected_sha256 or sha256_file(target) == expected_sha256
+        ):
             return target
         lock = target.with_suffix(target.suffix + ".lock")
         deadline = time.monotonic() + self.lock_timeout_seconds
@@ -78,10 +87,14 @@ class ArtifactCache:
                 os.close(descriptor)
                 acquired = True
             except FileExistsError:
-                if target.is_file() and (not expected_sha256 or sha256_file(target) == expected_sha256):
+                if target.is_file() and (
+                    not expected_sha256 or sha256_file(target) == expected_sha256
+                ):
                     return target
                 if time.monotonic() >= deadline:
-                    raise TimeoutError(f"timed out waiting for training artifact cache lock: {lock}")
+                    raise TimeoutError(
+                        f"timed out waiting for training artifact cache lock: {lock}"
+                    )
                 time.sleep(0.2)
         temporary = target.with_suffix(target.suffix + f".{os.getpid()}.tmp")
         try:
@@ -91,7 +104,9 @@ class ArtifactCache:
             client.download_file(parsed.netloc, parsed.path.strip("/"), str(temporary))
             digest = sha256_file(temporary)
             if expected_sha256 and digest != expected_sha256:
-                raise ValueError(f"downloaded training artifact checksum mismatch: {value}")
+                raise ValueError(
+                    f"downloaded training artifact checksum mismatch: {value}"
+                )
             with temporary.open("rb") as handle:
                 os.fsync(handle.fileno())
             os.replace(temporary, target)
@@ -107,8 +122,14 @@ def load_manifest(
     cache: ArtifactCache | None = None,
     expected_sha256: str | None = None,
 ) -> ShardManifest:
-    source = cache.materialize(path, expected_sha256=expected_sha256) if cache else Path(path)
-    return ShardManifest.model_validate(json.loads(source.read_text(encoding="utf-8-sig")))
+    source = (
+        cache.materialize(path, expected_sha256=expected_sha256)
+        if cache
+        else Path(path)
+    )
+    return ShardManifest.model_validate(
+        json.loads(source.read_text(encoding="utf-8-sig"))
+    )
 
 
 class TokenShardStream:
@@ -147,7 +168,9 @@ class TokenShardStream:
 
     def _materialize_shard(self, path: str) -> Path:
         if self.artifact_cache:
-            return self.artifact_cache.materialize(path, expected_sha256=self.expected_sha256.get(path))
+            return self.artifact_cache.materialize(
+                path, expected_sha256=self.expected_sha256.get(path)
+            )
         local = Path(path)
         expected = self.expected_sha256.get(path)
         if expected and sha256_file(local) != expected:
@@ -175,7 +198,9 @@ class TokenShardStream:
                     for index in range(0, needed, self.sequence_length)
                 ]
 
-    def _batches(self, *, epoch: int = 0, start_batch: int = 0) -> Iterator[list[list[int]]]:
+    def _batches(
+        self, *, epoch: int = 0, start_batch: int = 0
+    ) -> Iterator[list[list[int]]]:
         if start_batch < 0:
             raise ValueError("start_batch must be non-negative")
         group: list[list[list[int]]] = []
@@ -190,7 +215,9 @@ class TokenShardStream:
                 yield selected
             local_index += 1
 
-    def batches(self, *, epoch: int = 0, start_batch: int = 0) -> Iterator[list[list[int]]]:
+    def batches(
+        self, *, epoch: int = 0, start_batch: int = 0
+    ) -> Iterator[list[list[int]]]:
         if self.prefetch_batches == 0:
             yield from self._batches(epoch=epoch, start_batch=start_batch)
             return
@@ -248,7 +275,9 @@ def count_batches(
     total_tokens = sum(
         len(
             read_uint32_tokens(
-                artifact_cache.materialize(path, expected_sha256=(expected_sha256 or {}).get(path))
+                artifact_cache.materialize(
+                    path, expected_sha256=(expected_sha256 or {}).get(path)
+                )
                 if artifact_cache
                 else path
             )
@@ -256,4 +285,3 @@ def count_batches(
         for path in shard_paths
     )
     return total_tokens // (sequence_length * batch_size)
-

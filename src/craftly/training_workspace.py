@@ -21,7 +21,6 @@ import re
 import secrets
 import shlex
 import socket
-import subprocess  # nosec B404 - fixed executable allowlist and argv-only invocation
 import sys
 import tempfile
 import time
@@ -36,12 +35,19 @@ from urllib.parse import urlparse
 
 from pydantic import Field, field_validator, model_validator
 
-from src.craftly.learning.storage import ObjectStore, ObjectStoreConfig, S3ObjectStore, create_object_store
+from src.craftly.learning.storage import (
+    ObjectStore,
+    ObjectStoreConfig,
+    S3ObjectStore,
+    create_object_store,
+)
 from src.craftly.model_ops.foundation import (
     TRAINING_STEP_SEMANTICS,
     ParallelismPlan,
     ScratchDecoderConfig,
     TrainingBatchContract,
+)
+from src.craftly.model_ops.foundation import (
     model_profile as get_model_profile,
 )
 from src.craftly.model_ops.production_adapters import (
@@ -49,9 +55,9 @@ from src.craftly.model_ops.production_adapters import (
     resolve_megatron_data_prefix,
 )
 from src.craftly.shared.config_contracts import ScientificExperimentCampaignContract
+from src.craftly.shared.integrity import canonical_json_text as canonical_json
+from src.craftly.shared.integrity import sha256_file as sha256_path
 from src.craftly.shared.schemas import StrictModel
-from src.craftly.shared.integrity import canonical_json_text as canonical_json, sha256_file as sha256_path
-
 
 PROFILE_PATH = Path("config/training_profiles.json")
 CAMPAIGN_PATH = Path("config/training_qualification_campaigns.json")
@@ -83,7 +89,12 @@ class JobStatus(str, Enum):
 ALLOWED_TRANSITIONS: dict[JobStatus, set[JobStatus]] = {
     JobStatus.VALIDATING: {JobStatus.QUEUED, JobStatus.BLOCKED, JobStatus.CANCELLED},
     JobStatus.QUEUED: {JobStatus.PROVISIONING, JobStatus.CANCELLED, JobStatus.BLOCKED},
-    JobStatus.PROVISIONING: {JobStatus.RUNNING, JobStatus.FAILED, JobStatus.BLOCKED, JobStatus.CANCELLED},
+    JobStatus.PROVISIONING: {
+        JobStatus.RUNNING,
+        JobStatus.FAILED,
+        JobStatus.BLOCKED,
+        JobStatus.CANCELLED,
+    },
     JobStatus.RUNNING: {
         JobStatus.CHECKPOINTING,
         JobStatus.EVALUATING,
@@ -92,8 +103,20 @@ ALLOWED_TRANSITIONS: dict[JobStatus, set[JobStatus]] = {
         JobStatus.BLOCKED,
         JobStatus.CANCELLED,
     },
-    JobStatus.CHECKPOINTING: {JobStatus.RUNNING, JobStatus.EVALUATING, JobStatus.FAILED, JobStatus.BLOCKED, JobStatus.CANCELLED},
-    JobStatus.EVALUATING: {JobStatus.RUNNING, JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.BLOCKED, JobStatus.CANCELLED},
+    JobStatus.CHECKPOINTING: {
+        JobStatus.RUNNING,
+        JobStatus.EVALUATING,
+        JobStatus.FAILED,
+        JobStatus.BLOCKED,
+        JobStatus.CANCELLED,
+    },
+    JobStatus.EVALUATING: {
+        JobStatus.RUNNING,
+        JobStatus.SUCCEEDED,
+        JobStatus.FAILED,
+        JobStatus.BLOCKED,
+        JobStatus.CANCELLED,
+    },
     JobStatus.SUCCEEDED: set(),
     JobStatus.FAILED: {JobStatus.QUEUED},
     JobStatus.BLOCKED: set(),
@@ -136,11 +159,17 @@ def redact_text(value: str) -> str:
 
 
 def redact_payload(value: Any, *, key: str = "") -> Any:
-    secret_key = re.search(r"(?i)(authorization|api[_-]?key|token|password|secret)", key) is not None
+    secret_key = (
+        re.search(r"(?i)(authorization|api[_-]?key|token|password|secret)", key)
+        is not None
+    )
     if secret_key:
         return "[REDACTED]"
     if isinstance(value, dict):
-        return {str(item_key): redact_payload(item_value, key=str(item_key)) for item_key, item_value in value.items()}
+        return {
+            str(item_key): redact_payload(item_value, key=str(item_key))
+            for item_key, item_value in value.items()
+        }
     if isinstance(value, list):
         return [redact_payload(item, key=key) for item in value]
     if isinstance(value, str):
@@ -240,7 +269,9 @@ class RetentionPolicy(StrictModel):
     @model_validator(mode="after")
     def validate_order(self) -> "RetentionPolicy":
         if not self.hot_days <= self.archive_days <= self.delete_after_days:
-            raise ValueError("retention must satisfy hot_days <= archive_days <= delete_after_days")
+            raise ValueError(
+                "retention must satisfy hot_days <= archive_days <= delete_after_days"
+            )
         return self
 
 
@@ -256,8 +287,12 @@ class RetryPolicy(StrictModel):
     maximum_attempts: int = Field(default=3, ge=1, le=20)
     initial_backoff_seconds: int = Field(default=30, ge=1, le=86_400)
     maximum_backoff_seconds: int = Field(default=900, ge=1, le=86_400)
-    retryable_failures: list[Literal["infrastructure", "preemption", "node_loss", "network", "object_store"]]
-    preemption_action: Literal["checkpoint_then_requeue", "fail"] = "checkpoint_then_requeue"
+    retryable_failures: list[
+        Literal["infrastructure", "preemption", "node_loss", "network", "object_store"]
+    ]
+    preemption_action: Literal["checkpoint_then_requeue", "fail"] = (
+        "checkpoint_then_requeue"
+    )
 
     @model_validator(mode="after")
     def validate_backoff(self) -> "RetryPolicy":
@@ -275,7 +310,9 @@ class RuntimeLimitPolicy(StrictModel):
     @model_validator(mode="after")
     def validate_heartbeat(self) -> "RuntimeLimitPolicy":
         if self.heartbeat_timeout_seconds < self.heartbeat_interval_seconds * 2:
-            raise ValueError("heartbeat timeout must allow at least two heartbeat intervals")
+            raise ValueError(
+                "heartbeat timeout must allow at least two heartbeat intervals"
+            )
         return self
 
 
@@ -301,7 +338,9 @@ class RuntimeImagePolicy(StrictModel):
     @field_validator("repository")
     @classmethod
     def validate_repository(cls, value: str) -> str:
-        if any(character.isspace() for character in value) or value.startswith(("http://", "https://")):
+        if any(character.isspace() for character in value) or value.startswith(
+            ("http://", "https://")
+        ):
             raise ValueError("container repository must be an OCI image name")
         return value
 
@@ -314,12 +353,16 @@ class SchedulerPolicy(StrictModel):
     shared_checkpoint_claim: str | None = Field(default=None, max_length=253)
     priority_class: str = Field(min_length=1, max_length=128)
     gang_scheduling: bool = False
-    topology_key: str = Field(default="kubernetes.io/hostname", min_length=1, max_length=253)
+    topology_key: str = Field(
+        default="kubernetes.io/hostname", min_length=1, max_length=253
+    )
 
     @field_validator("namespace", "queue", "account", "storage_class", "priority_class")
     @classmethod
     def validate_scheduler_identifier(cls, value: str | None) -> str | None:
-        if value is not None and not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}", value):
+        if value is not None and not re.fullmatch(
+            r"[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}", value
+        ):
             raise ValueError("scheduler policy contains an unsafe identifier")
         return value
 
@@ -344,7 +387,9 @@ class ImmutableInputPolicy(StrictModel):
     require_promoted_dataset: bool = True
     require_dataset_sha256: bool = True
     require_tokenizer_sha256: bool = True
-    allowed_uri_schemes: list[Literal["s3", "file"]] = Field(default_factory=lambda: ["s3"])
+    allowed_uri_schemes: list[Literal["s3", "file"]] = Field(
+        default_factory=lambda: ["s3"]
+    )
 
 
 def training_data_parallel_size(
@@ -366,9 +411,17 @@ class TrainingProfile(StrictModel):
     run_type: Literal["data_pipeline", "pretrain", "evaluation"]
     dev_only: bool = False
     model_profile: str = Field(min_length=1, max_length=64)
-    curriculum_mode: Literal["balanced", "fundamentals_only", "defensive_security_only", "debug_patch_only", "agentic_coding_only"]
+    curriculum_mode: Literal[
+        "balanced",
+        "fundamentals_only",
+        "defensive_security_only",
+        "debug_patch_only",
+        "agentic_coding_only",
+    ]
     scheduler: Literal["notebook", "kubernetes", "kubernetes_pytorch", "slurm"]
-    distributed_strategy: Literal["none", "fsdp", "deepspeed_zero2", "deepspeed_zero3", "megatron"]
+    distributed_strategy: Literal[
+        "none", "fsdp", "deepspeed_zero2", "deepspeed_zero3", "megatron"
+    ]
     parallelism: ParallelismPlan = Field(default_factory=ParallelismPlan)
     steps: int = Field(ge=1)
     sequence_length: int = Field(ge=32, le=1_048_576)
@@ -413,11 +466,19 @@ class TrainingProfile(StrictModel):
     def validate_distributed_topology(self) -> "TrainingProfile":
         if self.distributed_strategy != "none" and self.resources.gpus_per_node < 1:
             raise ValueError("distributed profiles require GPUs")
-        if self.scheduler in {"kubernetes", "kubernetes_pytorch"} and not self.scheduler_policy.shared_checkpoint_claim:
-            raise ValueError("Kubernetes training profiles require a shared RWX checkpoint claim")
+        if (
+            self.scheduler in {"kubernetes", "kubernetes_pytorch"}
+            and not self.scheduler_policy.shared_checkpoint_claim
+        ):
+            raise ValueError(
+                "Kubernetes training profiles require a shared RWX checkpoint claim"
+            )
         if self.scheduler == "notebook" and not self.dev_only:
             raise ValueError("notebook profiles must be dev_only validation profiles")
-        if self.model_profile in {"32b", "62b", "4t_moe"} and not self.resources.rdma_required:
+        if (
+            self.model_profile in {"32b", "62b", "4t_moe"}
+            and not self.resources.rdma_required
+        ):
             raise ValueError("32B and larger profiles require RDMA")
         world_size = self.resources.nodes * max(1, self.resources.gpus_per_node)
         if self.distributed_strategy == "megatron":
@@ -431,9 +492,14 @@ class TrainingProfile(StrictModel):
                 gpus_per_node=self.resources.gpus_per_node,
             )
             if not topology["passed"]:
-                raise ValueError("invalid Megatron profile topology: " + "; ".join(topology["failures"]))
+                raise ValueError(
+                    "invalid Megatron profile topology: "
+                    + "; ".join(topology["failures"])
+                )
             if topology["world_size"] != world_size:
-                raise ValueError("Megatron parallelism world size must match requested GPU resources")
+                raise ValueError(
+                    "Megatron parallelism world size must match requested GPU resources"
+                )
         data_parallel = training_data_parallel_size(
             resources=self.resources,
             distributed_strategy=self.distributed_strategy,
@@ -446,7 +512,10 @@ class TrainingProfile(StrictModel):
             gradient_accumulation_steps=self.gradient_accumulation_steps,
             data_parallel_size=data_parallel,
         )
-        if self.token_budget.global_batch_sequences != batch_contract.global_batch_sequences:
+        if (
+            self.token_budget.global_batch_sequences
+            != batch_contract.global_batch_sequences
+        ):
             raise ValueError(
                 "global_batch_sequences must equal micro_batch_size * gradient_accumulation_steps * "
                 "data_parallel_size"
@@ -457,8 +526,13 @@ class TrainingProfile(StrictModel):
             )
         if self.learning_rate.warmup_steps >= self.steps:
             raise ValueError("warmup_steps must be lower than total steps")
-        if self.checkpoint.interval_steps > self.steps or self.evaluation.interval_steps > self.steps:
-            raise ValueError("checkpoint/evaluation intervals cannot exceed total steps")
+        if (
+            self.checkpoint.interval_steps > self.steps
+            or self.evaluation.interval_steps > self.steps
+        ):
+            raise ValueError(
+                "checkpoint/evaluation intervals cannot exceed total steps"
+            )
         if self.promotion.minimum_step > self.steps:
             raise ValueError("promotion minimum_step cannot exceed total steps")
         return self
@@ -493,11 +567,19 @@ class TrainingProfileRegistry(StrictModel):
         try:
             payload = json.loads(source.read_text(encoding="utf-8-sig"))
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-            raise ValueError(f"training profile registry is invalid JSON: {source}") from exc
+            raise ValueError(
+                f"training profile registry is invalid JSON: {source}"
+            ) from exc
         defaults = payload.pop("defaults", {})
-        if not isinstance(defaults, dict) or not isinstance(payload.get("profiles"), list):
-            raise ValueError("training profile registry defaults/profiles have invalid types")
-        payload["profiles"] = [deep_merge(defaults, item) for item in payload["profiles"]]
+        if not isinstance(defaults, dict) or not isinstance(
+            payload.get("profiles"), list
+        ):
+            raise ValueError(
+                "training profile registry defaults/profiles have invalid types"
+            )
+        payload["profiles"] = [
+            deep_merge(defaults, item) for item in payload["profiles"]
+        ]
         return cls.model_validate(payload)
 
 
@@ -546,9 +628,13 @@ class QualificationCampaign(StrictModel):
         ordinal = 1
         seen_steps: set[int] = set()
         for item in self.ranges:
-            for steps in range(item.start_steps, item.stop_steps + 1, item.increment_steps):
+            for steps in range(
+                item.start_steps, item.stop_steps + 1, item.increment_steps
+            ):
                 if steps in seen_steps:
-                    raise ValueError(f"qualification campaign repeats step milestone: {steps}")
+                    raise ValueError(
+                        f"qualification campaign repeats step milestone: {steps}"
+                    )
                 seen_steps.add(steps)
                 milestone_id = f"steps-{steps:07d}"
                 result.append(
@@ -574,20 +660,26 @@ class QualificationCampaign(StrictModel):
 class QualificationCampaignRegistry(StrictModel):
     schema_version: int = Field(ge=1)
     campaigns: list[QualificationCampaign]
-    scientific_experiments: list[ScientificExperimentCampaignContract] = Field(default_factory=list)
+    scientific_experiments: list[ScientificExperimentCampaignContract] = Field(
+        default_factory=list
+    )
 
     @model_validator(mode="after")
     def validate_campaigns(self) -> "QualificationCampaignRegistry":
         identities = [(item.campaign_id, item.version) for item in self.campaigns]
         if len(identities) != len(set(identities)):
-            raise ValueError("qualification campaign identifiers and versions must be unique")
+            raise ValueError(
+                "qualification campaign identifiers and versions must be unique"
+            )
         for campaign in self.campaigns:
             campaign.milestones
         scientific_identities = [
             (item.campaign_id, item.version) for item in self.scientific_experiments
         ]
         if len(scientific_identities) != len(set(scientific_identities)):
-            raise ValueError("scientific campaign identifiers and versions must be unique")
+            raise ValueError(
+                "scientific campaign identifiers and versions must be unique"
+            )
         return self
 
     def latest(self, campaign_id: str) -> QualificationCampaign:
@@ -597,10 +689,14 @@ class QualificationCampaignRegistry(StrictModel):
         return max(matches, key=lambda item: item.version)
 
     @classmethod
-    def from_file(cls, path: str | Path = CAMPAIGN_PATH) -> "QualificationCampaignRegistry":
+    def from_file(
+        cls, path: str | Path = CAMPAIGN_PATH
+    ) -> "QualificationCampaignRegistry":
         source = Path(path)
         if not source.exists():
-            raise FileNotFoundError(f"training qualification registry not found: {source}")
+            raise FileNotFoundError(
+                f"training qualification registry not found: {source}"
+            )
         return cls.model_validate_json(source.read_text(encoding="utf-8-sig"))
 
 
@@ -619,19 +715,27 @@ class TrainingJobCreateRequest(StrictModel):
         pattern=r"^[0-9a-f]{64}$",
     )
     git_commit: str = Field(default="0000000", min_length=7, max_length=64)
-    container_digest: str = Field(default="sha256:" + ("0" * 64), min_length=71, max_length=256)
+    container_digest: str = Field(
+        default="sha256:" + ("0" * 64), min_length=71, max_length=256
+    )
     metadata: dict[str, Any] = Field(default_factory=dict)
     qualification_campaign_id: str | None = Field(default=None, max_length=128)
     qualification_milestone_id: str | None = Field(default=None, max_length=128)
 
     @model_validator(mode="after")
     def validate_qualification_binding(self) -> "TrainingJobCreateRequest":
-        if bool(self.qualification_campaign_id) != bool(self.qualification_milestone_id):
-            raise ValueError("qualification campaign and milestone must be supplied together")
+        if bool(self.qualification_campaign_id) != bool(
+            self.qualification_milestone_id
+        ):
+            raise ValueError(
+                "qualification campaign and milestone must be supplied together"
+            )
         if bool(self.model_progression_decision_uri) != bool(
             self.model_progression_decision_sha256
         ):
-            raise ValueError("model progression decision URI and SHA-256 must be supplied together")
+            raise ValueError(
+                "model progression decision URI and SHA-256 must be supplied together"
+            )
         return self
 
     @field_validator("idempotency_key")
@@ -669,7 +773,9 @@ class TrainingJobSpec(StrictModel):
     model_profile: str
     model_contract: dict[str, Any] | None = None
     model_contract_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
-    model_parameter_report_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    model_parameter_report_sha256: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$"
+    )
     curriculum_mode: str
     scheduler: str
     distributed_strategy: str
@@ -716,15 +822,25 @@ class TrainingJobSpec(StrictModel):
     @model_validator(mode="after")
     def validate_and_hash(self) -> "TrainingJobSpec":
         if self.schema_version >= 2:
-            if not self.model_contract or not self.model_contract_sha256 or not self.model_parameter_report_sha256:
-                raise ValueError("schema v2+ training jobs require an immutable canonical model contract")
+            if (
+                not self.model_contract
+                or not self.model_contract_sha256
+                or not self.model_parameter_report_sha256
+            ):
+                raise ValueError(
+                    "schema v2+ training jobs require an immutable canonical model contract"
+                )
             bound_model = ScratchDecoderConfig.model_validate(self.model_contract)
-            if not hmac.compare_digest(bound_model.contract_sha256(), self.model_contract_sha256):
+            if not hmac.compare_digest(
+                bound_model.contract_sha256(), self.model_contract_sha256
+            ):
                 raise ValueError("training job model contract hash mismatch")
             parameter_report_sha256 = sha256_text(
                 canonical_json(bound_model.parameter_report())
             )
-            if not hmac.compare_digest(parameter_report_sha256, self.model_parameter_report_sha256):
+            if not hmac.compare_digest(
+                parameter_report_sha256, self.model_parameter_report_sha256
+            ):
                 raise ValueError("training job model parameter report hash mismatch")
         if self.run_type == "pretrain":
             missing = [
@@ -738,13 +854,22 @@ class TrainingJobSpec(StrictModel):
                 if not value
             ]
             if missing:
-                raise ValueError("pretraining job is missing immutable inputs: " + ", ".join(missing))
+                raise ValueError(
+                    "pretraining job is missing immutable inputs: " + ", ".join(missing)
+                )
         if bool(self.model_progression_decision_uri) != bool(
             self.model_progression_decision_sha256
         ):
-            raise ValueError("model progression decision URI and SHA-256 must be bound together")
-        if "model_progression_decision" in self.requirements and not self.model_progression_decision_uri:
-            raise ValueError("selected model profile requires an authorized model progression decision")
+            raise ValueError(
+                "model progression decision URI and SHA-256 must be bound together"
+            )
+        if (
+            "model_progression_decision" in self.requirements
+            and not self.model_progression_decision_uri
+        ):
+            raise ValueError(
+                "selected model profile requires an authorized model progression decision"
+            )
         data_parallel = training_data_parallel_size(
             resources=self.resources,
             distributed_strategy=self.distributed_strategy,
@@ -757,7 +882,10 @@ class TrainingJobSpec(StrictModel):
             gradient_accumulation_steps=self.gradient_accumulation_steps,
             data_parallel_size=data_parallel,
         )
-        if self.token_budget.global_batch_sequences != batch_contract.global_batch_sequences:
+        if (
+            self.token_budget.global_batch_sequences
+            != batch_contract.global_batch_sequences
+        ):
             raise ValueError("resolved global batch does not match the job topology")
         if self.token_budget.target_tokens != batch_contract.target_tokens:
             raise ValueError("resolved token target does not match steps and topology")
@@ -771,7 +899,9 @@ class TrainingJobSpec(StrictModel):
     def assert_current_model_contract(self) -> ScratchDecoderConfig:
         """Reject execution if the named runtime contract drifted after submission."""
         if self.schema_version < 2:
-            raise ValueError("legacy schema v1 jobs cannot execute without a bound model contract")
+            raise ValueError(
+                "legacy schema v1 jobs cannot execute without a bound model contract"
+            )
         bound = ScratchDecoderConfig.model_validate(self.model_contract)
         current = get_model_profile(self.model_profile).model_copy(
             update={"vocab_size": bound.vocab_size}
@@ -819,7 +949,9 @@ class TrainingJob(StrictModel):
 
 class TrainingEventInput(StrictModel):
     source_sequence: int = Field(ge=0)
-    kind: Literal["status", "metric", "log", "heartbeat", "checkpoint", "evaluation", "error"]
+    kind: Literal[
+        "status", "metric", "log", "heartbeat", "checkpoint", "evaluation", "error"
+    ]
     stage: str = Field(min_length=1, max_length=128)
     status: str = Field(default="running", min_length=1, max_length=64)
     rank: int = Field(default=0, ge=0, le=1_000_000)
@@ -838,7 +970,9 @@ class TrainingEventInput(StrictModel):
     def validate_finite_metrics(self) -> "TrainingEventInput":
         for name in ("loss", "validation_loss"):
             value = getattr(self, name)
-            if value is not None and (value != value or value in {float("inf"), float("-inf")}):
+            if value is not None and (
+                value != value or value in {float("inf"), float("-inf")}
+            ):
                 raise ValueError(f"{name} must be finite")
         encoded = canonical_json(self.model_dump(mode="json")).encode("utf-8")
         if len(encoded) > MAX_EVENT_BYTES:
@@ -864,7 +998,9 @@ class TrainingArtifact(StrictModel):
     artifact_id: str
     job_id: str
     attempt_id: str | None = None
-    kind: Literal["spec", "log", "checkpoint", "evaluation", "report", "dataset", "tokenizer"]
+    kind: Literal[
+        "spec", "log", "checkpoint", "evaluation", "report", "dataset", "tokenizer"
+    ]
     uri: str
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     size_bytes: int = Field(ge=0)
@@ -929,12 +1065,18 @@ class ArtifactUploadRequest(StrictModel):
     relative_path: str | None = Field(default=None, max_length=1024)
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     size_bytes: int = Field(ge=0, le=10 * 1024**4)
-    content_type: str = Field(default="application/octet-stream", min_length=1, max_length=128)
+    content_type: str = Field(
+        default="application/octet-stream", min_length=1, max_length=128
+    )
 
     @field_validator("filename")
     @classmethod
     def validate_filename(cls, value: str) -> str:
-        if Path(value).name != value or value in {".", ".."} or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,254}", value):
+        if (
+            Path(value).name != value
+            or value in {".", ".."}
+            or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,254}", value)
+        ):
             raise ValueError("artifact filename is unsafe")
         return value
 
@@ -945,9 +1087,16 @@ class ArtifactUploadRequest(StrictModel):
             return None
         normalized = value.replace("\\", "/").strip("/")
         parts = normalized.split("/")
-        if not normalized or len(parts) > 32 or any(part in {"", ".", ".."} for part in parts):
+        if (
+            not normalized
+            or len(parts) > 32
+            or any(part in {"", ".", ".."} for part in parts)
+        ):
             raise ValueError("artifact relative_path is unsafe")
-        if any(not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,254}", part) for part in parts):
+        if any(
+            not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,254}", part)
+            for part in parts
+        ):
             raise ValueError("artifact relative_path contains an unsafe component")
         return normalized
 
@@ -996,11 +1145,27 @@ class TrainingStore(Protocol):
     async def sync_profiles(self, profiles: list[TrainingProfile]) -> None: ...
     async def create_job(self, job: TrainingJob) -> TrainingJob: ...
     async def get_job(self, job_id: str) -> TrainingJob | None: ...
-    async def get_job_by_idempotency(self, owner_id: str, idempotency_key: str) -> TrainingJob | None: ...
-    async def list_jobs(self, *, owner_id: str | None = None, limit: int = 100) -> list[TrainingJob]: ...
-    async def transition_job(self, job_id: str, target: JobStatus, *, expected_version: int, detail: str | None = None, binding: dict[str, Any] | None = None) -> TrainingJob: ...
-    async def update_binding(self, job_id: str, *, expected_version: int, binding: dict[str, Any]) -> TrainingJob: ...
-    async def update_archive_cursor(self, job_id: str, sequence: int) -> TrainingJob: ...
+    async def get_job_by_idempotency(
+        self, owner_id: str, idempotency_key: str
+    ) -> TrainingJob | None: ...
+    async def list_jobs(
+        self, *, owner_id: str | None = None, limit: int = 100
+    ) -> list[TrainingJob]: ...
+    async def transition_job(
+        self,
+        job_id: str,
+        target: JobStatus,
+        *,
+        expected_version: int,
+        detail: str | None = None,
+        binding: dict[str, Any] | None = None,
+    ) -> TrainingJob: ...
+    async def update_binding(
+        self, job_id: str, *, expected_version: int, binding: dict[str, Any]
+    ) -> TrainingJob: ...
+    async def update_archive_cursor(
+        self, job_id: str, sequence: int
+    ) -> TrainingJob: ...
     async def allocate_event_sequences(
         self,
         job_id: str,
@@ -1010,23 +1175,43 @@ class TrainingStore(Protocol):
     async def create_attempt(self, attempt: TrainingAttempt) -> TrainingAttempt: ...
     async def get_attempt(self, attempt_id: str) -> TrainingAttempt | None: ...
     async def list_attempts(self, job_id: str) -> list[TrainingAttempt]: ...
-    async def update_attempt_status(self, attempt_id: str, status: JobStatus) -> TrainingAttempt: ...
+    async def update_attempt_status(
+        self, attempt_id: str, status: JobStatus
+    ) -> TrainingAttempt: ...
     async def add_artifact(self, artifact: TrainingArtifact) -> TrainingArtifact: ...
     async def list_artifacts(self, job_id: str) -> list[TrainingArtifact]: ...
-    async def add_checkpoint(self, checkpoint: CheckpointVersion) -> CheckpointVersion: ...
+    async def add_checkpoint(
+        self, checkpoint: CheckpointVersion
+    ) -> CheckpointVersion: ...
     async def get_checkpoint(self, checkpoint_id: str) -> CheckpointVersion | None: ...
     async def list_checkpoints(self, job_id: str) -> list[CheckpointVersion]: ...
     async def promote_checkpoint(self, checkpoint_id: str) -> CheckpointVersion: ...
     async def add_evaluation(self, evaluation: EvaluationRun) -> EvaluationRun: ...
     async def list_evaluations(self, job_id: str) -> list[EvaluationRun]: ...
-    async def create_service_account(self, account: ServiceAccount, token_hash: str) -> None: ...
-    async def ensure_service_account(self, account: ServiceAccount, token_hash: str) -> None: ...
-    async def authenticate_service_account(self, bootstrap_token: str) -> ServiceAccount | None: ...
-    async def create_refresh_session(self, service_account_id: str, refresh_hash: str, expires_at: datetime) -> str: ...
-    async def consume_refresh_session(self, session_id: str, refresh_token: str) -> ServiceAccount | None: ...
-    async def revoke_refresh_session(self, session_id: str, refresh_token: str) -> bool: ...
-    async def add_audit_event(self, event: TrainingAuditEvent) -> TrainingAuditEvent: ...
-    async def list_audit_events(self, job_id: str, *, limit: int = 100) -> list[TrainingAuditEvent]: ...
+    async def create_service_account(
+        self, account: ServiceAccount, token_hash: str
+    ) -> None: ...
+    async def ensure_service_account(
+        self, account: ServiceAccount, token_hash: str
+    ) -> None: ...
+    async def authenticate_service_account(
+        self, bootstrap_token: str
+    ) -> ServiceAccount | None: ...
+    async def create_refresh_session(
+        self, service_account_id: str, refresh_hash: str, expires_at: datetime
+    ) -> str: ...
+    async def consume_refresh_session(
+        self, session_id: str, refresh_token: str
+    ) -> ServiceAccount | None: ...
+    async def revoke_refresh_session(
+        self, session_id: str, refresh_token: str
+    ) -> bool: ...
+    async def add_audit_event(
+        self, event: TrainingAuditEvent
+    ) -> TrainingAuditEvent: ...
+    async def list_audit_events(
+        self, job_id: str, *, limit: int = 100
+    ) -> list[TrainingAuditEvent]: ...
     async def close(self) -> None: ...
 
 
@@ -1052,8 +1237,12 @@ class InMemoryTrainingStore:
             for profile in profiles:
                 identity = (profile.profile_id, profile.version)
                 existing = self.profile_hashes.get(identity)
-                if existing and not hmac.compare_digest(existing, profile.immutable_hash):
-                    raise ValueError(f"immutable training profile changed without a version bump: {profile.profile_id}@{profile.version}")
+                if existing and not hmac.compare_digest(
+                    existing, profile.immutable_hash
+                ):
+                    raise ValueError(
+                        f"immutable training profile changed without a version bump: {profile.profile_id}@{profile.version}"
+                    )
                 self.profile_hashes[identity] = profile.immutable_hash
 
     async def create_job(self, job: TrainingJob) -> TrainingJob:
@@ -1071,14 +1260,22 @@ class InMemoryTrainingStore:
             job = self.jobs.get(job_id)
             return job.model_copy(deep=True) if job else None
 
-    async def get_job_by_idempotency(self, owner_id: str, idempotency_key: str) -> TrainingJob | None:
+    async def get_job_by_idempotency(
+        self, owner_id: str, idempotency_key: str
+    ) -> TrainingJob | None:
         async with self.lock:
             job_id = self.idempotency.get((owner_id, idempotency_key))
             return self.jobs[job_id].model_copy(deep=True) if job_id else None
 
-    async def list_jobs(self, *, owner_id: str | None = None, limit: int = 100) -> list[TrainingJob]:
+    async def list_jobs(
+        self, *, owner_id: str | None = None, limit: int = 100
+    ) -> list[TrainingJob]:
         async with self.lock:
-            rows = [item for item in self.jobs.values() if owner_id is None or item.owner_id == owner_id]
+            rows = [
+                item
+                for item in self.jobs.values()
+                if owner_id is None or item.owner_id == owner_id
+            ]
             rows.sort(key=lambda item: item.created_at, reverse=True)
             return [item.model_copy(deep=True) for item in rows[:limit]]
 
@@ -1098,9 +1295,15 @@ class InMemoryTrainingStore:
             if current.version != expected_version:
                 raise RuntimeError("training job version conflict")
             if target not in ALLOWED_TRANSITIONS[current.status]:
-                raise ValueError(f"invalid training job transition: {current.status.value} -> {target.value}")
+                raise ValueError(
+                    f"invalid training job transition: {current.status.value} -> {target.value}"
+                )
             now = utc_now()
-            update: dict[str, Any] = {"status": target, "version": current.version + 1, "updated_at": now}
+            update: dict[str, Any] = {
+                "status": target,
+                "version": current.version + 1,
+                "updated_at": now,
+            }
             if binding is not None:
                 update["scheduler_binding"] = binding
             if target == JobStatus.RUNNING and current.started_at is None:
@@ -1136,10 +1339,14 @@ class InMemoryTrainingStore:
                 self.event_ingress[identity] = sequence
                 allocated.append(sequence)
             if sequence != current.event_sequence:
-                self.jobs[job_id] = current.model_copy(update={"event_sequence": sequence})
+                self.jobs[job_id] = current.model_copy(
+                    update={"event_sequence": sequence}
+                )
             return allocated
 
-    async def update_binding(self, job_id: str, *, expected_version: int, binding: dict[str, Any]) -> TrainingJob:
+    async def update_binding(
+        self, job_id: str, *, expected_version: int, binding: dict[str, Any]
+    ) -> TrainingJob:
         async with self.lock:
             current = self.jobs.get(job_id)
             if current is None:
@@ -1147,7 +1354,11 @@ class InMemoryTrainingStore:
             if current.version != expected_version:
                 raise RuntimeError("training job version conflict")
             updated = current.model_copy(
-                update={"scheduler_binding": binding, "version": current.version + 1, "updated_at": utc_now()}
+                update={
+                    "scheduler_binding": binding,
+                    "version": current.version + 1,
+                    "updated_at": utc_now(),
+                }
             )
             self.jobs[job_id] = updated
             return updated.model_copy(deep=True)
@@ -1157,9 +1368,14 @@ class InMemoryTrainingStore:
             current = self.jobs.get(job_id)
             if current is None:
                 raise KeyError(f"training job not found: {job_id}")
-            if sequence < current.archived_event_sequence or sequence > current.event_sequence:
+            if (
+                sequence < current.archived_event_sequence
+                or sequence > current.event_sequence
+            ):
                 raise ValueError("invalid event archive cursor")
-            updated = current.model_copy(update={"archived_event_sequence": sequence, "updated_at": utc_now()})
+            updated = current.model_copy(
+                update={"archived_event_sequence": sequence, "updated_at": utc_now()}
+            )
             self.jobs[job_id] = updated
             return updated.model_copy(deep=True)
 
@@ -1167,7 +1383,9 @@ class InMemoryTrainingStore:
         async with self.lock:
             self.attempts[attempt.attempt_id] = attempt.model_copy(deep=True)
             job = self.jobs[attempt.job_id]
-            self.jobs[attempt.job_id] = job.model_copy(update={"current_attempt_id": attempt.attempt_id})
+            self.jobs[attempt.job_id] = job.model_copy(
+                update={"current_attempt_id": attempt.attempt_id}
+            )
             return attempt.model_copy(deep=True)
 
     async def get_attempt(self, attempt_id: str) -> TrainingAttempt | None:
@@ -1181,7 +1399,9 @@ class InMemoryTrainingStore:
             rows.sort(key=lambda item: item.attempt_number)
             return [item.model_copy(deep=True) for item in rows]
 
-    async def update_attempt_status(self, attempt_id: str, status: JobStatus) -> TrainingAttempt:
+    async def update_attempt_status(
+        self, attempt_id: str, status: JobStatus
+    ) -> TrainingAttempt:
         async with self.lock:
             current = self.attempts.get(attempt_id)
             if current is None:
@@ -1190,8 +1410,12 @@ class InMemoryTrainingStore:
             updated = current.model_copy(
                 update={
                     "status": status,
-                    "started_at": now if status == JobStatus.RUNNING and current.started_at is None else current.started_at,
-                    "finished_at": now if status.value in TERMINAL_STATES else current.finished_at,
+                    "started_at": now
+                    if status == JobStatus.RUNNING and current.started_at is None
+                    else current.started_at,
+                    "finished_at": now
+                    if status.value in TERMINAL_STATES
+                    else current.finished_at,
                 }
             )
             self.attempts[attempt_id] = updated
@@ -1204,19 +1428,29 @@ class InMemoryTrainingStore:
 
     async def list_artifacts(self, job_id: str) -> list[TrainingArtifact]:
         async with self.lock:
-            return [item.model_copy(deep=True) for item in self.artifacts.get(job_id, [])]
+            return [
+                item.model_copy(deep=True) for item in self.artifacts.get(job_id, [])
+            ]
 
     async def add_checkpoint(self, checkpoint: CheckpointVersion) -> CheckpointVersion:
         async with self.lock:
             duplicate = next(
-                (item for item in self.checkpoints.values() if item.job_id == checkpoint.job_id and item.step == checkpoint.step),
+                (
+                    item
+                    for item in self.checkpoints.values()
+                    if item.job_id == checkpoint.job_id and item.step == checkpoint.step
+                ),
                 None,
             )
             if duplicate:
                 if duplicate.manifest_sha256 != checkpoint.manifest_sha256:
-                    raise ValueError("checkpoint step already exists with a different manifest")
+                    raise ValueError(
+                        "checkpoint step already exists with a different manifest"
+                    )
                 return duplicate.model_copy(deep=True)
-            self.checkpoints[checkpoint.checkpoint_id] = checkpoint.model_copy(deep=True)
+            self.checkpoints[checkpoint.checkpoint_id] = checkpoint.model_copy(
+                deep=True
+            )
             return checkpoint.model_copy(deep=True)
 
     async def get_checkpoint(self, checkpoint_id: str) -> CheckpointVersion | None:
@@ -1241,7 +1475,9 @@ class InMemoryTrainingStore:
 
     async def add_evaluation(self, evaluation: EvaluationRun) -> EvaluationRun:
         async with self.lock:
-            self.evaluations[evaluation.evaluation_id] = evaluation.model_copy(deep=True)
+            self.evaluations[evaluation.evaluation_id] = evaluation.model_copy(
+                deep=True
+            )
             return evaluation.model_copy(deep=True)
 
     async def list_evaluations(self, job_id: str) -> list[EvaluationRun]:
@@ -1250,13 +1486,22 @@ class InMemoryTrainingStore:
             rows.sort(key=lambda item: item.created_at, reverse=True)
             return [item.model_copy(deep=True) for item in rows]
 
-    async def create_service_account(self, account: ServiceAccount, token_hash: str) -> None:
+    async def create_service_account(
+        self, account: ServiceAccount, token_hash: str
+    ) -> None:
         async with self.lock:
-            if any(existing.name == account.name for existing, _ in self.accounts.values()):
+            if any(
+                existing.name == account.name for existing, _ in self.accounts.values()
+            ):
                 raise ValueError("service account name already exists")
-            self.accounts[account.service_account_id] = (account.model_copy(deep=True), token_hash)
+            self.accounts[account.service_account_id] = (
+                account.model_copy(deep=True),
+                token_hash,
+            )
 
-    async def ensure_service_account(self, account: ServiceAccount, token_hash: str) -> None:
+    async def ensure_service_account(
+        self, account: ServiceAccount, token_hash: str
+    ) -> None:
         async with self.lock:
             existing = self.accounts.get(account.service_account_id)
             if existing and existing[0].name != account.name:
@@ -1267,9 +1512,14 @@ class InMemoryTrainingStore:
                     for session_id, row in self.refresh_sessions.items()
                     if row[0] != account.service_account_id
                 }
-            self.accounts[account.service_account_id] = (account.model_copy(deep=True), token_hash)
+            self.accounts[account.service_account_id] = (
+                account.model_copy(deep=True),
+                token_hash,
+            )
 
-    async def authenticate_service_account(self, bootstrap_token: str) -> ServiceAccount | None:
+    async def authenticate_service_account(
+        self, bootstrap_token: str
+    ) -> ServiceAccount | None:
         digest = sha256_text(bootstrap_token)
         async with self.lock:
             for account, expected in self.accounts.values():
@@ -1279,13 +1529,21 @@ class InMemoryTrainingStore:
                     return updated.model_copy(deep=True)
         return None
 
-    async def create_refresh_session(self, service_account_id: str, refresh_hash: str, expires_at: datetime) -> str:
+    async def create_refresh_session(
+        self, service_account_id: str, refresh_hash: str, expires_at: datetime
+    ) -> str:
         session_id = str(uuid.uuid4())
         async with self.lock:
-            self.refresh_sessions[session_id] = (service_account_id, refresh_hash, expires_at)
+            self.refresh_sessions[session_id] = (
+                service_account_id,
+                refresh_hash,
+                expires_at,
+            )
         return session_id
 
-    async def consume_refresh_session(self, session_id: str, refresh_token: str) -> ServiceAccount | None:
+    async def consume_refresh_session(
+        self, session_id: str, refresh_token: str
+    ) -> ServiceAccount | None:
         digest = sha256_text(refresh_token)
         async with self.lock:
             row = self.refresh_sessions.get(session_id)
@@ -1296,7 +1554,11 @@ class InMemoryTrainingStore:
                 self.refresh_sessions.pop(session_id, None)
                 return None
             account = self.accounts.get(account_id)
-            return account[0].model_copy(deep=True) if account and account[0].enabled else None
+            return (
+                account[0].model_copy(deep=True)
+                if account and account[0].enabled
+                else None
+            )
 
     async def revoke_refresh_session(self, session_id: str, refresh_token: str) -> bool:
         digest = sha256_text(refresh_token)
@@ -1309,11 +1571,15 @@ class InMemoryTrainingStore:
 
     async def add_audit_event(self, event: TrainingAuditEvent) -> TrainingAuditEvent:
         async with self.lock:
-            stored = event.model_copy(update={"metadata": redact_payload(event.metadata)})
+            stored = event.model_copy(
+                update={"metadata": redact_payload(event.metadata)}
+            )
             self.audit_events.append(stored)
             return stored.model_copy(deep=True)
 
-    async def list_audit_events(self, job_id: str, *, limit: int = 100) -> list[TrainingAuditEvent]:
+    async def list_audit_events(
+        self, job_id: str, *, limit: int = 100
+    ) -> list[TrainingAuditEvent]:
         async with self.lock:
             rows = [item for item in self.audit_events if item.job_id == job_id]
             rows.sort(key=lambda item: item.created_at, reverse=True)
@@ -1333,7 +1599,9 @@ def _json_value(value: Any) -> Any:
 class PostgresTrainingStore:
     """Async Postgres source of truth for production training jobs."""
 
-    def __init__(self, database_url: str, *, min_size: int = 1, max_size: int = 10) -> None:
+    def __init__(
+        self, database_url: str, *, min_size: int = 1, max_size: int = 10
+    ) -> None:
         if not database_url.startswith(("postgres://", "postgresql://")):
             raise ValueError("training store requires a Postgres database URL")
         self.database_url = database_url
@@ -1349,16 +1617,24 @@ class PostgresTrainingStore:
             if self._pool is None:
                 import asyncpg
 
-                self._pool = await asyncpg.create_pool(self.database_url, min_size=self.min_size, max_size=self.max_size)
+                self._pool = await asyncpg.create_pool(
+                    self.database_url, min_size=self.min_size, max_size=self.max_size
+                )
         return self._pool
 
     @staticmethod
     def _job(row: Any) -> TrainingJob:
         payload = dict(row)
         payload["job_id"] = str(payload.pop("id"))
-        payload["current_attempt_id"] = str(payload["current_attempt_id"]) if payload.get("current_attempt_id") else None
+        payload["current_attempt_id"] = (
+            str(payload["current_attempt_id"])
+            if payload.get("current_attempt_id")
+            else None
+        )
         payload["spec"] = _json_value(payload["spec_json"])
-        payload["scheduler_binding"] = _json_value(payload.get("scheduler_binding") or {})
+        payload["scheduler_binding"] = _json_value(
+            payload.get("scheduler_binding") or {}
+        )
         for key in ["spec_json", "profile_id", "profile_version", "spec_hash"]:
             payload.pop(key, None)
         return TrainingJob.model_validate(payload)
@@ -1383,7 +1659,9 @@ class PostgresTrainingStore:
                     profile.profile_id,
                     profile.version,
                 )
-                if not stored_hash or not hmac.compare_digest(str(stored_hash), profile.immutable_hash):
+                if not stored_hash or not hmac.compare_digest(
+                    str(stored_hash), profile.immutable_hash
+                ):
                     raise ValueError(
                         f"immutable training profile changed without a version bump: {profile.profile_id}@{profile.version}"
                     )
@@ -1420,10 +1698,14 @@ class PostgresTrainingStore:
     async def get_job(self, job_id: str) -> TrainingJob | None:
         pool = await self._get_pool()
         async with pool.acquire() as connection:
-            row = await connection.fetchrow("SELECT * FROM training_jobs WHERE id=$1::uuid", job_id)
+            row = await connection.fetchrow(
+                "SELECT * FROM training_jobs WHERE id=$1::uuid", job_id
+            )
         return self._job(row) if row else None
 
-    async def get_job_by_idempotency(self, owner_id: str, idempotency_key: str) -> TrainingJob | None:
+    async def get_job_by_idempotency(
+        self, owner_id: str, idempotency_key: str
+    ) -> TrainingJob | None:
         pool = await self._get_pool()
         async with pool.acquire() as connection:
             row = await connection.fetchrow(
@@ -1433,7 +1715,9 @@ class PostgresTrainingStore:
             )
         return self._job(row) if row else None
 
-    async def list_jobs(self, *, owner_id: str | None = None, limit: int = 100) -> list[TrainingJob]:
+    async def list_jobs(
+        self, *, owner_id: str | None = None, limit: int = 100
+    ) -> list[TrainingJob]:
         pool = await self._get_pool()
         async with pool.acquire() as connection:
             if owner_id:
@@ -1443,7 +1727,10 @@ class PostgresTrainingStore:
                     limit,
                 )
             else:
-                rows = await connection.fetch("SELECT * FROM training_jobs ORDER BY created_at DESC LIMIT $1", limit)
+                rows = await connection.fetch(
+                    "SELECT * FROM training_jobs ORDER BY created_at DESC LIMIT $1",
+                    limit,
+                )
         return [self._job(row) for row in rows]
 
     async def transition_job(
@@ -1457,18 +1744,32 @@ class PostgresTrainingStore:
     ) -> TrainingJob:
         pool = await self._get_pool()
         async with pool.acquire() as connection, connection.transaction():
-            current_row = await connection.fetchrow("SELECT * FROM training_jobs WHERE id=$1::uuid FOR UPDATE", job_id)
+            current_row = await connection.fetchrow(
+                "SELECT * FROM training_jobs WHERE id=$1::uuid FOR UPDATE", job_id
+            )
             if not current_row:
                 raise KeyError(f"training job not found: {job_id}")
             current = self._job(current_row)
             if current.version != expected_version:
                 raise RuntimeError("training job version conflict")
             if target not in ALLOWED_TRANSITIONS[current.status]:
-                raise ValueError(f"invalid training job transition: {current.status.value} -> {target.value}")
+                raise ValueError(
+                    f"invalid training job transition: {current.status.value} -> {target.value}"
+                )
             now = utc_now()
-            started_at = now if target == JobStatus.RUNNING and current.started_at is None else current.started_at
-            finished_at = now if target.value in TERMINAL_STATES else current.finished_at
-            failure_detail = redact_text(detail or "")[:4000] if target in {JobStatus.FAILED, JobStatus.BLOCKED} else current.failure_detail
+            started_at = (
+                now
+                if target == JobStatus.RUNNING and current.started_at is None
+                else current.started_at
+            )
+            finished_at = (
+                now if target.value in TERMINAL_STATES else current.finished_at
+            )
+            failure_detail = (
+                redact_text(detail or "")[:4000]
+                if target in {JobStatus.FAILED, JobStatus.BLOCKED}
+                else current.failure_detail
+            )
             row = await connection.fetchrow(
                 """
                 UPDATE training_jobs SET status=$2, version=version+1, updated_at=$3,
@@ -1524,7 +1825,9 @@ class PostgresTrainingStore:
                 source_sequences,
             )
             existing = {
-                (int(item["rank"]), int(item["source_sequence"])): int(item["assigned_sequence"])
+                (int(item["rank"]), int(item["source_sequence"])): int(
+                    item["assigned_sequence"]
+                )
                 for item in existing_rows
             }
             allocated: list[int | None] = []
@@ -1563,7 +1866,9 @@ class PostgresTrainingStore:
             )
         return allocated
 
-    async def update_binding(self, job_id: str, *, expected_version: int, binding: dict[str, Any]) -> TrainingJob:
+    async def update_binding(
+        self, job_id: str, *, expected_version: int, binding: dict[str, Any]
+    ) -> TrainingJob:
         pool = await self._get_pool()
         async with pool.acquire() as connection:
             row = await connection.fetchrow(
@@ -1625,13 +1930,17 @@ class PostgresTrainingStore:
         payload = dict(row)
         payload["attempt_id"] = str(payload.pop("id"))
         payload["job_id"] = str(payload["job_id"])
-        payload["scheduler_binding"] = _json_value(payload.get("scheduler_binding") or {})
+        payload["scheduler_binding"] = _json_value(
+            payload.get("scheduler_binding") or {}
+        )
         return TrainingAttempt.model_validate(payload)
 
     async def get_attempt(self, attempt_id: str) -> TrainingAttempt | None:
         pool = await self._get_pool()
         async with pool.acquire() as connection:
-            row = await connection.fetchrow("SELECT * FROM training_attempts WHERE id=$1::uuid", attempt_id)
+            row = await connection.fetchrow(
+                "SELECT * FROM training_attempts WHERE id=$1::uuid", attempt_id
+            )
         return self._attempt(row) if row else None
 
     async def list_attempts(self, job_id: str) -> list[TrainingAttempt]:
@@ -1643,7 +1952,9 @@ class PostgresTrainingStore:
             )
         return [self._attempt(row) for row in rows]
 
-    async def update_attempt_status(self, attempt_id: str, status: JobStatus) -> TrainingAttempt:
+    async def update_attempt_status(
+        self, attempt_id: str, status: JobStatus
+    ) -> TrainingAttempt:
         pool = await self._get_pool()
         now = utc_now()
         async with pool.acquire() as connection:
@@ -1688,13 +1999,18 @@ class PostgresTrainingStore:
     async def list_artifacts(self, job_id: str) -> list[TrainingArtifact]:
         pool = await self._get_pool()
         async with pool.acquire() as connection:
-            rows = await connection.fetch("SELECT * FROM training_artifacts WHERE job_id=$1::uuid ORDER BY created_at", job_id)
+            rows = await connection.fetch(
+                "SELECT * FROM training_artifacts WHERE job_id=$1::uuid ORDER BY created_at",
+                job_id,
+            )
         result = []
         for row in rows:
             payload = dict(row)
             payload["artifact_id"] = str(payload.pop("id"))
             payload["job_id"] = str(payload["job_id"])
-            payload["attempt_id"] = str(payload["attempt_id"]) if payload.get("attempt_id") else None
+            payload["attempt_id"] = (
+                str(payload["attempt_id"]) if payload.get("attempt_id") else None
+            )
             payload["metadata"] = _json_value(payload.get("metadata") or {})
             result.append(TrainingArtifact.model_validate(payload))
         return result
@@ -1704,7 +2020,9 @@ class PostgresTrainingStore:
         payload = dict(row)
         payload["checkpoint_id"] = str(payload.pop("id"))
         payload["job_id"] = str(payload["job_id"])
-        payload["attempt_id"] = str(payload["attempt_id"]) if payload.get("attempt_id") else None
+        payload["attempt_id"] = (
+            str(payload["attempt_id"]) if payload.get("attempt_id") else None
+        )
         payload["topology"] = _json_value(payload.pop("topology_json"))
         payload["metrics"] = _json_value(payload.pop("metrics_json"))
         return CheckpointVersion.model_validate(payload)
@@ -1743,7 +2061,9 @@ class PostgresTrainingStore:
     async def get_checkpoint(self, checkpoint_id: str) -> CheckpointVersion | None:
         pool = await self._get_pool()
         async with pool.acquire() as connection:
-            row = await connection.fetchrow("SELECT * FROM checkpoint_versions WHERE id=$1::uuid", checkpoint_id)
+            row = await connection.fetchrow(
+                "SELECT * FROM checkpoint_versions WHERE id=$1::uuid", checkpoint_id
+            )
         return self._checkpoint(row) if row else None
 
     async def list_checkpoints(self, job_id: str) -> list[CheckpointVersion]:
@@ -1797,7 +2117,9 @@ class PostgresTrainingStore:
             EvaluationRun(
                 evaluation_id=str(row["id"]),
                 job_id=str(row["job_id"]),
-                checkpoint_id=str(row["checkpoint_id"]) if row["checkpoint_id"] else None,
+                checkpoint_id=str(row["checkpoint_id"])
+                if row["checkpoint_id"]
+                else None,
                 status=row["status"],
                 report_uri=row["report_uri"],
                 report_sha256=row["report_sha256"],
@@ -1808,7 +2130,9 @@ class PostgresTrainingStore:
             for row in rows
         ]
 
-    async def create_service_account(self, account: ServiceAccount, token_hash: str) -> None:
+    async def create_service_account(
+        self, account: ServiceAccount, token_hash: str
+    ) -> None:
         pool = await self._get_pool()
         async with pool.acquire() as connection:
             await connection.execute(
@@ -1825,7 +2149,9 @@ class PostgresTrainingStore:
                 account.created_at,
             )
 
-    async def ensure_service_account(self, account: ServiceAccount, token_hash: str) -> None:
+    async def ensure_service_account(
+        self, account: ServiceAccount, token_hash: str
+    ) -> None:
         pool = await self._get_pool()
         async with pool.acquire() as connection, connection.transaction():
             existing_hash = await connection.fetchval(
@@ -1849,21 +2175,32 @@ class PostgresTrainingStore:
                 token_hash,
                 account.created_at,
             )
-            if existing_hash and not hmac.compare_digest(str(existing_hash), token_hash):
+            if existing_hash and not hmac.compare_digest(
+                str(existing_hash), token_hash
+            ):
                 await connection.execute(
                     "UPDATE service_account_sessions SET revoked_at=now() WHERE service_account_id=$1::uuid AND revoked_at IS NULL",
                     account.service_account_id,
                 )
 
-    async def authenticate_service_account(self, bootstrap_token: str) -> ServiceAccount | None:
+    async def authenticate_service_account(
+        self, bootstrap_token: str
+    ) -> ServiceAccount | None:
         digest = sha256_text(bootstrap_token)
         pool = await self._get_pool()
         async with pool.acquire() as connection, connection.transaction():
-            row = await connection.fetchrow("SELECT * FROM service_accounts WHERE token_hash=$1 AND enabled=true", digest)
+            row = await connection.fetchrow(
+                "SELECT * FROM service_accounts WHERE token_hash=$1 AND enabled=true",
+                digest,
+            )
             if not row:
                 return None
             now = utc_now()
-            await connection.execute("UPDATE service_accounts SET last_used_at=$2 WHERE id=$1", row["id"], now)
+            await connection.execute(
+                "UPDATE service_accounts SET last_used_at=$2 WHERE id=$1",
+                row["id"],
+                now,
+            )
         return ServiceAccount(
             service_account_id=str(row["id"]),
             name=row["name"],
@@ -1874,7 +2211,9 @@ class PostgresTrainingStore:
             last_used_at=now,
         )
 
-    async def create_refresh_session(self, service_account_id: str, refresh_hash: str, expires_at: datetime) -> str:
+    async def create_refresh_session(
+        self, service_account_id: str, refresh_hash: str, expires_at: datetime
+    ) -> str:
         session_id = str(uuid.uuid4())
         pool = await self._get_pool()
         async with pool.acquire() as connection:
@@ -1887,7 +2226,9 @@ class PostgresTrainingStore:
             )
         return session_id
 
-    async def consume_refresh_session(self, session_id: str, refresh_token: str) -> ServiceAccount | None:
+    async def consume_refresh_session(
+        self, session_id: str, refresh_token: str
+    ) -> ServiceAccount | None:
         digest = sha256_text(refresh_token)
         pool = await self._get_pool()
         async with pool.acquire() as connection:
@@ -1946,7 +2287,9 @@ class PostgresTrainingStore:
             )
         return event.model_copy(update={"metadata": metadata})
 
-    async def list_audit_events(self, job_id: str, *, limit: int = 100) -> list[TrainingAuditEvent]:
+    async def list_audit_events(
+        self, job_id: str, *, limit: int = 100
+    ) -> list[TrainingAuditEvent]:
         pool = await self._get_pool()
         async with pool.acquire() as connection:
             rows = await connection.fetch(
@@ -1976,7 +2319,14 @@ class PostgresTrainingStore:
 
 class EventBus(Protocol):
     async def append(self, events: list[TrainingEvent]) -> None: ...
-    async def read(self, job_id: str, *, after_sequence: int = 0, limit: int = 100, block_ms: int = 0) -> list[TrainingEvent]: ...
+    async def read(
+        self,
+        job_id: str,
+        *,
+        after_sequence: int = 0,
+        limit: int = 100,
+        block_ms: int = 0,
+    ) -> list[TrainingEvent]: ...
     async def close(self) -> None: ...
 
 
@@ -1995,15 +2345,28 @@ class InMemoryEventBus:
                     del rows[: len(rows) - self.max_events_per_job]
             self.condition.notify_all()
 
-    async def read(self, job_id: str, *, after_sequence: int = 0, limit: int = 100, block_ms: int = 0) -> list[TrainingEvent]:
+    async def read(
+        self,
+        job_id: str,
+        *,
+        after_sequence: int = 0,
+        limit: int = 100,
+        block_ms: int = 0,
+    ) -> list[TrainingEvent]:
         def available() -> list[TrainingEvent]:
-            return [item for item in self.events.get(job_id, []) if item.sequence > after_sequence][:limit]
+            return [
+                item
+                for item in self.events.get(job_id, [])
+                if item.sequence > after_sequence
+            ][:limit]
 
         async with self.condition:
             rows = available()
             if not rows and block_ms > 0:
                 with contextlib.suppress(asyncio.TimeoutError):
-                    await asyncio.wait_for(self.condition.wait(), timeout=block_ms / 1000)
+                    await asyncio.wait_for(
+                        self.condition.wait(), timeout=block_ms / 1000
+                    )
                 rows = available()
             return [item.model_copy(deep=True) for item in rows]
 
@@ -2012,7 +2375,13 @@ class InMemoryEventBus:
 
 
 class RedisEventBus:
-    def __init__(self, redis_url: str, *, retention_events: int = 250_000, retention_seconds: int = 86_400) -> None:
+    def __init__(
+        self,
+        redis_url: str,
+        *,
+        retention_events: int = 250_000,
+        retention_seconds: int = 86_400,
+    ) -> None:
         if not redis_url.startswith(("redis://", "rediss://")):
             raise ValueError("Redis event bus requires redis:// or rediss:// URL")
         self.redis_url = redis_url
@@ -2024,7 +2393,12 @@ class RedisEventBus:
         if self._client is None:
             import redis.asyncio as redis
 
-            self._client = redis.from_url(self.redis_url, decode_responses=True, socket_timeout=5, health_check_interval=30)
+            self._client = redis.from_url(
+                self.redis_url,
+                decode_responses=True,
+                socket_timeout=5,
+                health_check_interval=30,
+            )
         return self._client
 
     @staticmethod
@@ -2046,15 +2420,28 @@ class RedisEventBus:
                 pipe.expire(key, self.retention_seconds)
             await pipe.execute()
 
-    async def read(self, job_id: str, *, after_sequence: int = 0, limit: int = 100, block_ms: int = 0) -> list[TrainingEvent]:
+    async def read(
+        self,
+        job_id: str,
+        *,
+        after_sequence: int = 0,
+        limit: int = 100,
+        block_ms: int = 0,
+    ) -> list[TrainingEvent]:
         client = await self._get_client()
         key = self._key(job_id)
         if block_ms > 0:
-            response = await client.xread({key: f"{after_sequence}-0"}, count=limit, block=block_ms)
+            response = await client.xread(
+                {key: f"{after_sequence}-0"}, count=limit, block=block_ms
+            )
             rows = response[0][1] if response else []
         else:
-            rows = await client.xrange(key, min=f"({after_sequence}-0", max="+", count=limit)
-        return [TrainingEvent.model_validate_json(fields["event"]) for _, fields in rows]
+            rows = await client.xrange(
+                key, min=f"({after_sequence}-0", max="+", count=limit
+            )
+        return [
+            TrainingEvent.model_validate_json(fields["event"]) for _, fields in rows
+        ]
 
     async def close(self) -> None:
         if self._client is not None:
@@ -2214,7 +2601,10 @@ def build_training_command(spec: TrainingJobSpec, *, output_dir: str) -> list[st
             spec.distributed_strategy,
             "--gradient-checkpointing",
         ]
-        if spec.model_progression_decision_uri and spec.model_progression_decision_sha256:
+        if (
+            spec.model_progression_decision_uri
+            and spec.model_progression_decision_sha256
+        ):
             command.extend(
                 [
                     "--model-progression-decision",
@@ -2227,11 +2617,15 @@ def build_training_command(spec: TrainingJobSpec, *, output_dir: str) -> list[st
     raise ValueError(f"scheduler does not execute run_type={spec.run_type}")
 
 
-def scheduler_worker_command(spec: TrainingJobSpec, *, output_dir: str, scheduler: Literal["kubernetes", "slurm"]) -> list[str]:
+def scheduler_worker_command(
+    spec: TrainingJobSpec, *, output_dir: str, scheduler: Literal["kubernetes", "slurm"]
+) -> list[str]:
     command = build_training_command(spec, output_dir=output_dir)
     prefix = [sys.executable, "-u", "-m", "src.craftly.model_ops.pretrain_loop"]
     if command[: len(prefix)] != prefix:
-        raise ValueError("distributed scheduler workers only support the native Craftly pretraining module")
+        raise ValueError(
+            "distributed scheduler workers only support the native Craftly pretraining module"
+        )
     return [
         sys.executable,
         "-u",
@@ -2248,24 +2642,34 @@ def scheduler_worker_command(spec: TrainingJobSpec, *, output_dir: str, schedule
     ]
 
 
-async def _run_argv(argv: list[str], *, stdin_text: str | None = None, timeout: float = 30.0) -> tuple[int, str, str]:
+async def _run_argv(
+    argv: list[str], *, stdin_text: str | None = None, timeout: float = 30.0
+) -> tuple[int, str, str]:
     process = await asyncio.create_subprocess_exec(
         *argv,
-        stdin=asyncio.subprocess.PIPE if stdin_text is not None else asyncio.subprocess.DEVNULL,
+        stdin=asyncio.subprocess.PIPE
+        if stdin_text is not None
+        else asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         env={**os.environ, "PYTHONUNBUFFERED": "1"},
     )
     try:
         stdout, stderr = await asyncio.wait_for(
-            process.communicate(stdin_text.encode("utf-8") if stdin_text is not None else None),
+            process.communicate(
+                stdin_text.encode("utf-8") if stdin_text is not None else None
+            ),
             timeout=timeout,
         )
     except asyncio.TimeoutError:
         process.kill()
         await process.wait()
         raise TimeoutError(f"scheduler command timed out after {timeout}s: {argv[0]}")
-    return process.returncode or 0, stdout.decode("utf-8", "replace"), stderr.decode("utf-8", "replace")
+    return (
+        process.returncode or 0,
+        stdout.decode("utf-8", "replace"),
+        stderr.decode("utf-8", "replace"),
+    )
 
 
 class SchedulerAdapter(ABC):
@@ -2275,7 +2679,9 @@ class SchedulerAdapter(ABC):
     async def validate(self, spec: TrainingJobSpec) -> dict[str, Any]: ...
 
     @abstractmethod
-    async def submit(self, job: TrainingJob, attempt: TrainingAttempt) -> SchedulerBinding: ...
+    async def submit(
+        self, job: TrainingJob, attempt: TrainingAttempt
+    ) -> SchedulerBinding: ...
 
     @abstractmethod
     async def status(self, binding: SchedulerBinding) -> str: ...
@@ -2283,15 +2689,21 @@ class SchedulerAdapter(ABC):
     @abstractmethod
     async def cancel(self, binding: SchedulerBinding) -> None: ...
 
-    async def resume(self, job: TrainingJob, attempt: TrainingAttempt) -> SchedulerBinding:
+    async def resume(
+        self, job: TrainingJob, attempt: TrainingAttempt
+    ) -> SchedulerBinding:
         if not attempt.checkpoint_uri:
             raise ValueError("resume requires a verified checkpoint URI")
         return await self.submit(job, attempt)
 
-    async def collect_runtime_metadata(self, binding: SchedulerBinding) -> dict[str, Any]:
+    async def collect_runtime_metadata(
+        self, binding: SchedulerBinding
+    ) -> dict[str, Any]:
         return binding.metadata
 
-    async def rotate_credentials(self, job: TrainingJob, binding: SchedulerBinding) -> SchedulerBinding:
+    async def rotate_credentials(
+        self, job: TrainingJob, binding: SchedulerBinding
+    ) -> SchedulerBinding:
         return binding
 
 
@@ -2300,14 +2712,20 @@ def job_worker_token(job_id: str, *, ttl_seconds: int = 7200) -> tuple[str, int]
 
     secret = os.environ.get("CRAFTLY_JWT_SECRET", "")
     if len(secret) < 32:
-        raise RuntimeError("CRAFTLY_JWT_SECRET length >= 32 is required to provision training workers")
+        raise RuntimeError(
+            "CRAFTLY_JWT_SECRET length >= 32 is required to provision training workers"
+        )
     expires_at = int(time.time()) + ttl_seconds
     token = create_jwt(
         subject=f"worker:{job_id}",
         secret=secret,
         issuer=os.environ.get("CRAFTLY_JWT_ISSUER", "craftly-local"),
         audience=os.environ.get("CRAFTLY_JWT_AUDIENCE", "craftly-api"),
-        scopes=["training:events:write", "training:artifacts:write", "training:jobs:read"],
+        scopes=[
+            "training:events:write",
+            "training:artifacts:write",
+            "training:jobs:read",
+        ],
         ttl_seconds=ttl_seconds,
         extra_claims={"job_id": job_id, "token_class": "training_worker"},
     )
@@ -2325,9 +2743,15 @@ class NotebookValidationAdapter(SchedulerAdapter):
             raise ValueError("notebook adapter received a non-notebook job")
         if spec.distributed_strategy != "none" or spec.resources.nodes != 1:
             raise ValueError("notebook validation cannot run distributed jobs")
-        return {"status": "ready", "production_ready": False, "reason": "validation client only"}
+        return {
+            "status": "ready",
+            "production_ready": False,
+            "reason": "validation client only",
+        }
 
-    async def submit(self, job: TrainingJob, attempt: TrainingAttempt) -> SchedulerBinding:
+    async def submit(
+        self, job: TrainingJob, attempt: TrainingAttempt
+    ) -> SchedulerBinding:
         await self.validate(job.spec)
         output_dir = f"artifacts/craftly/workspace/jobs/{job.job_id}/attempts/{attempt.attempt_number}"
         command = build_training_command(job.spec, output_dir=output_dir)
@@ -2344,7 +2768,11 @@ class NotebookValidationAdapter(SchedulerAdapter):
         )
         external_id = str(process.pid)
         self.processes[external_id] = process
-        return SchedulerBinding(scheduler=self.name, external_id=external_id, metadata={"argv": command, "output_dir": output_dir})
+        return SchedulerBinding(
+            scheduler=self.name,
+            external_id=external_id,
+            metadata={"argv": command, "output_dir": output_dir},
+        )
 
     async def status(self, binding: SchedulerBinding) -> str:
         process = self.processes.get(binding.external_id)
@@ -2375,21 +2803,31 @@ class KubernetesSchedulerAdapter(SchedulerAdapter):
 
     @staticmethod
     def node_selector(spec: TrainingJobSpec) -> dict[str, str]:
-        selector = {"craftly.ai/gpu-memory-gib": str(spec.resources.gpu_memory_gib)} if spec.resources.gpus_per_node else {}
+        selector = (
+            {"craftly.ai/gpu-memory-gib": str(spec.resources.gpu_memory_gib)}
+            if spec.resources.gpus_per_node
+            else {}
+        )
         if spec.resources.rdma_required:
             selector["craftly.ai/rdma"] = "true"
         return selector
 
     async def validate(self, spec: TrainingJobSpec) -> dict[str, Any]:
         if spec.scheduler != self.name:
-            raise ValueError("Kubernetes Job adapter received an incompatible scheduler")
+            raise ValueError(
+                "Kubernetes Job adapter received an incompatible scheduler"
+            )
         if spec.resources.nodes != 1:
-            raise ValueError("standard Kubernetes Job adapter supports one node; use kubernetes_pytorch for multi-node")
+            raise ValueError(
+                "standard Kubernetes Job adapter supports one node; use kubernetes_pytorch for multi-node"
+            )
         if not shutil_which("kubectl"):
             try:
                 await asyncio.to_thread(self._python_clients)
             except (ImportError, RuntimeError) as exc:
-                raise RuntimeError("Kubernetes Python client or kubectl is required for Kubernetes scheduling") from exc
+                raise RuntimeError(
+                    "Kubernetes Python client or kubectl is required for Kubernetes scheduling"
+                ) from exc
         topology = await self._validate_cluster_capacity(spec)
         return {
             "status": "ready",
@@ -2405,7 +2843,10 @@ class KubernetesSchedulerAdapter(SchedulerAdapter):
             metadata = node.get("metadata", {})
             labels = metadata.get("labels", {}) or {}
             conditions = node.get("status", {}).get("conditions", [])
-            ready = any(item.get("type") == "Ready" and item.get("status") == "True" for item in conditions)
+            ready = any(
+                item.get("type") == "Ready" and item.get("status") == "True"
+                for item in conditions
+            )
             unschedulable = bool(node.get("spec", {}).get("unschedulable"))
             allocatable = node.get("status", {}).get("allocatable", {})
             gpu_count = int(allocatable.get("nvidia.com/gpu", 0))
@@ -2416,7 +2857,10 @@ class KubernetesSchedulerAdapter(SchedulerAdapter):
             rdma = str(labels.get("craftly.ai/rdma", "false")).lower() == "true"
             if not ready or unschedulable or gpu_count < spec.resources.gpus_per_node:
                 continue
-            if spec.resources.gpus_per_node and gpu_memory < spec.resources.gpu_memory_gib:
+            if (
+                spec.resources.gpus_per_node
+                and gpu_memory < spec.resources.gpu_memory_gib
+            ):
                 continue
             if spec.resources.rdma_required and not rdma:
                 continue
@@ -2425,9 +2869,13 @@ class KubernetesSchedulerAdapter(SchedulerAdapter):
 
     async def _validate_cluster_capacity(self, spec: TrainingJobSpec) -> dict[str, Any]:
         if shutil_which("kubectl"):
-            code, stdout, stderr = await _run_argv(["kubectl", "get", "nodes", "-o", "json"])
+            code, stdout, stderr = await _run_argv(
+                ["kubectl", "get", "nodes", "-o", "json"]
+            )
             if code != 0:
-                raise RuntimeError(f"Kubernetes node inventory failed: {redact_text(stderr)[-2000:]}")
+                raise RuntimeError(
+                    f"Kubernetes node inventory failed: {redact_text(stderr)[-2000:]}"
+                )
             payload = json.loads(stdout)
         else:
             core, _, _ = await asyncio.to_thread(self._python_clients)
@@ -2445,7 +2893,10 @@ class KubernetesSchedulerAdapter(SchedulerAdapter):
                 f"cluster topology preflight found {len(eligible)} eligible nodes but requires {requirements}; "
                 "label GPU nodes with craftly.ai/gpu-memory-gib and craftly.ai/rdma"
             )
-        return {"eligible_nodes": eligible[: spec.resources.nodes], "eligible_count": len(eligible)}
+        return {
+            "eligible_nodes": eligible[: spec.resources.nodes],
+            "eligible_count": len(eligible),
+        }
 
     @staticmethod
     def _python_clients() -> tuple[Any, Any, Any]:
@@ -2460,7 +2911,9 @@ class KubernetesSchedulerAdapter(SchedulerAdapter):
             try:
                 config.load_kube_config()
             except ConfigException as exc:
-                raise RuntimeError("Kubernetes client configuration is unavailable") from exc
+                raise RuntimeError(
+                    "Kubernetes client configuration is unavailable"
+                ) from exc
         return client.CoreV1Api(), client.BatchV1Api(), client.CustomObjectsApi()
 
     def _python_apply_secret(self, manifest: dict[str, Any]) -> None:
@@ -2476,7 +2929,9 @@ class KubernetesSchedulerAdapter(SchedulerAdapter):
                 raise
             current = core.read_namespaced_secret(name=name, namespace=namespace)
             manifest["metadata"]["resourceVersion"] = current.metadata.resource_version
-            core.replace_namespaced_secret(name=name, namespace=namespace, body=manifest)
+            core.replace_namespaced_secret(
+                name=name, namespace=namespace, body=manifest
+            )
 
     def _python_create_job(self, manifest: dict[str, Any]) -> None:
         from kubernetes.client.exceptions import ApiException
@@ -2492,11 +2947,15 @@ class KubernetesSchedulerAdapter(SchedulerAdapter):
             existing = batch.read_namespaced_job(name=name, namespace=namespace)
             labels = existing.metadata.labels or {}
             if labels.get("job-id") != manifest["metadata"]["labels"]["job-id"]:
-                raise RuntimeError("existing Kubernetes Job has a different Craftly job identity") from exc
+                raise RuntimeError(
+                    "existing Kubernetes Job has a different Craftly job identity"
+                ) from exc
 
     def _python_job_status(self, binding: SchedulerBinding) -> str:
         _, batch, _ = self._python_clients()
-        job = batch.read_namespaced_job(name=binding.external_id, namespace=binding.namespace or self.namespace)
+        job = batch.read_namespaced_job(
+            name=binding.external_id, namespace=binding.namespace or self.namespace
+        )
         status = job.status
         if status.succeeded:
             return "succeeded"
@@ -2531,13 +2990,19 @@ class KubernetesSchedulerAdapter(SchedulerAdapter):
         return {
             "apiVersion": "batch/v1",
             "kind": "Job",
-            "metadata": {"name": name, "namespace": namespace, "labels": {"app": "craftly-training", "job-id": job.job_id}},
+            "metadata": {
+                "name": name,
+                "namespace": namespace,
+                "labels": {"app": "craftly-training", "job-id": job.job_id},
+            },
             "spec": {
                 "backoffLimit": 0,
                 "ttlSecondsAfterFinished": 86400,
                 "activeDeadlineSeconds": job.spec.runtime_limits.maximum_wall_time_seconds,
                 "template": {
-                    "metadata": {"labels": {"app": "craftly-training", "job-id": job.job_id}},
+                    "metadata": {
+                        "labels": {"app": "craftly-training", "job-id": job.job_id}
+                    },
                     "spec": {
                         "restartPolicy": "Never",
                         "serviceAccountName": "craftly-training-worker",
@@ -2553,19 +3018,51 @@ class KubernetesSchedulerAdapter(SchedulerAdapter):
                                 "env": [
                                     {"name": "PYTHONUNBUFFERED", "value": "1"},
                                     {"name": "HOME", "value": "/workspace/home"},
-                                    {"name": "TORCH_EXTENSIONS_DIR", "value": "/workspace/torch-extensions"},
-                                    {"name": "CRAFTLY_TRAINING_JOB_ID", "value": job.job_id},
-                                    {"name": "CRAFTLY_TRAINING_ATTEMPT_ID", "value": attempt.attempt_id},
-                                    {"name": "CRAFTLY_WORKSPACE_URL", "valueFrom": {"configMapKeyRef": {"name": "craftly-training-config", "key": "workspace-url"}}},
-                                    {"name": "CRAFTLY_WORKSPACE_TOKEN_FILE", "value": "/var/run/secrets/craftly/token"},
+                                    {
+                                        "name": "TORCH_EXTENSIONS_DIR",
+                                        "value": "/workspace/torch-extensions",
+                                    },
+                                    {
+                                        "name": "CRAFTLY_TRAINING_JOB_ID",
+                                        "value": job.job_id,
+                                    },
+                                    {
+                                        "name": "CRAFTLY_TRAINING_ATTEMPT_ID",
+                                        "value": attempt.attempt_id,
+                                    },
+                                    {
+                                        "name": "CRAFTLY_WORKSPACE_URL",
+                                        "valueFrom": {
+                                            "configMapKeyRef": {
+                                                "name": "craftly-training-config",
+                                                "key": "workspace-url",
+                                            }
+                                        },
+                                    },
+                                    {
+                                        "name": "CRAFTLY_WORKSPACE_TOKEN_FILE",
+                                        "value": "/var/run/secrets/craftly/token",
+                                    },
                                 ],
                                 "envFrom": [
                                     {"secretRef": {"name": name}}
                                     for name in job.spec.secret_references
                                 ],
                                 "resources": {
-                                    "requests": {"cpu": str(job.spec.resources.cpu_cores), "memory": f"{job.spec.resources.memory_gib}Gi", "nvidia.com/gpu": str(job.spec.resources.gpus_per_node)},
-                                    "limits": {"cpu": str(job.spec.resources.cpu_cores), "memory": f"{job.spec.resources.memory_gib}Gi", "nvidia.com/gpu": str(job.spec.resources.gpus_per_node)},
+                                    "requests": {
+                                        "cpu": str(job.spec.resources.cpu_cores),
+                                        "memory": f"{job.spec.resources.memory_gib}Gi",
+                                        "nvidia.com/gpu": str(
+                                            job.spec.resources.gpus_per_node
+                                        ),
+                                    },
+                                    "limits": {
+                                        "cpu": str(job.spec.resources.cpu_cores),
+                                        "memory": f"{job.spec.resources.memory_gib}Gi",
+                                        "nvidia.com/gpu": str(
+                                            job.spec.resources.gpus_per_node
+                                        ),
+                                    },
                                 },
                                 "securityContext": {
                                     "allowPrivilegeEscalation": False,
@@ -2573,9 +3070,16 @@ class KubernetesSchedulerAdapter(SchedulerAdapter):
                                     "capabilities": {"drop": ["ALL"]},
                                 },
                                 "volumeMounts": [
-                                    {"name": "workspace-token", "mountPath": "/var/run/secrets/craftly", "readOnly": True},
+                                    {
+                                        "name": "workspace-token",
+                                        "mountPath": "/var/run/secrets/craftly",
+                                        "readOnly": True,
+                                    },
                                     {"name": "workspace", "mountPath": "/workspace"},
-                                    {"name": "cache", "mountPath": job.spec.dataloader.cache_path},
+                                    {
+                                        "name": "cache",
+                                        "mountPath": job.spec.dataloader.cache_path,
+                                    },
                                     {"name": "tmp", "mountPath": "/tmp"},  # nosec B108 - memory-backed emptyDir
                                 ],
                             }
@@ -2588,7 +3092,12 @@ class KubernetesSchedulerAdapter(SchedulerAdapter):
                             "seccompProfile": {"type": "RuntimeDefault"},
                         },
                         "volumes": [
-                            {"name": "workspace-token", "secret": {"secretName": f"craftly-job-{job.job_id[:8]}"}},
+                            {
+                                "name": "workspace-token",
+                                "secret": {
+                                    "secretName": f"craftly-job-{job.job_id[:8]}"
+                                },
+                            },
                             {
                                 "name": "workspace",
                                 "persistentVolumeClaim": {
@@ -2596,35 +3105,56 @@ class KubernetesSchedulerAdapter(SchedulerAdapter):
                                     "readOnly": False,
                                 },
                             },
-                            {"name": "cache", "emptyDir": {"sizeLimit": f"{job.spec.dataloader.local_cache_gib}Gi"}},
-                            {"name": "tmp", "emptyDir": {"medium": "Memory", "sizeLimit": "8Gi"}},
+                            {
+                                "name": "cache",
+                                "emptyDir": {
+                                    "sizeLimit": f"{job.spec.dataloader.local_cache_gib}Gi"
+                                },
+                            },
+                            {
+                                "name": "tmp",
+                                "emptyDir": {"medium": "Memory", "sizeLimit": "8Gi"},
+                            },
                         ],
                     },
                 },
             },
         }
 
-    async def submit(self, job: TrainingJob, attempt: TrainingAttempt) -> SchedulerBinding:
+    async def submit(
+        self, job: TrainingJob, attempt: TrainingAttempt
+    ) -> SchedulerBinding:
         await self.validate(job.spec)
         token, expires_at = job_worker_token(job.job_id)
         secret_name = f"craftly-job-{job.job_id[:8]}"
         secret_manifest = {
             "apiVersion": "v1",
             "kind": "Secret",
-            "metadata": {"name": secret_name, "namespace": job.spec.scheduler_policy.namespace, "labels": {"app": "craftly-training", "job-id": job.job_id}},
+            "metadata": {
+                "name": secret_name,
+                "namespace": job.spec.scheduler_policy.namespace,
+                "labels": {"app": "craftly-training", "job-id": job.job_id},
+            },
             "type": "Opaque",
             "stringData": {"token": token},
         }
         manifest = self.manifest(job, attempt)
         if shutil_which("kubectl"):
             secret_code, _, secret_error = await _run_argv(
-                ["kubectl", "apply", "-f", "-"], stdin_text=canonical_json(secret_manifest)
+                ["kubectl", "apply", "-f", "-"],
+                stdin_text=canonical_json(secret_manifest),
             )
             if secret_code != 0:
-                raise RuntimeError(f"kubectl training-token secret apply failed: {redact_text(secret_error)[-2000:]}")
-            code, stdout, stderr = await _run_argv(["kubectl", "apply", "-f", "-"], stdin_text=canonical_json(manifest))
+                raise RuntimeError(
+                    f"kubectl training-token secret apply failed: {redact_text(secret_error)[-2000:]}"
+                )
+            code, stdout, stderr = await _run_argv(
+                ["kubectl", "apply", "-f", "-"], stdin_text=canonical_json(manifest)
+            )
             if code != 0:
-                raise RuntimeError(f"kubectl apply failed: {redact_text(stderr)[-2000:]}")
+                raise RuntimeError(
+                    f"kubectl apply failed: {redact_text(stderr)[-2000:]}"
+                )
             apply_output = stdout.strip()
         else:
             await asyncio.to_thread(self._python_apply_secret, secret_manifest)
@@ -2634,26 +3164,43 @@ class KubernetesSchedulerAdapter(SchedulerAdapter):
             scheduler=self.name,
             external_id=manifest["metadata"]["name"],
             namespace=job.spec.scheduler_policy.namespace,
-            metadata={"apply_output": apply_output, "token_secret": secret_name, "token_expires_at": expires_at},
+            metadata={
+                "apply_output": apply_output,
+                "token_secret": secret_name,
+                "token_expires_at": expires_at,
+            },
         )
 
-    async def rotate_credentials(self, job: TrainingJob, binding: SchedulerBinding) -> SchedulerBinding:
+    async def rotate_credentials(
+        self, job: TrainingJob, binding: SchedulerBinding
+    ) -> SchedulerBinding:
         expires_at = int(binding.metadata.get("token_expires_at", 0))
         if expires_at - int(time.time()) > 1800:
             return binding
         token, new_expiry = job_worker_token(job.job_id)
-        secret_name = str(binding.metadata.get("token_secret") or f"craftly-job-{job.job_id[:8]}")
+        secret_name = str(
+            binding.metadata.get("token_secret") or f"craftly-job-{job.job_id[:8]}"
+        )
         secret_manifest = {
             "apiVersion": "v1",
             "kind": "Secret",
-            "metadata": {"name": secret_name, "namespace": binding.namespace or self.namespace, "labels": {"app": "craftly-training", "job-id": job.job_id}},
+            "metadata": {
+                "name": secret_name,
+                "namespace": binding.namespace or self.namespace,
+                "labels": {"app": "craftly-training", "job-id": job.job_id},
+            },
             "type": "Opaque",
             "stringData": {"token": token},
         }
         if shutil_which("kubectl"):
-            code, _, stderr = await _run_argv(["kubectl", "apply", "-f", "-"], stdin_text=canonical_json(secret_manifest))
+            code, _, stderr = await _run_argv(
+                ["kubectl", "apply", "-f", "-"],
+                stdin_text=canonical_json(secret_manifest),
+            )
             if code != 0:
-                raise RuntimeError(f"worker token rotation failed: {redact_text(stderr)[-2000:]}")
+                raise RuntimeError(
+                    f"worker token rotation failed: {redact_text(stderr)[-2000:]}"
+                )
         else:
             await asyncio.to_thread(self._python_apply_secret, secret_manifest)
         metadata = dict(binding.metadata)
@@ -2664,7 +3211,16 @@ class KubernetesSchedulerAdapter(SchedulerAdapter):
         if not shutil_which("kubectl"):
             return await asyncio.to_thread(self._python_job_status, binding)
         code, stdout, stderr = await _run_argv(
-            ["kubectl", "get", "job", binding.external_id, "-n", binding.namespace or self.namespace, "-o", "json"]
+            [
+                "kubectl",
+                "get",
+                "job",
+                binding.external_id,
+                "-n",
+                binding.namespace or self.namespace,
+                "-o",
+                "json",
+            ]
         )
         if code != 0:
             raise RuntimeError(f"kubectl get failed: {redact_text(stderr)[-2000:]}")
@@ -2682,7 +3238,15 @@ class KubernetesSchedulerAdapter(SchedulerAdapter):
             await asyncio.to_thread(self._python_delete_job, binding)
             return
         code, _, stderr = await _run_argv(
-            ["kubectl", "delete", "job", binding.external_id, "-n", binding.namespace or self.namespace, "--ignore-not-found=true"]
+            [
+                "kubectl",
+                "delete",
+                "job",
+                binding.external_id,
+                "-n",
+                binding.namespace or self.namespace,
+                "--ignore-not-found=true",
+            ]
         )
         if code != 0:
             raise RuntimeError(f"kubectl delete failed: {redact_text(stderr)[-2000:]}")
@@ -2695,13 +3259,19 @@ class KubernetesPyTorchAdapter(KubernetesSchedulerAdapter):
         if spec.scheduler != self.name:
             raise ValueError("PyTorchJob adapter received an incompatible scheduler")
         if spec.resources.nodes < 2:
-            raise ValueError("PyTorchJob multi-node profile requires at least two nodes")
+            raise ValueError(
+                "PyTorchJob multi-node profile requires at least two nodes"
+            )
         if spec.distributed_strategy == "none":
             raise ValueError("PyTorchJob requires a distributed strategy")
         if shutil_which("kubectl"):
-            code, stdout, _ = await _run_argv(["kubectl", "api-resources", "--api-group=kubeflow.org", "-o", "name"])
+            code, stdout, _ = await _run_argv(
+                ["kubectl", "api-resources", "--api-group=kubeflow.org", "-o", "name"]
+            )
             if code != 0 or "pytorchjobs" not in stdout.lower():
-                raise RuntimeError("Kubeflow Training Operator is required for multi-node PyTorchJob scheduling")
+                raise RuntimeError(
+                    "Kubeflow Training Operator is required for multi-node PyTorchJob scheduling"
+                )
         else:
             try:
                 _, _, custom = await asyncio.to_thread(self._python_clients)
@@ -2713,7 +3283,9 @@ class KubernetesPyTorchAdapter(KubernetesSchedulerAdapter):
                     limit=1,
                 )
             except Exception as exc:
-                raise RuntimeError("Kubeflow Training Operator PyTorchJob CRD is unavailable") from exc
+                raise RuntimeError(
+                    "Kubeflow Training Operator PyTorchJob CRD is unavailable"
+                ) from exc
         topology = await self._validate_cluster_capacity(spec)
         return {
             "status": "ready",
@@ -2748,7 +3320,9 @@ class KubernetesPyTorchAdapter(KubernetesSchedulerAdapter):
             )
             labels = existing.get("metadata", {}).get("labels", {})
             if labels.get("job-id") != manifest["metadata"]["labels"]["job-id"]:
-                raise RuntimeError("existing PyTorchJob has a different Craftly job identity") from exc
+                raise RuntimeError(
+                    "existing PyTorchJob has a different Craftly job identity"
+                ) from exc
 
     def _python_job_status(self, binding: SchedulerBinding) -> str:
         _, _, custom = self._python_clients()
@@ -2760,7 +3334,9 @@ class KubernetesPyTorchAdapter(KubernetesSchedulerAdapter):
             name=binding.external_id,
         )
         conditions = payload.get("status", {}).get("conditions", [])
-        active = {item.get("type") for item in conditions if item.get("status") == "True"}
+        active = {
+            item.get("type") for item in conditions if item.get("status") == "True"
+        }
         if "Succeeded" in active:
             return "succeeded"
         if "Failed" in active:
@@ -2789,7 +3365,9 @@ class KubernetesPyTorchAdapter(KubernetesSchedulerAdapter):
     def manifest(self, job: TrainingJob, attempt: TrainingAttempt) -> dict[str, Any]:
         name = f"craftly-{job.job_id[:8]}-a{attempt.attempt_number}"
         output_dir = f"/workspace/jobs/{job.job_id}/training"
-        base_command = scheduler_worker_command(job.spec, output_dir=output_dir, scheduler="kubernetes")
+        base_command = scheduler_worker_command(
+            job.spec, output_dir=output_dir, scheduler="kubernetes"
+        )
         image = job.spec.container_digest
         if "@" not in image:
             image = job.spec.runtime_image.repository + "@" + image
@@ -2801,16 +3379,41 @@ class KubernetesPyTorchAdapter(KubernetesSchedulerAdapter):
                 {"name": "PYTHONUNBUFFERED", "value": "1"},
                 {"name": "NCCL_ASYNC_ERROR_HANDLING", "value": "1"},
                 {"name": "HOME", "value": "/workspace/home"},
-                {"name": "TORCH_EXTENSIONS_DIR", "value": "/workspace/torch-extensions"},
+                {
+                    "name": "TORCH_EXTENSIONS_DIR",
+                    "value": "/workspace/torch-extensions",
+                },
                 {"name": "CRAFTLY_TRAINING_JOB_ID", "value": job.job_id},
                 {"name": "CRAFTLY_TRAINING_ATTEMPT_ID", "value": attempt.attempt_id},
-                {"name": "CRAFTLY_WORKSPACE_URL", "valueFrom": {"configMapKeyRef": {"name": "craftly-training-config", "key": "workspace-url"}}},
-                {"name": "CRAFTLY_WORKSPACE_TOKEN_FILE", "value": "/var/run/secrets/craftly/token"},
+                {
+                    "name": "CRAFTLY_WORKSPACE_URL",
+                    "valueFrom": {
+                        "configMapKeyRef": {
+                            "name": "craftly-training-config",
+                            "key": "workspace-url",
+                        }
+                    },
+                },
+                {
+                    "name": "CRAFTLY_WORKSPACE_TOKEN_FILE",
+                    "value": "/var/run/secrets/craftly/token",
+                },
             ],
-            "envFrom": [{"secretRef": {"name": secret_name}} for secret_name in job.spec.secret_references],
+            "envFrom": [
+                {"secretRef": {"name": secret_name}}
+                for secret_name in job.spec.secret_references
+            ],
             "resources": {
-                "requests": {"cpu": str(job.spec.resources.cpu_cores), "memory": f"{job.spec.resources.memory_gib}Gi", "nvidia.com/gpu": str(job.spec.resources.gpus_per_node)},
-                "limits": {"cpu": str(job.spec.resources.cpu_cores), "memory": f"{job.spec.resources.memory_gib}Gi", "nvidia.com/gpu": str(job.spec.resources.gpus_per_node)},
+                "requests": {
+                    "cpu": str(job.spec.resources.cpu_cores),
+                    "memory": f"{job.spec.resources.memory_gib}Gi",
+                    "nvidia.com/gpu": str(job.spec.resources.gpus_per_node),
+                },
+                "limits": {
+                    "cpu": str(job.spec.resources.cpu_cores),
+                    "memory": f"{job.spec.resources.memory_gib}Gi",
+                    "nvidia.com/gpu": str(job.spec.resources.gpus_per_node),
+                },
             },
             "securityContext": {
                 "allowPrivilegeEscalation": False,
@@ -2818,7 +3421,11 @@ class KubernetesPyTorchAdapter(KubernetesSchedulerAdapter):
                 "capabilities": {"drop": ["ALL"]},
             },
             "volumeMounts": [
-                {"name": "workspace-token", "mountPath": "/var/run/secrets/craftly", "readOnly": True},
+                {
+                    "name": "workspace-token",
+                    "mountPath": "/var/run/secrets/craftly",
+                    "readOnly": True,
+                },
                 {"name": "workspace", "mountPath": "/workspace"},
                 {"name": "cache", "mountPath": job.spec.dataloader.cache_path},
                 {"name": "tmp", "mountPath": "/tmp"},  # nosec B108 - memory-backed emptyDir
@@ -2842,7 +3449,10 @@ class KubernetesPyTorchAdapter(KubernetesSchedulerAdapter):
                     },
                     "containers": [container],
                     "volumes": [
-                        {"name": "workspace-token", "secret": {"secretName": f"craftly-job-{job.job_id[:8]}"}},
+                        {
+                            "name": "workspace-token",
+                            "secret": {"secretName": f"craftly-job-{job.job_id[:8]}"},
+                        },
                         {
                             "name": "workspace",
                             "persistentVolumeClaim": {
@@ -2852,9 +3462,14 @@ class KubernetesPyTorchAdapter(KubernetesSchedulerAdapter):
                         },
                         {
                             "name": "cache",
-                            "emptyDir": {"sizeLimit": f"{job.spec.dataloader.local_cache_gib}Gi"},
+                            "emptyDir": {
+                                "sizeLimit": f"{job.spec.dataloader.local_cache_gib}Gi"
+                            },
                         },
-                        {"name": "tmp", "emptyDir": {"medium": "Memory", "sizeLimit": "8Gi"}},
+                        {
+                            "name": "tmp",
+                            "emptyDir": {"medium": "Memory", "sizeLimit": "8Gi"},
+                        },
                     ],
                 }
             },
@@ -2864,7 +3479,11 @@ class KubernetesPyTorchAdapter(KubernetesSchedulerAdapter):
         return {
             "apiVersion": "kubeflow.org/v1",
             "kind": "PyTorchJob",
-            "metadata": {"name": name, "namespace": job.spec.scheduler_policy.namespace, "labels": {"app": "craftly-training", "job-id": job.job_id}},
+            "metadata": {
+                "name": name,
+                "namespace": job.spec.scheduler_policy.namespace,
+                "labels": {"app": "craftly-training", "job-id": job.job_id},
+            },
             "spec": {
                 "runPolicy": {
                     "cleanPodPolicy": "Running",
@@ -2877,12 +3496,25 @@ class KubernetesPyTorchAdapter(KubernetesSchedulerAdapter):
 
     async def status(self, binding: SchedulerBinding) -> str:
         code, stdout, stderr = await _run_argv(
-            ["kubectl", "get", "pytorchjob", binding.external_id, "-n", binding.namespace or self.namespace, "-o", "json"]
+            [
+                "kubectl",
+                "get",
+                "pytorchjob",
+                binding.external_id,
+                "-n",
+                binding.namespace or self.namespace,
+                "-o",
+                "json",
+            ]
         )
         if code != 0:
-            raise RuntimeError(f"kubectl get PyTorchJob failed: {redact_text(stderr)[-2000:]}")
+            raise RuntimeError(
+                f"kubectl get PyTorchJob failed: {redact_text(stderr)[-2000:]}"
+            )
         conditions = json.loads(stdout).get("status", {}).get("conditions", [])
-        active = {item.get("type") for item in conditions if item.get("status") == "True"}
+        active = {
+            item.get("type") for item in conditions if item.get("status") == "True"
+        }
         if "Succeeded" in active:
             return "succeeded"
         if "Failed" in active:
@@ -2893,10 +3525,20 @@ class KubernetesPyTorchAdapter(KubernetesSchedulerAdapter):
 
     async def cancel(self, binding: SchedulerBinding) -> None:
         code, _, stderr = await _run_argv(
-            ["kubectl", "delete", "pytorchjob", binding.external_id, "-n", binding.namespace or self.namespace, "--ignore-not-found=true"]
+            [
+                "kubectl",
+                "delete",
+                "pytorchjob",
+                binding.external_id,
+                "-n",
+                binding.namespace or self.namespace,
+                "--ignore-not-found=true",
+            ]
         )
         if code != 0:
-            raise RuntimeError(f"kubectl delete PyTorchJob failed: {redact_text(stderr)[-2000:]}")
+            raise RuntimeError(
+                f"kubectl delete PyTorchJob failed: {redact_text(stderr)[-2000:]}"
+            )
 
 
 class SlurmSchedulerAdapter(SchedulerAdapter):
@@ -2908,31 +3550,58 @@ class SlurmSchedulerAdapter(SchedulerAdapter):
     async def validate(self, spec: TrainingJobSpec) -> dict[str, Any]:
         if spec.scheduler != self.name:
             raise ValueError("Slurm adapter received an incompatible scheduler")
-        missing = [name for name in ["sbatch", "sacct", "scancel", "sinfo"] if not shutil_which(name)]
+        missing = [
+            name
+            for name in ["sbatch", "sacct", "scancel", "sinfo"]
+            if not shutil_which(name)
+        ]
         if missing:
             raise RuntimeError("Slurm commands are missing: " + ", ".join(missing))
         if spec.resources.nodes < 2 or not spec.resources.rdma_required:
-            raise ValueError("60B-class Slurm profiles require multi-node RDMA topology")
+            raise ValueError(
+                "60B-class Slurm profiles require multi-node RDMA topology"
+            )
         workspace_url = os.environ.get("CRAFTLY_WORKSPACE_URL", "")
         if not workspace_url.startswith("https://"):
-            raise RuntimeError("Slurm production workers require an HTTPS CRAFTLY_WORKSPACE_URL")
+            raise RuntimeError(
+                "Slurm production workers require an HTTPS CRAFTLY_WORKSPACE_URL"
+            )
         shared_root_value = os.environ.get("CRAFTLY_SHARED_CHECKPOINT_ROOT", "")
-        shared_root = Path(shared_root_value).expanduser().resolve() if shared_root_value else None
-        if shared_root is None or not shared_root.is_absolute() or not shared_root.is_dir():
-            raise RuntimeError("CRAFTLY_SHARED_CHECKPOINT_ROOT must be a mounted shared filesystem directory")
+        shared_root = (
+            Path(shared_root_value).expanduser().resolve()
+            if shared_root_value
+            else None
+        )
+        if (
+            shared_root is None
+            or not shared_root.is_absolute()
+            or not shared_root.is_dir()
+        ):
+            raise RuntimeError(
+                "CRAFTLY_SHARED_CHECKPOINT_ROOT must be a mounted shared filesystem directory"
+            )
         if not os.access(shared_root, os.W_OK):
             raise RuntimeError("CRAFTLY_SHARED_CHECKPOINT_ROOT is not writable")
-        code, stdout, stderr = await _run_argv(["sinfo", "-N", "-h", "-o", "%N|%t|%G|%f"])
+        code, stdout, stderr = await _run_argv(
+            ["sinfo", "-N", "-h", "-o", "%N|%t|%G|%f"]
+        )
         if code != 0:
-            raise RuntimeError(f"Slurm topology inventory failed: {redact_text(stderr)[-2000:]}")
+            raise RuntimeError(
+                f"Slurm topology inventory failed: {redact_text(stderr)[-2000:]}"
+            )
         eligible = []
         for line in stdout.splitlines():
             parts = line.split("|", 3)
             if len(parts) != 4:
                 continue
             node, state, gres, features = parts
-            gpu_counts = [int(value) for value in re.findall(r"gpu(?::[^:,()]+)?:(\d+)", gres.lower())]
-            feature_set = {value.strip().lower() for value in features.split(",") if value.strip()}
+            gpu_counts = [
+                int(value)
+                for value in re.findall(r"gpu(?::[^:,()]+)?:(\d+)", gres.lower())
+            ]
+            feature_set = {
+                value.strip().lower() for value in features.split(",") if value.strip()
+            }
             memory_labels = {
                 f"gpu-mem-{spec.resources.gpu_memory_gib}g",
                 f"gpu-memory-{spec.resources.gpu_memory_gib}g",
@@ -2949,10 +3618,18 @@ class SlurmSchedulerAdapter(SchedulerAdapter):
                 f"Slurm preflight found {len(set(eligible))} eligible nodes; requires {spec.resources.nodes} nodes with "
                 f"{spec.resources.gpus_per_node} GPUs, gpu-memory-{spec.resources.gpu_memory_gib}g and rdma features"
             )
-        return {"status": "ready", "commands": ["sbatch", "sacct", "scancel", "sinfo"], "eligible_nodes": sorted(set(eligible))}
+        return {
+            "status": "ready",
+            "commands": ["sbatch", "sacct", "scancel", "sinfo"],
+            "eligible_nodes": sorted(set(eligible)),
+        }
 
     def script(self, job: TrainingJob, attempt: TrainingAttempt) -> str:
-        shared_root = Path(os.environ.get("CRAFTLY_SHARED_CHECKPOINT_ROOT", "")).expanduser().resolve()
+        shared_root = (
+            Path(os.environ.get("CRAFTLY_SHARED_CHECKPOINT_ROOT", ""))
+            .expanduser()
+            .resolve()
+        )
         output_dir = str(shared_root / "jobs" / job.job_id / "training")
         if job.spec.distributed_strategy == "megatron":
             megatron_command = self._megatron_command(job, output_dir=output_dir)
@@ -2973,7 +3650,9 @@ class SlurmSchedulerAdapter(SchedulerAdapter):
                 *megatron_command[1:],
             ]
         else:
-            command = scheduler_worker_command(job.spec, output_dir=output_dir, scheduler="slurm")
+            command = scheduler_worker_command(
+                job.spec, output_dir=output_dir, scheduler="slurm"
+            )
         quoted = " ".join(shlex.quote(item) for item in command)
         token_path = self.work_dir / f"{job.job_id}-token"
         wall_seconds = job.spec.runtime_limits.maximum_wall_time_seconds
@@ -2986,7 +3665,9 @@ class SlurmSchedulerAdapter(SchedulerAdapter):
             f"#SBATCH --time={slurm_time}",
         ]
         if job.spec.scheduler_policy.account:
-            scheduler_lines.append(f"#SBATCH --account={job.spec.scheduler_policy.account}")
+            scheduler_lines.append(
+                f"#SBATCH --account={job.spec.scheduler_policy.account}"
+            )
         return "\n".join(
             [
                 "#!/usr/bin/env bash",
@@ -3021,17 +3702,28 @@ class SlurmSchedulerAdapter(SchedulerAdapter):
         manifest_value = str(job.spec.dataset_manifest_uri or "")
         tokenizer = str(job.spec.tokenizer_uri or "")
         if (
-            (urlparse(manifest_value).scheme and not Path(manifest_value).is_absolute())
-            or (urlparse(tokenizer).scheme and not Path(tokenizer).is_absolute())
-        ):
-            raise ValueError("Megatron Slurm jobs require cluster-mounted immutable dataset and tokenizer paths")
+            urlparse(manifest_value).scheme and not Path(manifest_value).is_absolute()
+        ) or (urlparse(tokenizer).scheme and not Path(tokenizer).is_absolute()):
+            raise ValueError(
+                "Megatron Slurm jobs require cluster-mounted immutable dataset and tokenizer paths"
+            )
         dataset_manifest = Path(manifest_value).expanduser().resolve()
         tokenizer_path = Path(tokenizer).expanduser().resolve()
-        if not dataset_manifest.is_file() or sha256_path(dataset_manifest) != job.spec.dataset_manifest_sha256:
-            raise ValueError("Megatron dataset manifest is missing or does not match its immutable checksum")
+        if (
+            not dataset_manifest.is_file()
+            or sha256_path(dataset_manifest) != job.spec.dataset_manifest_sha256
+        ):
+            raise ValueError(
+                "Megatron dataset manifest is missing or does not match its immutable checksum"
+            )
         data_path = resolve_megatron_data_prefix(dataset_manifest)
-        if not tokenizer_path.is_file() or sha256_path(tokenizer_path) != job.spec.tokenizer_sha256:
-            raise ValueError("Megatron tokenizer is missing or does not match its immutable checksum")
+        if (
+            not tokenizer_path.is_file()
+            or sha256_path(tokenizer_path) != job.spec.tokenizer_sha256
+        ):
+            raise ValueError(
+                "Megatron tokenizer is missing or does not match its immutable checksum"
+            )
         profile = job.spec.assert_current_model_contract()
         parallelism = job.spec.parallelism
         world_size = job.spec.resources.nodes * job.spec.resources.gpus_per_node
@@ -3044,7 +3736,9 @@ class SlurmSchedulerAdapter(SchedulerAdapter):
             gpus_per_node=job.spec.resources.gpus_per_node,
         )
         if not topology["passed"] or topology["world_size"] != world_size:
-            raise ValueError("Megatron job topology does not match the canonical model contract")
+            raise ValueError(
+                "Megatron job topology does not match the canonical model contract"
+            )
         return [
             sys.executable,
             "-u",
@@ -3081,7 +3775,10 @@ class SlurmSchedulerAdapter(SchedulerAdapter):
             "--lr",
             str(job.spec.optimizer.learning_rate),
             "--min-lr",
-            str(job.spec.optimizer.learning_rate * job.spec.learning_rate.minimum_learning_rate_ratio),
+            str(
+                job.spec.optimizer.learning_rate
+                * job.spec.learning_rate.minimum_learning_rate_ratio
+            ),
             "--lr-decay-style",
             job.spec.learning_rate.schedule,
             "--lr-warmup-iters",
@@ -3109,7 +3806,9 @@ class SlurmSchedulerAdapter(SchedulerAdapter):
             str(job.spec.evaluation.validation_batches),
         ]
 
-    async def submit(self, job: TrainingJob, attempt: TrainingAttempt) -> SchedulerBinding:
+    async def submit(
+        self, job: TrainingJob, attempt: TrainingAttempt
+    ) -> SchedulerBinding:
         await self.validate(job.spec)
         self.work_dir.mkdir(parents=True, exist_ok=True)
         token, expires_at = job_worker_token(job.job_id)
@@ -3117,9 +3816,15 @@ class SlurmSchedulerAdapter(SchedulerAdapter):
         token_path.write_text(token, encoding="utf-8")
         with contextlib.suppress(OSError):
             token_path.chmod(0o600)
-        script_path = self.work_dir / f"{job.job_id}-attempt-{attempt.attempt_number}.sbatch"
-        script_path.write_text(self.script(job, attempt), encoding="utf-8", newline="\n")
-        code, stdout, stderr = await _run_argv(["sbatch", "--parsable", str(script_path)])
+        script_path = (
+            self.work_dir / f"{job.job_id}-attempt-{attempt.attempt_number}.sbatch"
+        )
+        script_path.write_text(
+            self.script(job, attempt), encoding="utf-8", newline="\n"
+        )
+        code, stdout, stderr = await _run_argv(
+            ["sbatch", "--parsable", str(script_path)]
+        )
         if code != 0:
             raise RuntimeError(f"sbatch failed: {redact_text(stderr)[-2000:]}")
         external_id = stdout.strip().split(";", 1)[0]
@@ -3128,14 +3833,25 @@ class SlurmSchedulerAdapter(SchedulerAdapter):
         return SchedulerBinding(
             scheduler=self.name,
             external_id=external_id,
-            metadata={"script_path": str(script_path), "token_path": str(token_path), "token_expires_at": expires_at},
+            metadata={
+                "script_path": str(script_path),
+                "token_path": str(token_path),
+                "token_expires_at": expires_at,
+            },
         )
 
-    async def rotate_credentials(self, job: TrainingJob, binding: SchedulerBinding) -> SchedulerBinding:
+    async def rotate_credentials(
+        self, job: TrainingJob, binding: SchedulerBinding
+    ) -> SchedulerBinding:
         expires_at = int(binding.metadata.get("token_expires_at", 0))
         if expires_at - int(time.time()) > 1800:
             return binding
-        token_path = Path(str(binding.metadata.get("token_path") or self.work_dir / f"{job.job_id}-token"))
+        token_path = Path(
+            str(
+                binding.metadata.get("token_path")
+                or self.work_dir / f"{job.job_id}-token"
+            )
+        )
         token, new_expiry = job_worker_token(job.job_id)
         temporary = token_path.with_suffix(".tmp")
         temporary.write_text(token, encoding="utf-8")
@@ -3147,10 +3863,23 @@ class SlurmSchedulerAdapter(SchedulerAdapter):
         return binding.model_copy(update={"metadata": metadata})
 
     async def status(self, binding: SchedulerBinding) -> str:
-        code, stdout, stderr = await _run_argv(["sacct", "-j", binding.external_id, "--noheader", "--parsable2", "--format=State"])
+        code, stdout, stderr = await _run_argv(
+            [
+                "sacct",
+                "-j",
+                binding.external_id,
+                "--noheader",
+                "--parsable2",
+                "--format=State",
+            ]
+        )
         if code != 0:
             raise RuntimeError(f"sacct failed: {redact_text(stderr)[-2000:]}")
-        state = stdout.strip().splitlines()[0].split("|", 1)[0].split("+", 1)[0].upper() if stdout.strip() else "UNKNOWN"
+        state = (
+            stdout.strip().splitlines()[0].split("|", 1)[0].split("+", 1)[0].upper()
+            if stdout.strip()
+            else "UNKNOWN"
+        )
         if state in {"COMPLETED"}:
             return "succeeded"
         if state in {"FAILED", "TIMEOUT", "NODE_FAIL", "OUT_OF_MEMORY", "BOOT_FAIL"}:
@@ -3195,18 +3924,48 @@ class TrainingWorkspaceService:
     def from_environment(cls) -> "TrainingWorkspaceService":
         database_url = os.environ.get("CRAFTLY_DATABASE_URL")
         redis_url = os.environ.get("CRAFTLY_REDIS_URL")
-        object_uri = os.environ.get("CRAFTLY_OBJECT_STORE_URI", "local://artifacts/craftly/training-workspace")
+        object_uri = os.environ.get(
+            "CRAFTLY_OBJECT_STORE_URI", "local://artifacts/craftly/training-workspace"
+        )
         production_mode = os.environ.get("CRAFTLY_ENV", "development") == "production"
         if production_mode:
-            missing = [name for name, value in [("CRAFTLY_DATABASE_URL", database_url), ("CRAFTLY_REDIS_URL", redis_url), ("CRAFTLY_OBJECT_STORE_URI", object_uri if object_uri.startswith("s3://") else None)] if not value]
+            missing = [
+                name
+                for name, value in [
+                    ("CRAFTLY_DATABASE_URL", database_url),
+                    ("CRAFTLY_REDIS_URL", redis_url),
+                    (
+                        "CRAFTLY_OBJECT_STORE_URI",
+                        object_uri if object_uri.startswith("s3://") else None,
+                    ),
+                ]
+                if not value
+            ]
             if missing:
-                raise RuntimeError("production training workspace dependencies missing: " + ", ".join(missing))
-        store: TrainingStore = PostgresTrainingStore(database_url) if database_url else InMemoryTrainingStore()
-        event_bus: EventBus = RedisEventBus(redis_url) if redis_url else InMemoryEventBus()
-        object_store = create_object_store(
-            ObjectStoreConfig(uri=object_uri, endpoint_url=os.environ.get("CRAFTLY_OBJECT_STORE_ENDPOINT_URL"))
+                raise RuntimeError(
+                    "production training workspace dependencies missing: "
+                    + ", ".join(missing)
+                )
+        store: TrainingStore = (
+            PostgresTrainingStore(database_url)
+            if database_url
+            else InMemoryTrainingStore()
         )
-        return cls(store=store, events=event_bus, object_store=object_store, production_mode=production_mode)
+        event_bus: EventBus = (
+            RedisEventBus(redis_url) if redis_url else InMemoryEventBus()
+        )
+        object_store = create_object_store(
+            ObjectStoreConfig(
+                uri=object_uri,
+                endpoint_url=os.environ.get("CRAFTLY_OBJECT_STORE_ENDPOINT_URL"),
+            )
+        )
+        return cls(
+            store=store,
+            events=event_bus,
+            object_store=object_store,
+            production_mode=production_mode,
+        )
 
     def profile_report(self) -> list[dict[str, Any]]:
         return [
@@ -3243,11 +4002,19 @@ class TrainingWorkspaceService:
         container_digest = request.container_digest
         if self.production_mode:
             git_commit = os.environ.get("CRAFTLY_TRAINING_GIT_COMMIT", git_commit)
-            container_digest = os.environ.get("CRAFTLY_TRAINING_IMAGE_DIGEST", container_digest)
+            container_digest = os.environ.get(
+                "CRAFTLY_TRAINING_IMAGE_DIGEST", container_digest
+            )
             if git_commit == "0000000" or not SAFE_GIT_COMMIT.fullmatch(git_commit):
-                raise ValueError("production jobs require CRAFTLY_TRAINING_GIT_COMMIT with a real immutable commit")
-            if container_digest == "sha256:" + ("0" * 64) or not SAFE_CONTAINER_DIGEST.fullmatch(container_digest):
-                raise ValueError("production jobs require CRAFTLY_TRAINING_IMAGE_DIGEST with a real immutable image digest")
+                raise ValueError(
+                    "production jobs require CRAFTLY_TRAINING_GIT_COMMIT with a real immutable commit"
+                )
+            if container_digest == "sha256:" + (
+                "0" * 64
+            ) or not SAFE_CONTAINER_DIGEST.fullmatch(container_digest):
+                raise ValueError(
+                    "production jobs require CRAFTLY_TRAINING_IMAGE_DIGEST with a real immutable image digest"
+                )
         values = {
             "steps": profile.steps,
             "sequence_length": profile.sequence_length,
@@ -3260,7 +4027,9 @@ class TrainingWorkspaceService:
             if bounds is None:
                 raise ValueError(f"profile does not permit override: {key}")
             if not bounds.minimum <= value <= bounds.maximum:
-                raise ValueError(f"override {key} must be between {bounds.minimum} and {bounds.maximum}")
+                raise ValueError(
+                    f"override {key} must be between {bounds.minimum} and {bounds.maximum}"
+                )
             if key == "nodes":
                 resources = resources.model_copy(update={"nodes": value})
             elif key in values:
@@ -3270,7 +4039,9 @@ class TrainingWorkspaceService:
             else:
                 raise ValueError(f"unsupported bounded override: {key}")
         if self.production_mode and profile.dev_only:
-            raise ValueError("dev-only notebook profile cannot be submitted in production mode")
+            raise ValueError(
+                "dev-only notebook profile cannot be submitted in production mode"
+            )
         data_parallel = training_data_parallel_size(
             resources=resources,
             distributed_strategy=profile.distributed_strategy,
@@ -3302,12 +4073,22 @@ class TrainingWorkspaceService:
             ):
                 scheme = urlparse(uri or "").scheme or "file"
                 if scheme not in profile.immutable_inputs.allowed_uri_schemes:
-                    raise ValueError(f"{name} scheme {scheme!r} is not allowed by the immutable input policy")
-            if profile.immutable_inputs.require_promoted_dataset and request.metadata.get("dataset_promotion") != "promoted":
-                raise ValueError("production pretraining requires metadata.dataset_promotion='promoted'")
+                    raise ValueError(
+                        f"{name} scheme {scheme!r} is not allowed by the immutable input policy"
+                    )
+            if (
+                profile.immutable_inputs.require_promoted_dataset
+                and request.metadata.get("dataset_promotion") != "promoted"
+            ):
+                raise ValueError(
+                    "production pretraining requires metadata.dataset_promotion='promoted'"
+                )
         progression = None
         if "model_progression_decision" in profile.requirements:
-            if not request.model_progression_decision_uri or not request.model_progression_decision_sha256:
+            if (
+                not request.model_progression_decision_uri
+                or not request.model_progression_decision_sha256
+            ):
                 raise ValueError(
                     f"profile {profile.profile_id} requires an immutable model progression decision"
                 )
@@ -3318,19 +4099,32 @@ class TrainingWorkspaceService:
                 raise ValueError(
                     "model progression decision must be locally mounted for semantic verification"
                 )
-            decision_path = Path(
-                decision_uri.path if decision_uri.scheme == "file" else raw_decision_uri
-            ).expanduser().resolve(strict=True)
+            decision_path = (
+                Path(
+                    decision_uri.path
+                    if decision_uri.scheme == "file"
+                    else raw_decision_uri
+                )
+                .expanduser()
+                .resolve(strict=True)
+            )
             if not hmac.compare_digest(
                 sha256_path(decision_path),
                 request.model_progression_decision_sha256,
             ):
                 raise ValueError("model progression decision SHA-256 mismatch")
-            from src.craftly.learning.ablation_runner import verify_model_progression_decision
+            from src.craftly.learning.ablation_runner import (
+                verify_model_progression_decision,
+            )
 
             progression = verify_model_progression_decision(decision_path)
-            if progression.status != "authorized" or progression.target_model_profile != profile.model_profile:
-                raise ValueError("model progression decision does not authorize this model profile")
+            if (
+                progression.status != "authorized"
+                or progression.target_model_profile != profile.model_profile
+            ):
+                raise ValueError(
+                    "model progression decision does not authorize this model profile"
+                )
         metadata = dict(request.metadata)
         metadata["requested_overrides"] = request.overrides
         canonical_model = get_model_profile(profile.model_profile)
@@ -3342,7 +4136,9 @@ class TrainingWorkspaceService:
                 canonical_model.contract_sha256(),
                 str(progression.target_model_contract_sha256 or ""),
             ):
-                raise ValueError("model progression target contract differs from the current profile")
+                raise ValueError(
+                    "model progression target contract differs from the current profile"
+                )
         model_contract = canonical_model.model_dump(mode="json")
         parameter_report_sha256 = sha256_text(
             canonical_json(canonical_model.parameter_report())
@@ -3420,12 +4216,18 @@ class TrainingWorkspaceService:
             )
         )
 
-    async def create_job(self, request: TrainingJobCreateRequest, *, owner_id: str) -> TrainingJob:
-        existing = await self.store.get_job_by_idempotency(owner_id, request.idempotency_key)
+    async def create_job(
+        self, request: TrainingJobCreateRequest, *, owner_id: str
+    ) -> TrainingJob:
+        existing = await self.store.get_job_by_idempotency(
+            owner_id, request.idempotency_key
+        )
         spec = self.resolve_spec(request)
         if existing:
             if not hmac.compare_digest(existing.spec.spec_hash, spec.spec_hash):
-                raise ValueError("idempotency key already exists with a different immutable job spec")
+                raise ValueError(
+                    "idempotency key already exists with a different immutable job spec"
+                )
             return existing
         await self._validate_qualification_predecessor(spec, owner_id=owner_id)
         active_jobs = [
@@ -3449,7 +4251,9 @@ class TrainingWorkspaceService:
                 f"job requests up to {requested_gpu_hours:.2f} GPU-hours but profile quota allows "
                 f"{spec.cost_quota.maximum_gpu_hours:.2f}"
             )
-        requested_cost_usd = requested_gpu_hours * spec.cost_quota.estimated_gpu_hour_cost_usd
+        requested_cost_usd = (
+            requested_gpu_hours * spec.cost_quota.estimated_gpu_hour_cost_usd
+        )
         if requested_cost_usd > spec.cost_quota.maximum_cost_usd:
             raise ValueError(
                 f"job projected cost is ${requested_cost_usd:.2f} but profile quota allows "
@@ -3466,7 +4270,9 @@ class TrainingWorkspaceService:
         await self.store.sync_profiles(self.profiles.profiles)
         created = await self.store.create_job(job)
         if not hmac.compare_digest(created.spec.spec_hash, spec.spec_hash):
-            raise ValueError("idempotency key was concurrently created with a different immutable job spec")
+            raise ValueError(
+                "idempotency key was concurrently created with a different immutable job spec"
+            )
         stored = await asyncio.to_thread(
             self.object_store.put_json,
             spec.model_dump(mode="json"),
@@ -3482,17 +4288,24 @@ class TrainingWorkspaceService:
                 size_bytes=stored.size_bytes,
             )
         )
-        queued = await self.store.transition_job(created.job_id, JobStatus.QUEUED, expected_version=created.version)
+        queued = await self.store.transition_job(
+            created.job_id, JobStatus.QUEUED, expected_version=created.version
+        )
         await self.record_audit(
             actor_id=owner_id,
             job_id=queued.job_id,
             action="training.job.create",
             outcome="accepted",
-            metadata={"profile_id": queued.spec.profile_id, "spec_hash": queued.spec.spec_hash},
+            metadata={
+                "profile_id": queued.spec.profile_id,
+                "spec_hash": queued.spec.spec_hash,
+            },
         )
         return queued
 
-    async def _validate_qualification_predecessor(self, spec: TrainingJobSpec, *, owner_id: str) -> None:
+    async def _validate_qualification_predecessor(
+        self, spec: TrainingJobSpec, *, owner_id: str
+    ) -> None:
         if not spec.qualification_campaign_id or not spec.qualification_milestone_id:
             return
         campaign = self.campaigns.latest(spec.qualification_campaign_id)
@@ -3521,18 +4334,35 @@ class TrainingWorkspaceService:
             for name in ("dataset_manifest_sha256", "tokenizer_sha256"):
                 previous_value = getattr(previous.spec, name)
                 current_value = getattr(spec, name)
-                if not previous_value or not current_value or not hmac.compare_digest(previous_value, current_value):
-                    raise ValueError(f"qualification milestone changed immutable {name}")
+                if (
+                    not previous_value
+                    or not current_value
+                    or not hmac.compare_digest(previous_value, current_value)
+                ):
+                    raise ValueError(
+                        f"qualification milestone changed immutable {name}"
+                    )
         checkpoints = await self.store.list_checkpoints(previous.job_id)
-        if gate.require_reload_verified_checkpoint and not any(item.reload_verified for item in checkpoints):
-            raise ValueError("qualification milestone is locked; previous checkpoint reload was not verified")
+        if gate.require_reload_verified_checkpoint and not any(
+            item.reload_verified for item in checkpoints
+        ):
+            raise ValueError(
+                "qualification milestone is locked; previous checkpoint reload was not verified"
+            )
         evaluations = await self.store.list_evaluations(previous.job_id)
         passing = [item for item in evaluations if item.decision in {"pass", "release"}]
         if gate.require_passing_evaluation and not passing:
-            raise ValueError("qualification milestone is locked; previous evaluation did not pass")
+            raise ValueError(
+                "qualification milestone is locked; previous evaluation did not pass"
+            )
         for evaluation in passing:
-            regression = abs(float(evaluation.metrics.get("validation_regression", 0.0)))
-            if bool(evaluation.metrics.get("regression_detected")) or regression > gate.maximum_validation_regression:
+            regression = abs(
+                float(evaluation.metrics.get("validation_regression", 0.0))
+            )
+            if (
+                bool(evaluation.metrics.get("regression_detected"))
+                or regression > gate.maximum_validation_regression
+            ):
                 raise ValueError(
                     f"qualification milestone is locked by validation regression {regression:.6f}"
                 )
@@ -3543,10 +4373,16 @@ class TrainingWorkspaceService:
             raise KeyError(f"training job not found: {job_id}")
         return job
 
-    async def list_jobs(self, *, owner_id: str | None = None, limit: int = 100) -> list[TrainingJob]:
-        return await self.store.list_jobs(owner_id=owner_id, limit=min(max(limit, 1), 500))
+    async def list_jobs(
+        self, *, owner_id: str | None = None, limit: int = 100
+    ) -> list[TrainingJob]:
+        return await self.store.list_jobs(
+            owner_id=owner_id, limit=min(max(limit, 1), 500)
+        )
 
-    async def ingest_events(self, job_id: str, batch: TrainingEventBatch) -> list[TrainingEvent]:
+    async def ingest_events(
+        self, job_id: str, batch: TrainingEventBatch
+    ) -> list[TrainingEvent]:
         job = await self.get_job(job_id)
         attempt = await self.store.get_attempt(batch.attempt_id)
         if not attempt or attempt.job_id != job_id:
@@ -3577,39 +4413,74 @@ class TrainingWorkspaceService:
         await self._apply_event_state(job, events)
         return events
 
-    async def _apply_event_state(self, initial_job: TrainingJob, events: list[TrainingEvent]) -> None:
+    async def _apply_event_state(
+        self, initial_job: TrainingJob, events: list[TrainingEvent]
+    ) -> None:
         job = initial_job
         for event in events:
             target: JobStatus | None = None
             if event.kind == "checkpoint" and job.status == JobStatus.RUNNING:
                 target = JobStatus.CHECKPOINTING
-            elif event.kind == "evaluation" and job.status in {JobStatus.RUNNING, JobStatus.CHECKPOINTING}:
-                target = JobStatus.EVALUATING
-            elif event.kind == "metric" and event.stage.lower() == "training" and job.status in {
-                JobStatus.CHECKPOINTING,
-                JobStatus.EVALUATING,
-            }:
-                target = JobStatus.RUNNING
-            elif event.kind == "status" and event.status == "running" and job.status == JobStatus.PROVISIONING:
-                target = JobStatus.RUNNING
-            elif event.kind == "status" and event.status in {"complete", "completed", "succeeded"} and job.status in {
+            elif event.kind == "evaluation" and job.status in {
                 JobStatus.RUNNING,
                 JobStatus.CHECKPOINTING,
-                JobStatus.EVALUATING,
             }:
+                target = JobStatus.EVALUATING
+            elif (
+                event.kind == "metric"
+                and event.stage.lower() == "training"
+                and job.status
+                in {
+                    JobStatus.CHECKPOINTING,
+                    JobStatus.EVALUATING,
+                }
+            ):
+                target = JobStatus.RUNNING
+            elif (
+                event.kind == "status"
+                and event.status == "running"
+                and job.status == JobStatus.PROVISIONING
+            ):
+                target = JobStatus.RUNNING
+            elif (
+                event.kind == "status"
+                and event.status in {"complete", "completed", "succeeded"}
+                and job.status
+                in {
+                    JobStatus.RUNNING,
+                    JobStatus.CHECKPOINTING,
+                    JobStatus.EVALUATING,
+                }
+            ):
                 target = JobStatus.SUCCEEDED
             elif event.kind == "error":
                 fatal_class = str(event.payload.get("failure_class", "runtime"))
-                target = JobStatus.BLOCKED if fatal_class in {"data", "tokenizer", "nan_loss", "quality_gate", "security"} else JobStatus.FAILED
+                target = (
+                    JobStatus.BLOCKED
+                    if fatal_class
+                    in {"data", "tokenizer", "nan_loss", "quality_gate", "security"}
+                    else JobStatus.FAILED
+                )
             if target is not None and target in ALLOWED_TRANSITIONS[job.status]:
-                job = await self.store.transition_job(job.job_id, target, expected_version=job.version, detail=event.message)
+                job = await self.store.transition_job(
+                    job.job_id,
+                    target,
+                    expected_version=job.version,
+                    detail=event.message,
+                )
                 await self.store.update_attempt_status(event.attempt_id, target)
                 await self.record_audit(
                     actor_id=f"worker:{event.attempt_id}",
                     job_id=job.job_id,
                     action="training.job.transition",
-                    outcome="failed" if target in {JobStatus.FAILED, JobStatus.BLOCKED} else "succeeded",
-                    metadata={"target": target.value, "event_id": event.event_id, "sequence": event.sequence},
+                    outcome="failed"
+                    if target in {JobStatus.FAILED, JobStatus.BLOCKED}
+                    else "succeeded",
+                    metadata={
+                        "target": target.value,
+                        "event_id": event.event_id,
+                        "sequence": event.sequence,
+                    },
                 )
 
     async def stream_events(
@@ -3622,7 +4493,12 @@ class TrainingWorkspaceService:
         await self.get_job(job_id)
         cursor = after_sequence
         while True:
-            rows = await self.events.read(job_id, after_sequence=cursor, limit=100, block_ms=int(heartbeat_seconds * 1000))
+            rows = await self.events.read(
+                job_id,
+                after_sequence=cursor,
+                limit=100,
+                block_ms=int(heartbeat_seconds * 1000),
+            )
             if not rows:
                 yield None
             for event in rows:
@@ -3632,7 +4508,9 @@ class TrainingWorkspaceService:
             if job.status.value in TERMINAL_STATES and not rows:
                 return
 
-    async def create_attempt(self, job: TrainingJob, *, checkpoint_uri: str | None = None) -> TrainingAttempt:
+    async def create_attempt(
+        self, job: TrainingJob, *, checkpoint_uri: str | None = None
+    ) -> TrainingAttempt:
         attempts = await self.store.list_attempts(job.job_id)
         return await self.store.create_attempt(
             TrainingAttempt(
@@ -3645,16 +4523,28 @@ class TrainingWorkspaceService:
             )
         )
 
-    async def claim_notebook_job(self, job_id: str) -> tuple[TrainingJob, TrainingAttempt]:
+    async def claim_notebook_job(
+        self, job_id: str
+    ) -> tuple[TrainingJob, TrainingAttempt]:
         job = await self.get_job(job_id)
         if job.spec.scheduler != "notebook":
-            raise ValueError("only notebook validation profiles can be claimed by a client worker")
+            raise ValueError(
+                "only notebook validation profiles can be claimed by a client worker"
+            )
         if job.status != JobStatus.QUEUED:
-            raise ValueError(f"notebook job cannot be claimed from status={job.status.value}")
-        provisioning = await self.store.transition_job(job_id, JobStatus.PROVISIONING, expected_version=job.version)
+            raise ValueError(
+                f"notebook job cannot be claimed from status={job.status.value}"
+            )
+        provisioning = await self.store.transition_job(
+            job_id, JobStatus.PROVISIONING, expected_version=job.version
+        )
         attempt = await self.create_attempt(provisioning)
-        running = await self.store.transition_job(job_id, JobStatus.RUNNING, expected_version=provisioning.version)
-        attempt = await self.store.update_attempt_status(attempt.attempt_id, JobStatus.RUNNING)
+        running = await self.store.transition_job(
+            job_id, JobStatus.RUNNING, expected_version=provisioning.version
+        )
+        attempt = await self.store.update_attempt_status(
+            attempt.attempt_id, JobStatus.RUNNING
+        )
         return running, attempt
 
     async def cancel_job(
@@ -3668,10 +4558,16 @@ class TrainingWorkspaceService:
         if job.status.value in TERMINAL_STATES:
             return job
         if scheduler and job.scheduler_binding:
-            await scheduler.cancel(SchedulerBinding.model_validate(job.scheduler_binding))
-        cancelled = await self.store.transition_job(job_id, JobStatus.CANCELLED, expected_version=job.version)
+            await scheduler.cancel(
+                SchedulerBinding.model_validate(job.scheduler_binding)
+            )
+        cancelled = await self.store.transition_job(
+            job_id, JobStatus.CANCELLED, expected_version=job.version
+        )
         if job.current_attempt_id:
-            await self.store.update_attempt_status(job.current_attempt_id, JobStatus.CANCELLED)
+            await self.store.update_attempt_status(
+                job.current_attempt_id, JobStatus.CANCELLED
+            )
         await self.record_audit(
             actor_id=actor_id,
             job_id=job_id,
@@ -3683,12 +4579,18 @@ class TrainingWorkspaceService:
     async def resume_job(self, job_id: str, *, actor_id: str = "system") -> TrainingJob:
         job = await self.get_job(job_id)
         if job.status not in {JobStatus.FAILED, JobStatus.CANCELLED}:
-            raise ValueError("only failed infrastructure attempts or cancelled jobs can resume")
+            raise ValueError(
+                "only failed infrastructure attempts or cancelled jobs can resume"
+            )
         artifacts = await self.store.list_artifacts(job_id)
-        checkpoints = [item for item in artifacts if item.kind == "checkpoint" and item.promoted]
+        checkpoints = [
+            item for item in artifacts if item.kind == "checkpoint" and item.promoted
+        ]
         if not checkpoints:
             raise ValueError("resume requires a promoted, checksum-verified checkpoint")
-        queued = await self.store.transition_job(job_id, JobStatus.QUEUED, expected_version=job.version)
+        queued = await self.store.transition_job(
+            job_id, JobStatus.QUEUED, expected_version=job.version
+        )
         await self.record_audit(
             actor_id=actor_id,
             job_id=job_id,
@@ -3698,7 +4600,9 @@ class TrainingWorkspaceService:
         )
         return queued
 
-    async def list_audit_events(self, job_id: str, *, limit: int = 100) -> list[TrainingAuditEvent]:
+    async def list_audit_events(
+        self, job_id: str, *, limit: int = 100
+    ) -> list[TrainingAuditEvent]:
         await self.get_job(job_id)
         return await self.store.list_audit_events(job_id, limit=min(max(limit, 1), 500))
 
@@ -3706,14 +4610,18 @@ class TrainingWorkspaceService:
         await self.get_job(artifact.job_id)
         return await self.store.add_artifact(artifact)
 
-    async def presign_artifact_upload(self, job_id: str, request: ArtifactUploadRequest) -> dict[str, Any]:
+    async def presign_artifact_upload(
+        self, job_id: str, request: ArtifactUploadRequest
+    ) -> dict[str, Any]:
         job = await self.get_job(job_id)
         if request.attempt_id:
             attempt = await self.store.get_attempt(request.attempt_id)
             if not attempt or attempt.job_id != job_id:
                 raise ValueError("artifact attempt does not belong to the training job")
         if not isinstance(self.object_store, S3ObjectStore):
-            raise RuntimeError("presigned artifact uploads require production S3/MinIO object storage")
+            raise RuntimeError(
+                "presigned artifact uploads require production S3/MinIO object storage"
+            )
         attempt_segment = request.attempt_id or job.current_attempt_id or "job"
         object_name = request.relative_path or request.filename
         key = f"jobs/{job_id}/attempts/{attempt_segment}/{request.kind}/{object_name}"
@@ -3734,18 +4642,28 @@ class TrainingWorkspaceService:
     ) -> TrainingArtifact:
         await self.get_job(job_id)
         if not isinstance(self.object_store, S3ObjectStore):
-            raise RuntimeError("artifact verification requires production S3/MinIO object storage")
+            raise RuntimeError(
+                "artifact verification requires production S3/MinIO object storage"
+            )
         parsed_prefix = f"s3://{self.object_store.bucket}/"
         if not uri.startswith(parsed_prefix):
-            raise ValueError("artifact URI does not belong to the configured object store")
+            raise ValueError(
+                "artifact URI does not belong to the configured object store"
+            )
         object_key = uri[len(parsed_prefix) :]
         configured_prefix = self.object_store.prefix.strip("/")
-        relative_key = object_key[len(configured_prefix) + 1 :] if configured_prefix and object_key.startswith(configured_prefix + "/") else object_key
+        relative_key = (
+            object_key[len(configured_prefix) + 1 :]
+            if configured_prefix and object_key.startswith(configured_prefix + "/")
+            else object_key
+        )
         stored = await asyncio.to_thread(self.object_store.head, relative_key)
         if stored.size_bytes != request.size_bytes:
             raise ValueError("uploaded artifact size does not match the declared size")
         if not stored.sha256 or not hmac.compare_digest(stored.sha256, request.sha256):
-            raise ValueError("uploaded artifact SHA-256 metadata is missing or mismatched")
+            raise ValueError(
+                "uploaded artifact SHA-256 metadata is missing or mismatched"
+            )
         return await self.store.add_artifact(
             TrainingArtifact(
                 artifact_id=str(uuid.uuid4()),
@@ -3762,7 +4680,9 @@ class TrainingWorkspaceService:
         await self.get_job(job_id)
         return await self.store.list_artifacts(job_id)
 
-    async def commit_checkpoint(self, job_id: str, request: CheckpointCommitRequest) -> CheckpointVersion:
+    async def commit_checkpoint(
+        self, job_id: str, request: CheckpointCommitRequest
+    ) -> CheckpointVersion:
         job = await self.get_job(job_id)
         attempt = await self.store.get_attempt(request.attempt_id)
         if not attempt or attempt.job_id != job_id:
@@ -3770,9 +4690,15 @@ class TrainingWorkspaceService:
         if job.spec.dataset_manifest_sha256 and not hmac.compare_digest(
             job.spec.dataset_manifest_sha256, request.dataset_sha256
         ):
-            raise ValueError("checkpoint dataset hash does not match the immutable job spec")
-        if job.spec.tokenizer_sha256 and not hmac.compare_digest(job.spec.tokenizer_sha256, request.tokenizer_sha256):
-            raise ValueError("checkpoint tokenizer hash does not match the immutable job spec")
+            raise ValueError(
+                "checkpoint dataset hash does not match the immutable job spec"
+            )
+        if job.spec.tokenizer_sha256 and not hmac.compare_digest(
+            job.spec.tokenizer_sha256, request.tokenizer_sha256
+        ):
+            raise ValueError(
+                "checkpoint tokenizer hash does not match the immutable job spec"
+            )
         artifacts = await self.store.list_artifacts(job_id)
         verified_manifest = next(
             (
@@ -3786,7 +4712,9 @@ class TrainingWorkspaceService:
             None,
         )
         if verified_manifest is None:
-            raise ValueError("checkpoint manifest must be uploaded and checksum-verified before commit")
+            raise ValueError(
+                "checkpoint manifest must be uploaded and checksum-verified before commit"
+            )
         if isinstance(self.object_store, S3ObjectStore):
             await self._verify_checkpoint_objects(request, artifacts)
         checkpoint = await self.store.add_checkpoint(
@@ -3809,7 +4737,10 @@ class TrainingWorkspaceService:
             job_id=job_id,
             action="training.checkpoint.commit",
             outcome="succeeded",
-            metadata={"checkpoint_id": checkpoint.checkpoint_id, "step": checkpoint.step},
+            metadata={
+                "checkpoint_id": checkpoint.checkpoint_id,
+                "step": checkpoint.step,
+            },
         )
         return checkpoint
 
@@ -3821,19 +4752,27 @@ class TrainingWorkspaceService:
         assert isinstance(self.object_store, S3ObjectStore)
         bucket_prefix = f"s3://{self.object_store.bucket}/"
         if not request.manifest_uri.startswith(bucket_prefix):
-            raise ValueError("checkpoint manifest is outside the configured object-store bucket")
+            raise ValueError(
+                "checkpoint manifest is outside the configured object-store bucket"
+            )
         object_key = request.manifest_uri[len(bucket_prefix) :]
         configured_prefix = self.object_store.prefix.strip("/")
         if configured_prefix:
             expected_prefix = configured_prefix + "/"
             if not object_key.startswith(expected_prefix):
-                raise ValueError("checkpoint manifest is outside the configured object-store prefix")
+                raise ValueError(
+                    "checkpoint manifest is outside the configured object-store prefix"
+                )
             relative_key = object_key[len(expected_prefix) :]
         else:
             relative_key = object_key
-        with tempfile.TemporaryDirectory(prefix="craftly-checkpoint-manifest-") as temp_dir:
+        with tempfile.TemporaryDirectory(
+            prefix="craftly-checkpoint-manifest-"
+        ) as temp_dir:
             local_manifest = Path(temp_dir) / "checkpoint_manifest.json"
-            downloaded = await asyncio.to_thread(self.object_store.get_file, relative_key, local_manifest)
+            downloaded = await asyncio.to_thread(
+                self.object_store.get_file, relative_key, local_manifest
+            )
             if not hmac.compare_digest(downloaded.sha256, request.manifest_sha256):
                 raise ValueError("downloaded checkpoint manifest checksum mismatch")
             try:
@@ -3842,8 +4781,12 @@ class TrainingWorkspaceService:
                 raise ValueError("checkpoint manifest is not valid UTF-8 JSON") from exc
         files = payload.get("files")
         if not isinstance(files, list) or not files or len(files) > 100_000:
-            raise ValueError("checkpoint manifest must contain between 1 and 100000 file entries")
-        artifact_index = {item.uri: item for item in artifacts if item.kind == "checkpoint"}
+            raise ValueError(
+                "checkpoint manifest must contain between 1 and 100000 file entries"
+            )
+        artifact_index = {
+            item.uri: item for item in artifacts if item.kind == "checkpoint"
+        }
         base_uri = request.manifest_uri.rsplit("/", 1)[0]
         for entry in files:
             if not isinstance(entry, dict):
@@ -3860,20 +4803,32 @@ class TrainingWorkspaceService:
                 or not isinstance(size, int)
                 or size < 0
             ):
-                raise ValueError("checkpoint manifest contains an unsafe or invalid file entry")
+                raise ValueError(
+                    "checkpoint manifest contains an unsafe or invalid file entry"
+                )
             uri = f"{base_uri}/{relative_path.as_posix()}"
             artifact = artifact_index.get(uri)
             if artifact is None:
-                raise ValueError(f"checkpoint object was not uploaded and verified: {relative}")
-            if artifact.size_bytes != size or not hmac.compare_digest(artifact.sha256, digest):
-                raise ValueError(f"checkpoint object checksum or size mismatch: {relative}")
+                raise ValueError(
+                    f"checkpoint object was not uploaded and verified: {relative}"
+                )
+            if artifact.size_bytes != size or not hmac.compare_digest(
+                artifact.sha256, digest
+            ):
+                raise ValueError(
+                    f"checkpoint object checksum or size mismatch: {relative}"
+                )
 
-    async def commit_evaluation(self, job_id: str, request: EvaluationCommitRequest) -> EvaluationRun:
+    async def commit_evaluation(
+        self, job_id: str, request: EvaluationCommitRequest
+    ) -> EvaluationRun:
         await self.get_job(job_id)
         if request.checkpoint_id:
             checkpoint = await self.store.get_checkpoint(request.checkpoint_id)
             if not checkpoint or checkpoint.job_id != job_id:
-                raise ValueError("evaluation checkpoint does not belong to the training job")
+                raise ValueError(
+                    "evaluation checkpoint does not belong to the training job"
+                )
         artifacts = await self.store.list_artifacts(job_id)
         verified_report = next(
             (
@@ -3886,7 +4841,9 @@ class TrainingWorkspaceService:
             None,
         )
         if verified_report is None:
-            raise ValueError("evaluation report must be uploaded and checksum-verified before commit")
+            raise ValueError(
+                "evaluation report must be uploaded and checksum-verified before commit"
+            )
         evaluation = await self.store.add_evaluation(
             EvaluationRun(
                 evaluation_id=str(uuid.uuid4()),
@@ -3903,33 +4860,53 @@ class TrainingWorkspaceService:
             actor_id="evaluation-worker",
             job_id=job_id,
             action="training.evaluation.commit",
-            outcome="succeeded" if request.decision in {"pass", "release"} else "failed",
-            metadata={"evaluation_id": evaluation.evaluation_id, "decision": evaluation.decision},
+            outcome="succeeded"
+            if request.decision in {"pass", "release"}
+            else "failed",
+            metadata={
+                "evaluation_id": evaluation.evaluation_id,
+                "decision": evaluation.decision,
+            },
         )
         return evaluation
 
-    async def promote_checkpoint(self, job_id: str, checkpoint_id: str, *, actor_id: str) -> CheckpointVersion:
+    async def promote_checkpoint(
+        self, job_id: str, checkpoint_id: str, *, actor_id: str
+    ) -> CheckpointVersion:
         job = await self.get_job(job_id)
         checkpoint = await self.store.get_checkpoint(checkpoint_id)
         if not checkpoint or checkpoint.job_id != job_id:
             raise KeyError(f"checkpoint not found for job: {checkpoint_id}")
         if job.spec.validation_only:
-            raise ValueError("validation-only checkpoints cannot be promoted as release checkpoints")
+            raise ValueError(
+                "validation-only checkpoints cannot be promoted as release checkpoints"
+            )
         policy = job.spec.promotion
         if checkpoint.step < policy.minimum_step:
-            raise ValueError(f"checkpoint step {checkpoint.step} is below promotion minimum {policy.minimum_step}")
+            raise ValueError(
+                f"checkpoint step {checkpoint.step} is below promotion minimum {policy.minimum_step}"
+            )
         if policy.require_reload_verification and not checkpoint.reload_verified:
-            raise ValueError("checkpoint promotion requires a successful reload smoke verification")
+            raise ValueError(
+                "checkpoint promotion requires a successful reload smoke verification"
+            )
         evaluations = await self.store.list_evaluations(job_id)
         passing_evaluations = [
             item
             for item in evaluations
-            if item.checkpoint_id == checkpoint_id and item.decision in {"pass", "release"}
+            if item.checkpoint_id == checkpoint_id
+            and item.decision in {"pass", "release"}
         ]
-        if policy.require_passing_evaluation and len(passing_evaluations) < policy.minimum_completed_evaluations:
-            raise ValueError("checkpoint promotion requires a passing committed evaluation")
+        if (
+            policy.require_passing_evaluation
+            and len(passing_evaluations) < policy.minimum_completed_evaluations
+        ):
+            raise ValueError(
+                "checkpoint promotion requires a passing committed evaluation"
+            )
         if policy.require_no_regression and any(
-            bool(item.metrics.get("regression_detected")) for item in passing_evaluations
+            bool(item.metrics.get("regression_detected"))
+            for item in passing_evaluations
         ):
             raise ValueError("checkpoint promotion blocked by evaluation regression")
         passing = passing_evaluations[-1] if passing_evaluations else None
@@ -3965,7 +4942,9 @@ class TrainingWorkspaceService:
         await self.get_job(job_id)
         return await self.store.list_evaluations(job_id)
 
-    async def create_service_account(self, *, name: str, scopes: list[str]) -> ServiceAccountCredential:
+    async def create_service_account(
+        self, *, name: str, scopes: list[str]
+    ) -> ServiceAccountCredential:
         if not SAFE_IDENTIFIER.fullmatch(name):
             raise ValueError("service account name contains unsafe characters")
         allowed = {
@@ -3979,7 +4958,9 @@ class TrainingWorkspaceService:
         }
         unknown = set(scopes) - allowed
         if unknown:
-            raise ValueError("unknown service-account scopes: " + ", ".join(sorted(unknown)))
+            raise ValueError(
+                "unknown service-account scopes: " + ", ".join(sorted(unknown))
+            )
         account_id = str(uuid.uuid4())
         secret = secrets.token_urlsafe(32)
         token = f"craftly_sa_{account_id}_{secret}"
@@ -4010,17 +4991,32 @@ class TrainingWorkspaceService:
             await self.store.ensure_service_account(account, sha256_text(token))
             return account
         account = await self.store.authenticate_service_account(token)
-        if env_token and account and account.service_account_id == "00000000-0000-0000-0000-000000000001":
+        if (
+            env_token
+            and account
+            and account.service_account_id == "00000000-0000-0000-0000-000000000001"
+        ):
             return None
         return account
 
-    async def create_refresh_session(self, account: ServiceAccount, *, ttl_seconds: int = 43_200) -> RefreshSession:
+    async def create_refresh_session(
+        self, account: ServiceAccount, *, ttl_seconds: int = 43_200
+    ) -> RefreshSession:
         refresh_token = secrets.token_urlsafe(48)
         expires = datetime.fromtimestamp(time.time() + ttl_seconds, tz=timezone.utc)
-        session_id = await self.store.create_refresh_session(account.service_account_id, sha256_text(refresh_token), expires)
-        return RefreshSession(session_id=session_id, service_account_id=account.service_account_id, refresh_token=refresh_token, expires_at=expires)
+        session_id = await self.store.create_refresh_session(
+            account.service_account_id, sha256_text(refresh_token), expires
+        )
+        return RefreshSession(
+            session_id=session_id,
+            service_account_id=account.service_account_id,
+            refresh_token=refresh_token,
+            expires_at=expires,
+        )
 
-    async def authenticate_refresh(self, session_id: str, refresh_token: str) -> ServiceAccount | None:
+    async def authenticate_refresh(
+        self, session_id: str, refresh_token: str
+    ) -> ServiceAccount | None:
         return await self.store.consume_refresh_session(session_id, refresh_token)
 
     async def revoke_refresh(self, session_id: str, refresh_token: str) -> bool:
@@ -4034,7 +5030,11 @@ class TrainingWorkspaceService:
 class TrainingController:
     """Idempotent reconciler between queued jobs and trusted schedulers."""
 
-    def __init__(self, service: TrainingWorkspaceService, schedulers: dict[str, SchedulerAdapter] | None = None) -> None:
+    def __init__(
+        self,
+        service: TrainingWorkspaceService,
+        schedulers: dict[str, SchedulerAdapter] | None = None,
+    ) -> None:
         self.service = service
         self.schedulers = schedulers or {
             "notebook": NotebookValidationAdapter(),
@@ -4053,12 +5053,16 @@ class TrainingController:
                 detail=f"scheduler adapter is not registered: {job.spec.scheduler}",
             )
         if job.status == JobStatus.QUEUED:
-            retry_not_before = float(job.scheduler_binding.get("retry_not_before_unix", 0.0))
+            retry_not_before = float(
+                job.scheduler_binding.get("retry_not_before_unix", 0.0)
+            )
             if retry_not_before > time.time():
                 return job
             try:
                 await scheduler.validate(job.spec)
-                provisioning = await self.service.store.transition_job(job.job_id, JobStatus.PROVISIONING, expected_version=job.version)
+                provisioning = await self.service.store.transition_job(
+                    job.job_id, JobStatus.PROVISIONING, expected_version=job.version
+                )
                 attempt = await self.service.create_attempt(provisioning)
                 binding = await scheduler.submit(provisioning, attempt)
                 submitted = await self.service.store.update_binding(
@@ -4071,7 +5075,11 @@ class TrainingController:
                     job_id=job.job_id,
                     action="training.scheduler.submit",
                     outcome="accepted",
-                    metadata={"scheduler": scheduler.name, "attempt_id": attempt.attempt_id, "external_id": binding.external_id},
+                    metadata={
+                        "scheduler": scheduler.name,
+                        "attempt_id": attempt.attempt_id,
+                        "external_id": binding.external_id,
+                    },
                 )
                 return submitted
             except (ValueError, RuntimeError, FileNotFoundError) as exc:
@@ -4084,7 +5092,9 @@ class TrainingController:
                         detail=str(exc),
                     )
                     if blocked.current_attempt_id:
-                        await self.service.store.update_attempt_status(blocked.current_attempt_id, JobStatus.BLOCKED)
+                        await self.service.store.update_attempt_status(
+                            blocked.current_attempt_id, JobStatus.BLOCKED
+                        )
                     await self.service.record_audit(
                         actor_id="training-controller",
                         job_id=blocked.job_id,
@@ -4094,7 +5104,16 @@ class TrainingController:
                     )
                     return blocked
                 raise
-        if job.status in {JobStatus.PROVISIONING, JobStatus.RUNNING, JobStatus.CHECKPOINTING, JobStatus.EVALUATING} and job.scheduler_binding:
+        if (
+            job.status
+            in {
+                JobStatus.PROVISIONING,
+                JobStatus.RUNNING,
+                JobStatus.CHECKPOINTING,
+                JobStatus.EVALUATING,
+            }
+            and job.scheduler_binding
+        ):
             binding = SchedulerBinding.model_validate(job.scheduler_binding)
             rotated = await scheduler.rotate_credentials(job, binding)
             if rotated != binding:
@@ -4112,10 +5131,18 @@ class TrainingController:
                 "cancelled": JobStatus.CANCELLED,
             }
             target = mapping.get(runtime_status)
-            if target and target != job.status and target in ALLOWED_TRANSITIONS[job.status]:
-                transitioned = await self.service.store.transition_job(job.job_id, target, expected_version=job.version)
+            if (
+                target
+                and target != job.status
+                and target in ALLOWED_TRANSITIONS[job.status]
+            ):
+                transitioned = await self.service.store.transition_job(
+                    job.job_id, target, expected_version=job.version
+                )
                 if transitioned.current_attempt_id:
-                    await self.service.store.update_attempt_status(transitioned.current_attempt_id, target)
+                    await self.service.store.update_attempt_status(
+                        transitioned.current_attempt_id, target
+                    )
                 await self.service.record_audit(
                     actor_id="training-controller",
                     job_id=transitioned.job_id,
@@ -4125,14 +5152,17 @@ class TrainingController:
                 )
                 if target == JobStatus.FAILED:
                     attempts = await self.service.store.list_attempts(job.job_id)
-                    failure_class = str(binding.metadata.get("failure_class") or "infrastructure")
+                    failure_class = str(
+                        binding.metadata.get("failure_class") or "infrastructure"
+                    )
                     if (
                         failure_class in transitioned.spec.retry.retryable_failures
                         and len(attempts) < transitioned.spec.retry.maximum_attempts
                     ):
                         delay = min(
                             transitioned.spec.retry.maximum_backoff_seconds,
-                            transitioned.spec.retry.initial_backoff_seconds * (2 ** max(0, len(attempts) - 1)),
+                            transitioned.spec.retry.initial_backoff_seconds
+                            * (2 ** max(0, len(attempts) - 1)),
                         )
                         retry_binding = dict(transitioned.scheduler_binding)
                         retry_binding.update(
@@ -4158,7 +5188,11 @@ class TrainingController:
                             job_id=transitioned.job_id,
                             action="training.scheduler.retry",
                             outcome="accepted",
-                            metadata={"attempts": len(attempts), "failure_class": failure_class, "backoff_seconds": delay},
+                            metadata={
+                                "attempts": len(attempts),
+                                "failure_class": failure_class,
+                                "backoff_seconds": delay,
+                            },
                         )
                 return transitioned
         return job
@@ -4168,7 +5202,8 @@ class TrainingController:
         active = [
             item
             for item in jobs
-            if item.status.value not in TERMINAL_STATES and item.spec.scheduler != "notebook"
+            if item.status.value not in TERMINAL_STATES
+            and item.spec.scheduler != "notebook"
         ]
         results = []
         for job in active:
@@ -4184,7 +5219,9 @@ class TrainingController:
                         detail=f"controller reconciliation failed: {exc}",
                     )
                     if failed.current_attempt_id:
-                        await self.service.store.update_attempt_status(failed.current_attempt_id, JobStatus.FAILED)
+                        await self.service.store.update_attempt_status(
+                            failed.current_attempt_id, JobStatus.FAILED
+                        )
                     results.append(failed)
                 else:
                     raise
@@ -4199,7 +5236,9 @@ class TrainingController:
 class TrainingEventArchiver:
     """Copies ordered Redis events into immutable compressed object chunks."""
 
-    def __init__(self, service: TrainingWorkspaceService, *, chunk_events: int = 5000) -> None:
+    def __init__(
+        self, service: TrainingWorkspaceService, *, chunk_events: int = 5000
+    ) -> None:
         self.service = service
         self.chunk_events = min(max(chunk_events, 100), 5000)
 
@@ -4221,7 +5260,9 @@ class TrainingEventArchiver:
                 source = Path(temp_dir) / f"events-{start:012d}-{end:012d}.jsonl.gz"
                 with gzip.open(source, "wt", encoding="utf-8", newline="\n") as handle:
                     for event in events:
-                        handle.write(canonical_json(event.model_dump(mode="json")) + "\n")
+                        handle.write(
+                            canonical_json(event.model_dump(mode="json")) + "\n"
+                        )
                 stored = await asyncio.to_thread(
                     self.service.object_store.put_file,
                     source,
@@ -4236,7 +5277,12 @@ class TrainingEventArchiver:
                     uri=stored.uri,
                     sha256=stored.sha256,
                     size_bytes=stored.size_bytes,
-                    metadata={"first_sequence": start, "last_sequence": end, "event_count": len(events), "compression": "gzip"},
+                    metadata={
+                        "first_sequence": start,
+                        "last_sequence": end,
+                        "event_count": len(events),
+                        "compression": "gzip",
+                    },
                 )
             )
             archived.append(artifact)
@@ -4268,7 +5314,9 @@ def workspace_readiness(service: TrainingWorkspaceService) -> dict[str, Any]:
     if not production_objects:
         missing.append("S3ObjectStore")
     return {
-        "status": "production_ready_requires_external_service" if not missing else "blocked_missing_dependency",
+        "status": "production_ready_requires_external_service"
+        if not missing
+        else "blocked_missing_dependency",
         "production_mode": service.production_mode,
         "profile_count": len(service.profiles.profiles),
         "store": type(service.store).__name__,
@@ -4280,7 +5328,9 @@ def workspace_readiness(service: TrainingWorkspaceService) -> dict[str, Any]:
 
 
 def parse_workspace_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Craftly Training Workspace controller")
+    parser = argparse.ArgumentParser(
+        description="Craftly Training Workspace controller"
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
     controller = subparsers.add_parser("controller")
     controller.add_argument("--poll-seconds", type=float, default=5.0)
@@ -4296,7 +5346,12 @@ async def workspace_main() -> None:
     service = TrainingWorkspaceService.from_environment()
     try:
         if args.command == "profiles":
-            print(json.dumps({"profiles": service.profile_report()}, indent=2, sort_keys=True), flush=True)
+            print(
+                json.dumps(
+                    {"profiles": service.profile_report()}, indent=2, sort_keys=True
+                ),
+                flush=True,
+            )
             return
         if args.command == "campaigns":
             print(
@@ -4305,7 +5360,10 @@ async def workspace_main() -> None:
                         "campaigns": [
                             {
                                 **campaign.model_dump(mode="json"),
-                                "milestones": [item.model_dump(mode="json") for item in campaign.milestones],
+                                "milestones": [
+                                    item.model_dump(mode="json")
+                                    for item in campaign.milestones
+                                ],
                             }
                             for campaign in service.campaigns.campaigns
                         ]
@@ -4317,7 +5375,10 @@ async def workspace_main() -> None:
             )
             return
         if args.command == "readiness":
-            print(json.dumps(workspace_readiness(service), indent=2, sort_keys=True), flush=True)
+            print(
+                json.dumps(workspace_readiness(service), indent=2, sort_keys=True),
+                flush=True,
+            )
             return
         controller = TrainingController(service)
         archiver = TrainingEventArchiver(service)
@@ -4328,7 +5389,9 @@ async def workspace_main() -> None:
                 json.dumps(
                     {
                         "reconciled": [job.model_dump(mode="json") for job in jobs],
-                        "archived_artifacts": [item.model_dump(mode="json") for item in archived],
+                        "archived_artifacts": [
+                            item.model_dump(mode="json") for item in archived
+                        ],
                     },
                     indent=2,
                     sort_keys=True,

@@ -1,4 +1,4 @@
-﻿"""Strict promotion gate for Craftly training data.
+"""Strict promotion gate for Craftly training data.
 
 This module sits after license/contamination/dedup filtering and before
 tokenizer/shard construction. It promotes only high-signal rows into training,
@@ -20,12 +20,22 @@ from pydantic import Field
 from src.craftly.learning.quality import iter_jsonl, stable_hash
 from src.craftly.shared.schemas import StrictModel
 
-
 PATCH_DATA_TYPES = {"patch", "debug_trace"}
 SECURITY_DATA_TYPES = {"security_advisory", "security_reference"}
-HIGH_VALUE_LABELS = {"defensive_security", "code", "patch", "tests", "runtime_trace", "agentic_coding"}
+HIGH_VALUE_LABELS = {
+    "defensive_security",
+    "code",
+    "patch",
+    "tests",
+    "runtime_trace",
+    "agentic_coding",
+}
 MANDATORY_REVIEW_LABELS = {"defensive_security", "patch", "tests", "runtime_trace"}
-NOISE_FLAGS = {"navigation_or_boilerplate_noise", "repeated_lines", "heavy_boilerplate_noise"}
+NOISE_FLAGS = {
+    "navigation_or_boilerplate_noise",
+    "repeated_lines",
+    "heavy_boilerplate_noise",
+}
 
 
 class TrainingDataGateConfig(StrictModel):
@@ -82,7 +92,10 @@ def _load_reputation(path: str | Path | None) -> dict[str, dict[str, Any]]:
     if not source.exists():
         return {}
     payload = json.loads(source.read_text(encoding="utf-8"))
-    return {str(item.get("source") or "unknown"): dict(item) for item in payload.get("sources", [])}
+    return {
+        str(item.get("source") or "unknown"): dict(item)
+        for item in payload.get("sources", [])
+    }
 
 
 def _quality(row: dict[str, Any]) -> dict[str, Any]:
@@ -115,8 +128,12 @@ def _bounded(value: float) -> float:
 
 def has_independent_review(row: dict[str, Any]) -> bool:
     """Return whether two independent reviewers approved, directly or by adjudication."""
-    review = row.get("human_review") if isinstance(row.get("human_review"), dict) else {}
-    decisions = review.get("decisions") if isinstance(review.get("decisions"), list) else []
+    review = (
+        row.get("human_review") if isinstance(row.get("human_review"), dict) else {}
+    )
+    decisions = (
+        review.get("decisions") if isinstance(review.get("decisions"), list) else []
+    )
     reviewer_ids = {
         str(item.get("reviewer_id"))
         for item in decisions
@@ -131,7 +148,11 @@ def has_independent_review(row: dict[str, Any]) -> bool:
         return False
     if set(values) == {"approve"}:
         return True
-    adjudication = review.get("adjudication") if isinstance(review.get("adjudication"), dict) else {}
+    adjudication = (
+        review.get("adjudication")
+        if isinstance(review.get("adjudication"), dict)
+        else {}
+    )
     return (
         len(set(values)) > 1
         and adjudication.get("decision") == "approve"
@@ -139,22 +160,35 @@ def has_independent_review(row: dict[str, Any]) -> bool:
     )
 
 
-def _deterministic_sample(content_hash: str, fraction: float, seed: int, stratum: str) -> bool:
+def _deterministic_sample(
+    content_hash: str, fraction: float, seed: int, stratum: str
+) -> bool:
     if fraction <= 0:
         return False
-    value = int(stable_hash(f"{seed}:{stratum}:{content_hash}")[:16], 16) / float(1 << 64)
+    value = int(stable_hash(f"{seed}:{stratum}:{content_hash}")[:16], 16) / float(
+        1 << 64
+    )
     return value < fraction
 
 
-def score_row(row: dict[str, Any], *, reputation_by_source: dict[str, dict[str, Any]], config: TrainingDataGateConfig) -> GateDecision:
+def score_row(
+    row: dict[str, Any],
+    *,
+    reputation_by_source: dict[str, dict[str, Any]],
+    config: TrainingDataGateConfig,
+) -> GateDecision:
     quality = _quality(row)
     source = str(row.get("source") or "unknown")
     text = _text(row)
-    digest = str(row.get("content_hash") or quality.get("content_hash") or stable_hash(text))
+    digest = str(
+        row.get("content_hash") or quality.get("content_hash") or stable_hash(text)
+    )
     quality_score = _bounded(float(quality.get("quality_score", 0.0)))
     source_evidence = reputation_by_source.get(source, {})
     reputation = _bounded(float(source_evidence.get("reputation_score", 0.5)))
-    reputation_lower_bound = _bounded(float(source_evidence.get("reputation_lower_bound", 0.0)))
+    reputation_lower_bound = _bounded(
+        float(source_evidence.get("reputation_lower_bound", 0.0))
+    )
     source_action = str(source_evidence.get("action") or "unknown")
     source_approval = str(source_evidence.get("approval_status") or "pending")
     source_license_trust = _bounded(float(source_evidence.get("license_trust", 0.0)))
@@ -162,7 +196,9 @@ def score_row(row: dict[str, Any], *, reputation_by_source: dict[str, dict[str, 
     labels = {str(item) for item in quality.get("labels", [])}
     risk_flags = {str(item) for item in quality.get("risk_flags", [])}
     priorities = _priority_labels(quality)
-    mandatory_review = data_type in PATCH_DATA_TYPES | SECURITY_DATA_TYPES or bool(labels & MANDATORY_REVIEW_LABELS)
+    mandatory_review = data_type in PATCH_DATA_TYPES | SECURITY_DATA_TYPES or bool(
+        labels & MANDATORY_REVIEW_LABELS
+    )
     reasons: list[str] = []
 
     if quality_score < config.min_quality_score:
@@ -178,14 +214,25 @@ def score_row(row: dict[str, Any], *, reputation_by_source: dict[str, dict[str, 
         )
         if source_action not in {"promote", "watch"} and not quarantine_allowed:
             reasons.append(f"source_governance_action:{source_action}")
-        if reputation_lower_bound < config.min_reputation_lower_bound and not quarantine_allowed:
+        if (
+            reputation_lower_bound < config.min_reputation_lower_bound
+            and not quarantine_allowed
+        ):
             reasons.append("source_reputation_lower_bound_below_threshold")
-    if config.reject_noise_flags and risk_flags.intersection(NOISE_FLAGS) and quality_score < config.high_value_review_threshold:
+    if (
+        config.reject_noise_flags
+        and risk_flags.intersection(NOISE_FLAGS)
+        and quality_score < config.high_value_review_threshold
+    ):
         reasons.append("boilerplate_or_low_signal_noise")
     if not text.strip():
         reasons.append("empty_text")
 
-    score = (0.70 * quality_score) + (0.20 * reputation) + (0.10 * min(1.0, len(priorities) / 3.0))
+    score = (
+        (0.70 * quality_score)
+        + (0.20 * reputation)
+        + (0.10 * min(1.0, len(priorities) / 3.0))
+    )
     if data_type in PATCH_DATA_TYPES or "patch" in labels:
         score += config.patch_priority_bonus
     if data_type in SECURITY_DATA_TYPES or "defensive_security" in labels:
@@ -195,7 +242,9 @@ def score_row(row: dict[str, Any], *, reputation_by_source: dict[str, dict[str, 
     score = _bounded(score)
 
     if reasons:
-        high_value_uncertain = score >= config.min_review_queue_score and bool(priorities)
+        high_value_uncertain = score >= config.min_review_queue_score and bool(
+            priorities
+        )
         status = "review_queue" if high_value_uncertain else "rejected"
     elif (
         (config.require_high_value_review or config.require_governed_sources)
@@ -264,9 +313,16 @@ def apply_training_data_gate(
         for path in input_paths:
             for row in iter_jsonl(path):
                 scanned += 1
-                decision = score_row(row, reputation_by_source=reputation_by_source, config=active_config)
+                decision = score_row(
+                    row, reputation_by_source=reputation_by_source, config=active_config
+                )
                 if decision.content_hash in seen:
-                    decision = decision.model_copy(update={"status": "rejected", "reasons": [*decision.reasons, "duplicate_after_gate"]})
+                    decision = decision.model_copy(
+                        update={
+                            "status": "rejected",
+                            "reasons": [*decision.reasons, "duplicate_after_gate"],
+                        }
+                    )
                 seen.add(decision.content_hash)
                 _inc(by_status, decision.status)
                 _inc(by_source, decision.source)
@@ -277,20 +333,34 @@ def apply_training_data_gate(
                 row = dict(row)
                 row["content_hash"] = decision.content_hash
                 row["training_gate"] = decision.model_dump()
-                decisions_handle.write(json.dumps(decision.model_dump(), ensure_ascii=False, sort_keys=True) + "\n")
+                decisions_handle.write(
+                    json.dumps(
+                        decision.model_dump(), ensure_ascii=False, sort_keys=True
+                    )
+                    + "\n"
+                )
                 if decision.status == "promoted":
-                    if active_config.eval_holdout_fraction > 0 and rng.random() < active_config.eval_holdout_fraction:
+                    if (
+                        active_config.eval_holdout_fraction > 0
+                        and rng.random() < active_config.eval_holdout_fraction
+                    ):
                         row["train_policy"] = "eval_holdout"
-                        holdout_handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+                        holdout_handle.write(
+                            json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n"
+                        )
                         holdout += 1
                     else:
                         row["train_policy"] = "train"
-                        promoted_handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+                        promoted_handle.write(
+                            json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n"
+                        )
                         promoted += 1
                         promoted_scores.append(decision.score)
                 elif decision.status == "review_queue":
                     row["train_policy"] = "human_review_required"
-                    review_handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+                    review_handle.write(
+                        json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n"
+                    )
                     review_queue += 1
                 else:
                     rejected += 1
@@ -310,12 +380,16 @@ def apply_training_data_gate(
         by_reason=dict(sorted(by_reason.items())),
         by_source=dict(sorted(by_source.items())),
         by_data_type=dict(sorted(by_data_type.items())),
-        avg_promoted_score=round(sum(promoted_scores) / max(1, len(promoted_scores)), 6),
+        avg_promoted_score=round(
+            sum(promoted_scores) / max(1, len(promoted_scores)), 6
+        ),
     )
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Promote only high-quality Craftly rows into training.")
+    parser = argparse.ArgumentParser(
+        description="Promote only high-quality Craftly rows into training."
+    )
     parser.add_argument("--input", nargs="+", required=True)
     parser.add_argument("--promoted-out", required=True)
     parser.add_argument("--holdout-out", required=True)
@@ -344,4 +418,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -1,4 +1,4 @@
-﻿"""Dataset quality inspection reports for clean Craftly JSONL shards."""
+"""Dataset quality inspection reports for clean Craftly JSONL shards."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ import argparse
 import json
 import statistics
 from pathlib import Path
-from typing import Any
 
 from pydantic import Field
 
@@ -55,7 +54,9 @@ def inspect_clean_jsonl(paths: list[str | Path]) -> QualityInspectionReport:
             for risk_flag in quality.get("risk_flags", []):
                 _inc(by_risk_flag, str(risk_flag))
             for name, value in dict(quality.get("component_scores") or {}).items():
-                component_totals[str(name)] = component_totals.get(str(name), 0.0) + float(value)
+                component_totals[str(name)] = component_totals.get(
+                    str(name), 0.0
+                ) + float(value)
                 component_counts[str(name)] = component_counts.get(str(name), 0) + 1
             _inc(by_language, quality.get("language_hint"))
             _inc(by_data_type, quality.get("data_type"))
@@ -82,16 +83,22 @@ def inspect_clean_jsonl(paths: list[str | Path]) -> QualityInspectionReport:
     )
 
 
-def write_quality_report(paths: list[str | Path], output_path: str | Path) -> QualityInspectionReport:
+def write_quality_report(
+    paths: list[str | Path], output_path: str | Path
+) -> QualityInspectionReport:
     report = inspect_clean_jsonl(paths)
     target = Path(output_path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+    target.write_text(
+        json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8"
+    )
     return report
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Inspect clean Craftly dataset JSONL shards.")
+    parser = argparse.ArgumentParser(
+        description="Inspect clean Craftly dataset JSONL shards."
+    )
     parser.add_argument("--input", nargs="+", required=True)
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
@@ -101,4 +108,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

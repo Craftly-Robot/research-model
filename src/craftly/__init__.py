@@ -1,4 +1,4 @@
-﻿"""Final consolidated Craftly architecture package.
+"""Final consolidated Craftly architecture package.
 
 All production code lives under this package.
 """
@@ -18,4 +18,3 @@ __all__ = [
     "model_ops",
     "shared",
 ]
-

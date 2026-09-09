@@ -24,11 +24,14 @@ from urllib.parse import urlparse
 import httpx
 from pydantic import Field
 
-from src.craftly.db.migration_runner import apply_migrations
 from src.craftly.db import PostgresRAGDispatcher, PostgresRAGStore
+from src.craftly.db.migration_runner import apply_migrations
 from src.craftly.identity.quota import RedisQuotaStore
 from src.craftly.indexing.repository_indexer import RAGIndexCoordinator
-from src.craftly.learning.storage import ObjectStoreConfig, verify_object_store_lifecycle
+from src.craftly.learning.storage import (
+    ObjectStoreConfig,
+    verify_object_store_lifecycle,
+)
 from src.craftly.security.audit import run_security_audit
 from src.craftly.shared.config_contracts import load_active_model_contract
 from src.craftly.shared.integrity import canonical_json_bytes, sha256_file
@@ -104,7 +107,9 @@ class ProductionProofReport(StrictModel):
         root = Path(output_dir)
         root.mkdir(parents=True, exist_ok=True)
         path = root / "production_proof_report.json"
-        path.write_text(json.dumps(self.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+        path.write_text(
+            json.dumps(self.model_dump(), indent=2, sort_keys=True), encoding="utf-8"
+        )
         write_markdown(self, root / "production_proof_report.md")
         return path
 
@@ -150,7 +155,8 @@ def config_from_env(args: argparse.Namespace) -> ProductionProofConfig:
         apply_postgres_migrations=args.apply_postgres_migrations,
         redis_url=args.redis_url or _env("CRAFTLY_REDIS_URL"),
         object_store_uri=args.object_store_uri or _env("CRAFTLY_OBJECT_STORE_URI"),
-        object_store_endpoint_url=args.object_store_endpoint_url or _env("CRAFTLY_OBJECT_STORE_ENDPOINT_URL"),
+        object_store_endpoint_url=args.object_store_endpoint_url
+        or _env("CRAFTLY_OBJECT_STORE_ENDPOINT_URL"),
         qdrant_url=args.qdrant_url or _env("CRAFTLY_QDRANT_URL"),
         run_rag_control_plane=args.run_rag_control_plane,
         allowed_insecure_service_hosts=args.allow_insecure_service_host,
@@ -163,10 +169,13 @@ def config_from_env(args: argparse.Namespace) -> ProductionProofConfig:
         load_test_streaming_requests=args.load_test_streaming_requests,
         benchmark_dir=args.benchmark_dir or _env("CRAFTLY_BENCHMARK_DIR"),
         executable_benchmark_report=(
-            args.executable_benchmark_report or _env("CRAFTLY_EXECUTABLE_BENCHMARK_REPORT")
+            args.executable_benchmark_report
+            or _env("CRAFTLY_EXECUTABLE_BENCHMARK_REPORT")
         ),
-        scorecard_report=args.scorecard_report or _env("CRAFTLY_AGENT_SCORECARD_REPORT"),
-        active_model_profile=args.active_model_profile or _env("CRAFTLY_ACTIVE_MODEL_PROFILE_PATH"),
+        scorecard_report=args.scorecard_report
+        or _env("CRAFTLY_AGENT_SCORECARD_REPORT"),
+        active_model_profile=args.active_model_profile
+        or _env("CRAFTLY_ACTIVE_MODEL_PROFILE_PATH"),
         run_security_audit=args.run_security_audit,
         strict_security_tools=args.strict_security_tools,
     )
@@ -175,17 +184,26 @@ def config_from_env(args: argparse.Namespace) -> ProductionProofConfig:
 async def _check_postgres(config: ProductionProofConfig) -> ProofCheckResult:
     started = time.perf_counter()
     if not config.postgres_url:
-        return _missing("postgres_migrations", config.strict, started, "CRAFTLY_DATABASE_URL or --postgres-url is required")
+        return _missing(
+            "postgres_migrations",
+            config.strict,
+            started,
+            "CRAFTLY_DATABASE_URL or --postgres-url is required",
+        )
     if config.strict and not config.apply_postgres_migrations:
         return _result(
             "postgres_migrations",
             "failed",
             True,
             started,
-            {"reason": "strict proof requires --apply-postgres-migrations; a dry-run is not deployment evidence"},
+            {
+                "reason": "strict proof requires --apply-postgres-migrations; a dry-run is not deployment evidence"
+            },
         )
     try:
-        result = await apply_migrations(config.postgres_url, dry_run=not config.apply_postgres_migrations)
+        result = await apply_migrations(
+            config.postgres_url, dry_run=not config.apply_postgres_migrations
+        )
         return _result("postgres_migrations", "passed", True, started, result)
     except Exception as exc:
         return _result("postgres_migrations", "failed", True, started, error=str(exc))
@@ -194,7 +212,12 @@ async def _check_postgres(config: ProductionProofConfig) -> ProofCheckResult:
 async def _check_redis_quota(config: ProductionProofConfig) -> ProofCheckResult:
     started = time.perf_counter()
     if not config.redis_url:
-        return _missing("redis_quota", config.strict, started, "CRAFTLY_REDIS_URL or --redis-url is required")
+        return _missing(
+            "redis_quota",
+            config.strict,
+            started,
+            "CRAFTLY_REDIS_URL or --redis-url is required",
+        )
     try:
         store = RedisQuotaStore(config.redis_url)
         allowed, remaining = await store.consume(
@@ -204,7 +227,13 @@ async def _check_redis_quota(config: ProductionProofConfig) -> ProofCheckResult:
             capacity=5.0,
             cost=1.0,
         )
-        return _result("redis_quota", "passed" if allowed else "failed", True, started, {"allowed": allowed, "remaining": remaining})
+        return _result(
+            "redis_quota",
+            "passed" if allowed else "failed",
+            True,
+            started,
+            {"allowed": allowed, "remaining": remaining},
+        )
     except Exception as exc:
         return _result("redis_quota", "failed", True, started, error=str(exc))
 
@@ -212,22 +241,39 @@ async def _check_redis_quota(config: ProductionProofConfig) -> ProofCheckResult:
 async def _check_object_store(config: ProductionProofConfig) -> ProofCheckResult:
     started = time.perf_counter()
     if not config.object_store_uri:
-        return _missing("object_store_lifecycle", config.strict, started, "CRAFTLY_OBJECT_STORE_URI or --object-store-uri is required")
+        return _missing(
+            "object_store_lifecycle",
+            config.strict,
+            started,
+            "CRAFTLY_OBJECT_STORE_URI or --object-store-uri is required",
+        )
     try:
         report = verify_object_store_lifecycle(
-            config=ObjectStoreConfig(uri=config.object_store_uri, endpoint_url=config.object_store_endpoint_url),
+            config=ObjectStoreConfig(
+                uri=config.object_store_uri,
+                endpoint_url=config.object_store_endpoint_url,
+            ),
             work_dir=Path(config.output_dir) / "object-store",
             key=f"production-proof/{int(time.time())}.json",
         )
-        return _result("object_store_lifecycle", report.status, True, started, report.model_dump())
+        return _result(
+            "object_store_lifecycle", report.status, True, started, report.model_dump()
+        )
     except Exception as exc:
-        return _result("object_store_lifecycle", "failed", True, started, error=str(exc))
+        return _result(
+            "object_store_lifecycle", "failed", True, started, error=str(exc)
+        )
 
 
 async def _check_qdrant(config: ProductionProofConfig) -> ProofCheckResult:
     started = time.perf_counter()
     if not config.qdrant_url:
-        return _missing("qdrant_round_trip", config.strict, started, "CRAFTLY_QDRANT_URL or --qdrant-url is required")
+        return _missing(
+            "qdrant_round_trip",
+            config.strict,
+            started,
+            "CRAFTLY_QDRANT_URL or --qdrant-url is required",
+        )
     collection = f"craftly_proof_{uuid.uuid4().hex}"
     endpoint = ""
     marker = uuid.uuid4().hex
@@ -277,7 +323,10 @@ async def _check_qdrant(config: ProductionProofConfig) -> ProofCheckResult:
                     "with_payload": True,
                     "filter": {
                         "must": [
-                            {"key": "organization_id", "match": {"value": organization_id}},
+                            {
+                                "key": "organization_id",
+                                "match": {"value": organization_id},
+                            },
                             {"key": "project_id", "match": {"value": project_id}},
                         ]
                     },
@@ -292,7 +341,9 @@ async def _check_qdrant(config: ProductionProofConfig) -> ProofCheckResult:
                 and points[0].get("payload", {}).get("proof_marker") == marker
             )
             if not matched:
-                raise RuntimeError("Qdrant query did not return the inserted proof point")
+                raise RuntimeError(
+                    "Qdrant query did not return the inserted proof point"
+                )
             rejected = await client.post(
                 f"{endpoint}/collections/{collection}/points/query",
                 json={
@@ -301,7 +352,10 @@ async def _check_qdrant(config: ProductionProofConfig) -> ProofCheckResult:
                     "with_payload": True,
                     "filter": {
                         "must": [
-                            {"key": "organization_id", "match": {"value": str(uuid.uuid4())}},
+                            {
+                                "key": "organization_id",
+                                "match": {"value": str(uuid.uuid4())},
+                            },
                             {"key": "project_id", "match": {"value": project_id}},
                         ]
                     },
@@ -316,7 +370,9 @@ async def _check_qdrant(config: ProductionProofConfig) -> ProofCheckResult:
         if endpoint and collection_created:
             try:
                 async with httpx.AsyncClient(timeout=10.0) as client:
-                    deleted = await client.delete(f"{endpoint}/collections/{collection}")
+                    deleted = await client.delete(
+                        f"{endpoint}/collections/{collection}"
+                    )
                     if deleted.status_code not in {200, 404}:
                         cleanup_error = (
                             "Qdrant proof collection cleanup returned "
@@ -396,18 +452,28 @@ async def _check_rag_control_plane(config: ProductionProofConfig) -> ProofCheckR
     try:
         assert config.postgres_url and config.redis_url and config.object_store_uri
         if not config.object_store_uri.startswith("s3://"):
-            raise RuntimeError("RAG control-plane proof requires S3/MinIO snapshot storage")
-        os.environ["CRAFTLY_RAG_OBJECT_STORE_URI"] = config.object_store_uri.rstrip("/") + "/rag-proof-snapshots"
+            raise RuntimeError(
+                "RAG control-plane proof requires S3/MinIO snapshot storage"
+            )
+        os.environ["CRAFTLY_RAG_OBJECT_STORE_URI"] = (
+            config.object_store_uri.rstrip("/") + "/rag-proof-snapshots"
+        )
         if config.object_store_endpoint_url:
-            os.environ["CRAFTLY_OBJECT_STORE_ENDPOINT_URL"] = config.object_store_endpoint_url
+            os.environ["CRAFTLY_OBJECT_STORE_ENDPOINT_URL"] = (
+                config.object_store_endpoint_url
+            )
         with tempfile.TemporaryDirectory(prefix="craftly-rag-proof-") as temporary:
             repository = Path(temporary)
             (repository / "lib.rs").write_text(
                 "fn helper(v: i32) -> i32 { v + 1 }\nfn run() -> i32 { helper(4) }\n",
                 encoding="utf-8",
             )
-            store = PostgresRAGStore(config.postgres_url, organization_id=organization_id, max_pool_size=4)
-            store.ensure_organization(organization_id, name="Craftly RAG lifecycle proof")
+            store = PostgresRAGStore(
+                config.postgres_url, organization_id=organization_id, max_pool_size=4
+            )
+            store.ensure_organization(
+                organization_id, name="Craftly RAG lifecycle proof"
+            )
             project = store.create_project(
                 name="rag-lifecycle-proof",
                 repo_path=str(repository),
@@ -424,7 +490,9 @@ async def _check_rag_control_plane(config: ProductionProofConfig) -> ProofCheckR
                 raise RuntimeError("RAG proof did not initialize Redis control")
             await coordinator.redis.healthcheck()
             wake_task = asyncio.create_task(
-                coordinator.redis.wait_for_work(coordinator.worker_id, timeout_seconds=5.0)
+                coordinator.redis.wait_for_work(
+                    coordinator.worker_id, timeout_seconds=5.0
+                )
             )
             await asyncio.sleep(0.05)
             idempotency_key = f"rag-proof-{uuid.uuid4().hex}"
@@ -450,13 +518,17 @@ async def _check_rag_control_plane(config: ProductionProofConfig) -> ProofCheckR
                 lease_seconds=120,
             )
             if claimed is None or claimed["id"] != first["id"]:
-                raise RuntimeError("global RAG dispatcher did not claim the submitted job")
+                raise RuntimeError(
+                    "global RAG dispatcher did not claim the submitted job"
+                )
             completed = await coordinator.execute_claimed_index_job(claimed)
             if not completed or completed.get("status") != "succeeded":
                 raise RuntimeError(f"RAG index job did not succeed: {completed}")
             index_status = store.index_status(str(project["id"]))
             if int(index_status["chunk_count"]) < 2:
-                raise RuntimeError("RAG index did not persist expected Tree-sitter chunks")
+                raise RuntimeError(
+                    "RAG index did not persist expected Tree-sitter chunks"
+                )
             event = await asyncio.to_thread(
                 dispatcher.claim_outbox,
                 worker_id=coordinator.worker_id,
@@ -578,17 +650,26 @@ async def _check_rag_control_plane(config: ProductionProofConfig) -> ProofCheckR
 async def _check_serving_health(config: ProductionProofConfig) -> ProofCheckResult:
     started = time.perf_counter()
     if not config.serving_url:
-        return _missing("native_serving_health", config.strict, started, "CRAFTLY_SERVING_URL or --serving-url is required")
+        return _missing(
+            "native_serving_health",
+            config.strict,
+            started,
+            "CRAFTLY_SERVING_URL or --serving-url is required",
+        )
     try:
         if config.strict and not config.serving_api_key:
-            raise RuntimeError("strict serving proof requires an authenticated service token")
+            raise RuntimeError(
+                "strict serving proof requires an authenticated service token"
+            )
         endpoint = _validated_service_url(
             config.serving_url,
             label="serving",
             allowed_insecure_hosts=config.allowed_insecure_service_hosts,
         )
         if config.strict and urlparse(endpoint).path not in {"", "/"}:
-            raise RuntimeError("strict serving proof URL must identify the service root")
+            raise RuntimeError(
+                "strict serving proof URL must identify the service root"
+            )
         headers = _auth_headers(config)
         async with httpx.AsyncClient(timeout=10.0) as client:
             ready = await client.get(f"{endpoint}/health/ready", headers=headers)
@@ -602,10 +683,20 @@ async def _check_serving_health(config: ProductionProofConfig) -> ProofCheckResu
             for item in model_payload.get("data", [])
             if isinstance(item, dict)
         }
-        if readiness.get("status") != "ready" or readiness.get("scratch_only") is not True:
-            raise RuntimeError("serving readiness does not prove a loaded scratch checkpoint")
-        if readiness.get("model_name") != config.serving_model or config.serving_model not in model_ids:
-            raise RuntimeError("serving model identity does not match the requested Craftly model")
+        if (
+            readiness.get("status") != "ready"
+            or readiness.get("scratch_only") is not True
+        ):
+            raise RuntimeError(
+                "serving readiness does not prove a loaded scratch checkpoint"
+            )
+        if (
+            readiness.get("model_name") != config.serving_model
+            or config.serving_model not in model_ids
+        ):
+            raise RuntimeError(
+                "serving model identity does not match the requested Craftly model"
+            )
         checkpoint_manifest = str(readiness.get("checkpoint_manifest") or "")
         if not checkpoint_manifest:
             raise RuntimeError("serving readiness is missing checkpoint identity")
@@ -614,20 +705,25 @@ async def _check_serving_health(config: ProductionProofConfig) -> ProofCheckResu
                 raise RuntimeError(f"serving readiness is missing {key}")
         if config.strict:
             if not config.active_model_profile:
-                raise RuntimeError("strict serving proof requires --active-model-profile")
+                raise RuntimeError(
+                    "strict serving proof requires --active-model-profile"
+                )
             active = load_active_model_contract(
                 Path(config.active_model_profile).expanduser().resolve(strict=True)
             )
             expected_endpoint = f"{endpoint.rstrip('/')}/v1"
             if active.profile.endpoint.rstrip("/") != expected_endpoint:
-                raise RuntimeError("active model profile endpoint does not match the live service")
-            if (
-                readiness["checkpoint_manifest_sha256"]
-                != active.profile.evidence.get("checkpoint_manifest_sha256")
-                or readiness["tokenizer_sha256"]
-                != active.profile.evidence.get("tokenizer_sha256")
+                raise RuntimeError(
+                    "active model profile endpoint does not match the live service"
+                )
+            if readiness["checkpoint_manifest_sha256"] != active.profile.evidence.get(
+                "checkpoint_manifest_sha256"
+            ) or readiness["tokenizer_sha256"] != active.profile.evidence.get(
+                "tokenizer_sha256"
             ):
-                raise RuntimeError("live serving hashes do not match the active model profile")
+                raise RuntimeError(
+                    "live serving hashes do not match the active model profile"
+                )
         return _result(
             "native_serving_health",
             "passed",
@@ -649,9 +745,20 @@ async def _check_serving_health(config: ProductionProofConfig) -> ProofCheckResu
 async def _check_serving_load(config: ProductionProofConfig) -> ProofCheckResult:
     started = time.perf_counter()
     if not config.serving_url:
-        return _missing("native_serving_load", config.strict, started, "CRAFTLY_SERVING_URL or --serving-url is required")
+        return _missing(
+            "native_serving_load",
+            config.strict,
+            started,
+            "CRAFTLY_SERVING_URL or --serving-url is required",
+        )
     if config.load_test_requests <= 0:
-        return _result("native_serving_load", "skipped" if not config.strict else "failed", config.strict, started, {"reason": "--load-test-requests is 0"})
+        return _result(
+            "native_serving_load",
+            "skipped" if not config.strict else "failed",
+            config.strict,
+            started,
+            {"reason": "--load-test-requests is 0"},
+        )
     try:
         endpoint = _validated_service_url(
             config.serving_url,
@@ -671,7 +778,9 @@ async def _check_serving_load(config: ProductionProofConfig) -> ProofCheckResult
             timeout_seconds=config.load_test_timeout_seconds,
             streaming_requests=config.load_test_streaming_requests,
         )
-        return _result("native_serving_load", report.status, True, started, report.model_dump())
+        return _result(
+            "native_serving_load", report.status, True, started, report.model_dump()
+        )
     except Exception as exc:
         return _result("native_serving_load", "failed", True, started, error=str(exc))
 
@@ -700,9 +809,17 @@ def _check_benchmarks(config: ProductionProofConfig) -> ProofCheckResult:
             assert config.executable_benchmark_report
             assert config.scorecard_report
             assert config.active_model_profile
-            evaluation_path = Path(config.executable_benchmark_report).expanduser().resolve(strict=True)
-            scorecard_path = Path(config.scorecard_report).expanduser().resolve(strict=True)
-            profile_path = Path(config.active_model_profile).expanduser().resolve(strict=True)
+            evaluation_path = (
+                Path(config.executable_benchmark_report)
+                .expanduser()
+                .resolve(strict=True)
+            )
+            scorecard_path = (
+                Path(config.scorecard_report).expanduser().resolve(strict=True)
+            )
+            profile_path = (
+                Path(config.active_model_profile).expanduser().resolve(strict=True)
+            )
             evaluation = BenchmarkSuitesReport.model_validate_json(
                 evaluation_path.read_text(encoding="utf-8-sig")
             )
@@ -721,14 +838,18 @@ def _check_benchmarks(config: ProductionProofConfig) -> ProofCheckResult:
                     for suite in evaluation.suites
                 )
             ):
-                raise ValueError("executable benchmark report did not pass every measured suite")
+                raise ValueError(
+                    "executable benchmark report did not pass every measured suite"
+                )
             if (
                 scorecard.status != "passed"
                 or scorecard.policy_mode != "strict"
                 or scorecard.task_count < 50
                 or len(scorecard.tasks) != scorecard.task_count
             ):
-                raise ValueError("repository scorecard is not a passed strict 50-task run")
+                raise ValueError(
+                    "repository scorecard is not a passed strict 50-task run"
+                )
             if active.production_blockers:
                 raise ValueError("active model profile still has production blockers")
             expected = {
@@ -739,10 +860,16 @@ def _check_benchmarks(config: ProductionProofConfig) -> ProofCheckResult:
                 "evaluation_report_sha256": sha256_file(evaluation_path),
                 "scorecard_report_sha256": sha256_file(scorecard_path),
             }
-            if any(not re.fullmatch(r"[0-9a-f]{64}", value) for value in expected.values()):
-                raise ValueError("active model profile contains incomplete evidence hashes")
+            if any(
+                not re.fullmatch(r"[0-9a-f]{64}", value) for value in expected.values()
+            ):
+                raise ValueError(
+                    "active model profile contains incomplete evidence hashes"
+                )
             if active.profile.evidence != expected:
-                raise ValueError("active model profile evidence does not exactly match current artifacts")
+                raise ValueError(
+                    "active model profile evidence does not exactly match current artifacts"
+                )
             if any(
                 scorecard.model_evidence.get(key) != expected[key]
                 for key in (
@@ -751,7 +878,9 @@ def _check_benchmarks(config: ProductionProofConfig) -> ProofCheckResult:
                     "evaluation_report_sha256",
                 )
             ):
-                raise ValueError("scorecard evidence does not match the active checkpoint")
+                raise ValueError(
+                    "scorecard evidence does not match the active checkpoint"
+                )
             if not re.fullmatch(
                 r"[0-9a-f]{64}",
                 scorecard.model_evidence.get("serving_identity_sha256", ""),
@@ -779,10 +908,18 @@ def _check_benchmarks(config: ProductionProofConfig) -> ProofCheckResult:
                 error=str(exc),
             )
     if not config.benchmark_dir:
-        return _missing("benchmark_pack", config.strict, started, "CRAFTLY_BENCHMARK_DIR or --benchmark-dir is required")
+        return _missing(
+            "benchmark_pack",
+            config.strict,
+            started,
+            "CRAFTLY_BENCHMARK_DIR or --benchmark-dir is required",
+        )
     root = Path(config.benchmark_dir)
     try:
-        from src.craftly.evaluation.benchmark_pack import BenchmarkPackConfig, run_benchmark_pack
+        from src.craftly.evaluation.benchmark_pack import (
+            BenchmarkPackConfig,
+            run_benchmark_pack,
+        )
 
         report = run_benchmark_pack(
             BenchmarkPackConfig(
@@ -796,7 +933,9 @@ def _check_benchmarks(config: ProductionProofConfig) -> ProofCheckResult:
             ),
             output_dir=Path(config.output_dir) / "benchmarks",
         )
-        return _result("benchmark_pack", report.status, True, started, report.model_dump())
+        return _result(
+            "benchmark_pack", report.status, True, started, report.model_dump()
+        )
     except Exception as exc:
         return _result("benchmark_pack", "failed", True, started, error=str(exc))
 
@@ -804,13 +943,21 @@ def _check_benchmarks(config: ProductionProofConfig) -> ProofCheckResult:
 def _check_security_audit(config: ProductionProofConfig) -> ProofCheckResult:
     started = time.perf_counter()
     if not config.run_security_audit:
-        return _result("security_audit", "skipped" if not config.strict else "failed", config.strict, started, {"reason": "--run-security-audit not set"})
+        return _result(
+            "security_audit",
+            "skipped" if not config.strict else "failed",
+            config.strict,
+            started,
+            {"reason": "--run-security-audit not set"},
+        )
     try:
         report = run_security_audit(
             output_dir=Path(config.output_dir) / "security-audit",
             strict_external_tools=config.strict_security_tools,
         )
-        return _result("security_audit", report.status, True, started, report.model_dump())
+        return _result(
+            "security_audit", report.status, True, started, report.model_dump()
+        )
     except Exception as exc:
         return _result("security_audit", "failed", True, started, error=str(exc))
 
@@ -828,10 +975,14 @@ async def run_production_proof(config: ProductionProofConfig) -> ProductionProof
         _check_security_audit(config),
     ]
     failed = [item for item in checks if item.status == "failed"]
-    skipped_required = [item for item in checks if item.required and item.status == "skipped"]
+    skipped_required = [
+        item for item in checks if item.required and item.status == "skipped"
+    ]
     recommendations = []
     for item in failed + skipped_required:
-        recommendations.append(f"{item.name}: {item.error or item.details.get('reason') or 'check did not pass'}")
+        recommendations.append(
+            f"{item.name}: {item.error or item.details.get('reason') or 'check did not pass'}"
+        )
     report = ProductionProofReport(
         status="passed" if not failed and not skipped_required else "failed",
         mode="strict" if config.strict else "validation",
@@ -867,7 +1018,11 @@ async def run_native_serving_load_test(
     test_started = time.perf_counter()
 
     async def one(client: httpx.AsyncClient, index: int) -> None:
-        nonlocal timeout_count, streaming_passed, content_validation_failures, response_bytes
+        nonlocal \
+            timeout_count, \
+            streaming_passed, \
+            content_validation_failures, \
+            response_bytes
         async with semaphore:
             started = time.perf_counter()
             try:
@@ -892,9 +1047,9 @@ async def run_native_serving_load_test(
                         headers=headers,
                         json=request_payload,
                     ) as response:
-                        status_codes[str(response.status_code)] = status_codes.get(
-                            str(response.status_code), 0
-                        ) + 1
+                        status_codes[str(response.status_code)] = (
+                            status_codes.get(str(response.status_code), 0) + 1
+                        )
                         response.raise_for_status()
                         async for line in response.aiter_lines():
                             response_bytes += len(line.encode("utf-8", "replace"))
@@ -906,7 +1061,9 @@ async def run_native_serving_load_test(
                                 break
                             payload = json.loads(data)
                             if payload.get("model") != model:
-                                raise RuntimeError("streaming response model identity mismatch")
+                                raise RuntimeError(
+                                    "streaming response model identity mismatch"
+                                )
                             choices = payload.get("choices") or []
                             if choices:
                                 content = choices[0].get("delta", {}).get("content")
@@ -914,7 +1071,9 @@ async def run_native_serving_load_test(
                                     content_parts.append(str(content))
                     if not done or not "".join(content_parts).strip():
                         content_validation_failures += 1
-                        raise RuntimeError("streaming response did not contain content and [DONE]")
+                        raise RuntimeError(
+                            "streaming response did not contain content and [DONE]"
+                        )
                     streaming_passed += 1
                 else:
                     response = await client.post(
@@ -922,9 +1081,9 @@ async def run_native_serving_load_test(
                         headers=headers,
                         json=request_payload,
                     )
-                    status_codes[str(response.status_code)] = status_codes.get(
-                        str(response.status_code), 0
-                    ) + 1
+                    status_codes[str(response.status_code)] = (
+                        status_codes.get(str(response.status_code), 0) + 1
+                    )
                     response.raise_for_status()
                     payload = response.json()
                     raw_content = getattr(response, "content", None)
@@ -945,7 +1104,9 @@ async def run_native_serving_load_test(
                         or payload.get("craftly", {}).get("scratch_only") is not True
                     ):
                         content_validation_failures += 1
-                        raise RuntimeError("non-streaming response failed model/content/scratch validation")
+                        raise RuntimeError(
+                            "non-streaming response failed model/content/scratch validation"
+                        )
                 latencies.append((time.perf_counter() - started) * 1000)
             except httpx.TimeoutException as exc:
                 timeout_count += 1
@@ -964,8 +1125,20 @@ async def run_native_serving_load_test(
     passed = len(latencies)
     sorted_latencies = sorted(latencies)
     p50 = statistics.median(sorted_latencies) if sorted_latencies else 0.0
-    p95 = sorted_latencies[min(len(sorted_latencies) - 1, int(len(sorted_latencies) * 0.95))] if sorted_latencies else 0.0
-    p99 = sorted_latencies[min(len(sorted_latencies) - 1, int(len(sorted_latencies) * 0.99))] if sorted_latencies else 0.0
+    p95 = (
+        sorted_latencies[
+            min(len(sorted_latencies) - 1, int(len(sorted_latencies) * 0.95))
+        ]
+        if sorted_latencies
+        else 0.0
+    )
+    p99 = (
+        sorted_latencies[
+            min(len(sorted_latencies) - 1, int(len(sorted_latencies) * 0.99))
+        ]
+        if sorted_latencies
+        else 0.0
+    )
     status = (
         "passed"
         if passed == requests
@@ -1006,7 +1179,9 @@ def _auth_headers_value(api_key: str | None) -> dict[str, str]:
 
 
 def _missing(name: str, strict: bool, started: float, reason: str) -> ProofCheckResult:
-    return _result(name, "failed" if strict else "skipped", strict, started, {"reason": reason})
+    return _result(
+        name, "failed" if strict else "skipped", strict, started, {"reason": reason}
+    )
 
 
 def _result(
@@ -1041,7 +1216,9 @@ def write_markdown(report: ProductionProofReport, path: str | Path) -> Path:
     ]
     for check in report.checks:
         detail = check.error or check.details.get("reason") or ""
-        lines.append(f"| {check.name} | {check.status} | {str(check.required).lower()} | {check.duration_ms:.3f} | {detail} |")
+        lines.append(
+            f"| {check.name} | {check.status} | {str(check.required).lower()} | {check.duration_ms:.3f} | {detail} |"
+        )
     if report.recommendations:
         lines.extend(["", "## Recommendations", ""])
         for item in report.recommendations:
@@ -1051,7 +1228,9 @@ def write_markdown(report: ProductionProofReport, path: str | Path) -> Path:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run live Craftly production proof checks.")
+    parser = argparse.ArgumentParser(
+        description="Run live Craftly production proof checks."
+    )
     parser.add_argument("--strict", action="store_true")
     parser.add_argument("--output-dir", default="artifacts/craftly/production-proof")
     parser.add_argument("--postgres-url")

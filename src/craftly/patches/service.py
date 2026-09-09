@@ -1,4 +1,4 @@
-﻿"""Native MVP patch preview/apply/rollback service."""
+"""Native MVP patch preview/apply/rollback service."""
 
 from __future__ import annotations
 
@@ -89,7 +89,11 @@ class PatchService:
         backup: dict[str, Any] = {"files": {}}
         for edit in request.edits:
             target = resolve_inside(root, edit.path)
-            before = target.read_text(encoding="utf-8", errors="replace") if target.exists() else ""
+            before = (
+                target.read_text(encoding="utf-8", errors="replace")
+                if target.exists()
+                else ""
+            )
             backup["files"][edit.path] = {
                 "existed": target.exists(),
                 "content": before,
@@ -112,7 +116,9 @@ class PatchService:
         if record["status"] == "applied":
             return self.response_from_record(record)
         if record["status"] != "preview":
-            raise ValueError(f"patch {patch_id} cannot be applied from status {record['status']}")
+            raise ValueError(
+                f"patch {patch_id} cannot be applied from status {record['status']}"
+            )
         root = project_root(self.store, record["project_id"])
         written: list[Path] = []
         try:
@@ -133,7 +139,9 @@ class PatchService:
         if record["status"] == "rolled_back":
             return self.response_from_record(record)
         if record["status"] not in {"preview", "applied"}:
-            raise ValueError(f"patch {patch_id} cannot be rolled back from status {record['status']}")
+            raise ValueError(
+                f"patch {patch_id} cannot be rolled back from status {record['status']}"
+            )
         # A preview has never mutated the workspace. Rejecting one must not
         # replace files or change their timestamps and permissions.
         if record["status"] == "applied":
@@ -253,4 +261,3 @@ class PatchService:
                 lineterm="",
             )
         )
-

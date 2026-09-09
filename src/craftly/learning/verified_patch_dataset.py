@@ -1,4 +1,4 @@
-﻿"""Build verified defensive security patch datasets from approved Git history."""
+"""Build verified defensive security patch datasets from approved Git history."""
 
 from __future__ import annotations
 
@@ -16,7 +16,6 @@ from pydantic import Field
 from src.craftly.learning.quality import stable_hash
 from src.craftly.learning.repo_patch_extraction import SECURITY_PATCH_TERMS
 from src.craftly.shared.schemas import StrictModel
-
 
 DEFAULT_ALLOWED_LICENSES = {
     "apache-2.0",
@@ -61,7 +60,14 @@ class VerifiedPatchDatasetReport(StrictModel):
     created_at_unix: float = Field(default_factory=time.time)
 
 
-def run_git(repo: Path, args: list[str], *, input_text: str | None = None, timeout: int = 30, max_bytes: int = 4_000_000) -> subprocess.CompletedProcess[str]:
+def run_git(
+    repo: Path,
+    args: list[str],
+    *,
+    input_text: str | None = None,
+    timeout: int = 30,
+    max_bytes: int = 4_000_000,
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["git", "-C", str(repo), *args],
         input=input_text,
@@ -74,7 +80,9 @@ def run_git(repo: Path, args: list[str], *, input_text: str | None = None, timeo
     )
 
 
-def _must_git(repo: Path, args: list[str], *, timeout: int = 30, max_bytes: int = 4_000_000) -> str:
+def _must_git(
+    repo: Path, args: list[str], *, timeout: int = 30, max_bytes: int = 4_000_000
+) -> str:
     result = run_git(repo, args, timeout=timeout)
     if result.returncode != 0:
         raise RuntimeError(f"git {' '.join(args)} failed: {result.stderr[:500]}")
@@ -102,7 +110,9 @@ def security_categories(text: str) -> list[str]:
 
 def looks_security_relevant(text: str) -> bool:
     lowered = text.lower()
-    return any(term in lowered for term in SECURITY_PATCH_TERMS) or bool(security_categories(text))
+    return any(term in lowered for term in SECURITY_PATCH_TERMS) or bool(
+        security_categories(text)
+    )
 
 
 def changed_files(repo: Path, parent: str, commit: str) -> list[str]:
@@ -130,11 +140,24 @@ def verify_patch_applies(repo: Path, parent: str, patch: str) -> dict[str, Any]:
             check=False,
         )
         if clone.returncode != 0:
-            return {"status": "failed", "method": "git_clone", "stderr": clone.stderr[:1000]}
+            return {
+                "status": "failed",
+                "method": "git_clone",
+                "stderr": clone.stderr[:1000],
+            }
         checkout = run_git(worktree, ["checkout", "--quiet", parent], timeout=30)
         if checkout.returncode != 0:
-            return {"status": "failed", "method": "git_checkout_parent", "stderr": checkout.stderr[:1000]}
-        check = run_git(worktree, ["apply", "--check", "--whitespace=nowarn", "-"], input_text=patch, timeout=30)
+            return {
+                "status": "failed",
+                "method": "git_checkout_parent",
+                "stderr": checkout.stderr[:1000],
+            }
+        check = run_git(
+            worktree,
+            ["apply", "--check", "--whitespace=nowarn", "-"],
+            input_text=patch,
+            timeout=30,
+        )
         return {
             "status": "passed" if check.returncode == 0 else "failed",
             "method": "git_apply_check_on_parent",
@@ -143,7 +166,9 @@ def verify_patch_applies(repo: Path, parent: str, patch: str) -> dict[str, Any]:
         }
 
 
-def build_prompt(*, subject: str, files: list[str], before_after: dict[str, dict[str, str]]) -> str:
+def build_prompt(
+    *, subject: str, files: list[str], before_after: dict[str, dict[str, str]]
+) -> str:
     context_parts = [
         "You are given an approved defensive security-fix commit from a permissive-license repository.",
         "Task: identify the vulnerability class, explain the safe fix, and produce a patch-shaped remediation answer.",
@@ -152,7 +177,9 @@ def build_prompt(*, subject: str, files: list[str], before_after: dict[str, dict
         f"Files changed: {', '.join(files[:20])}",
     ]
     for path, versions in list(before_after.items())[:3]:
-        context_parts.append(f"\n<file path=\"{path}\" before>\n{versions.get('before', '')[:4000]}\n</file>")
+        context_parts.append(
+            f'\n<file path="{path}" before>\n{versions.get("before", "")[:4000]}\n</file>'
+        )
     return "\n".join(context_parts)
 
 
@@ -204,15 +231,30 @@ def build_verified_patch_dataset(
             scanned_repos += 1
             if not (repo / ".git").exists():
                 raise ValueError(f"not a git repository: {repo}")
-            for commit, subject in iter_security_commits(repo, max_commits=max_commits_per_repo):
+            for commit, subject in iter_security_commits(
+                repo, max_commits=max_commits_per_repo
+            ):
                 scanned_commits += 1
                 parent_result = run_git(repo, ["rev-parse", f"{commit}^"], timeout=20)
                 if parent_result.returncode != 0:
                     skipped += 1
                     continue
                 parent = parent_result.stdout.strip()
-                patch = _must_git(repo, ["show", "--format=", "--patch", "--find-renames", "--binary", commit], max_bytes=max_patch_chars)
-                if not patch.strip() or not looks_security_relevant(subject + "\n" + patch):
+                patch = _must_git(
+                    repo,
+                    [
+                        "show",
+                        "--format=",
+                        "--patch",
+                        "--find-renames",
+                        "--binary",
+                        commit,
+                    ],
+                    max_bytes=max_patch_chars,
+                )
+                if not patch.strip() or not looks_security_relevant(
+                    subject + "\n" + patch
+                ):
                     skipped += 1
                     continue
                 verification = verify_patch_applies(repo, parent, patch)
@@ -245,14 +287,19 @@ def build_verified_patch_dataset(
                     subject=subject,
                     files_changed=files,
                     vulnerability_categories=categories,
-                    prompt=build_prompt(subject=subject, files=files, before_after=before_after),
+                    prompt=build_prompt(
+                        subject=subject, files=files, before_after=before_after
+                    ),
                     chosen=build_chosen(categories=categories, patch=patch),
                     patch=patch,
                     before_after=before_after,
                     verification=verification,
                     content_hash=digest,
                 )
-                handle.write(json.dumps(record.model_dump(), ensure_ascii=False, sort_keys=True) + "\n")
+                handle.write(
+                    json.dumps(record.model_dump(), ensure_ascii=False, sort_keys=True)
+                    + "\n"
+                )
                 extracted += 1
     return VerifiedPatchDatasetReport(
         output_path=str(target),
@@ -266,8 +313,15 @@ def build_verified_patch_dataset(
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build verified defensive security patch JSONL from approved Git repos.")
-    parser.add_argument("--repo", action="append", required=True, help="Approved local Git repository path. Repeatable.")
+    parser = argparse.ArgumentParser(
+        description="Build verified defensive security patch JSONL from approved Git repos."
+    )
+    parser.add_argument(
+        "--repo",
+        action="append",
+        required=True,
+        help="Approved local Git repository path. Repeatable.",
+    )
     parser.add_argument("--output", required=True)
     parser.add_argument("--license", required=True)
     parser.add_argument("--max-commits-per-repo", type=int, default=500)
@@ -285,10 +339,11 @@ def main() -> None:
         max_patch_chars=args.max_patch_chars,
     )
     report_path = Path(args.output).with_suffix(".report.json")
-    report_path.write_text(json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+    report_path.write_text(
+        json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8"
+    )
     print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":
     main()
-

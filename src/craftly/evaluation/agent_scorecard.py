@@ -33,7 +33,9 @@ from src.craftly.shared.schemas import StrictModel
 
 
 class RepositoryAgentTask(StrictModel):
-    task_id: str = Field(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+    task_id: str = Field(
+        min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    )
     repository: str = Field(min_length=1, max_length=4096)
     prompt: str = Field(min_length=1, max_length=32_000)
     category: Literal["coding", "debugging", "security", "patch", "long_context"]
@@ -158,7 +160,9 @@ class AgentScorecardRunner:
         if self.policy_mode == "strict" and backend.name == "mock":
             if owns_backend:
                 await backend.aclose()
-            raise RuntimeError("strict scorecard requires a non-mock Craftly scratch model backend")
+            raise RuntimeError(
+                "strict scorecard requires a non-mock Craftly scratch model backend"
+            )
         model_evidence = await self._model_evidence(
             backend,
             require_complete=self.policy_mode == "strict",
@@ -220,7 +224,9 @@ class AgentScorecardRunner:
     ) -> AgentTaskScore:
         started = time.perf_counter()
         source_before = self._tree_hash(source)
-        with tempfile.TemporaryDirectory(prefix=f"craftly-score-{task.task_id[:24]}-") as temporary:
+        with tempfile.TemporaryDirectory(
+            prefix=f"craftly-score-{task.task_id[:24]}-"
+        ) as temporary:
             worktree = Path(temporary) / "repository"
             await asyncio.to_thread(stage_repository_copy, source, worktree)
             before = self._file_hashes(worktree)
@@ -252,7 +258,8 @@ class AgentScorecardRunner:
                 task_output.mkdir(parents=True, exist_ok=True)
                 self._atomic_text(
                     task_output / "execution_report.json",
-                    json.dumps(report.model_dump(mode="json"), indent=2, sort_keys=True) + "\n",
+                    json.dumps(report.model_dump(mode="json"), indent=2, sort_keys=True)
+                    + "\n",
                 )
                 after = self._file_hashes(worktree)
                 changed = {
@@ -261,8 +268,12 @@ class AgentScorecardRunner:
                     if before.get(path) != after.get(path)
                 }
                 expected_files = set(task.expected_changed_files)
-                expected_files_changed = not expected_files or expected_files.issubset(changed)
-                content_passed, assertion_errors = self._content_assertions(task, worktree)
+                expected_files_changed = not expected_files or expected_files.issubset(
+                    changed
+                )
+                content_passed, assertion_errors = self._content_assertions(
+                    task, worktree
+                )
                 final_attempt = report.attempts[-1] if report.attempts else None
                 tests_passed = bool(final_attempt and final_attempt.test_passed)
                 security_passed = bool(final_attempt and final_attempt.security_passed)
@@ -281,7 +292,9 @@ class AgentScorecardRunner:
                     tests_passed,
                     security_passed,
                 ]
-                numeric_score = sum(1.0 for value in objective if value) / len(objective)
+                numeric_score = sum(1.0 for value in objective if value) / len(
+                    objective
+                )
                 return AgentTaskScore(
                     task_id=task.task_id,
                     category=task.category,
@@ -317,18 +330,31 @@ class AgentScorecardRunner:
 
         security = [item for item in scores if item.category in {"security", "patch"}]
         short = [item for item in scores if self._task_short(item.task_id)]
-        reliability = rate([item.source_immutable and not item.errors for item in scores])
+        reliability = rate(
+            [item.source_immutable and not item.errors for item in scores]
+        )
         workflow = rate([item.accepted and item.applied for item in scores])
-        security_score = rate([item.security_passed and item.tests_passed for item in security])
+        security_score = rate(
+            [item.security_passed and item.tests_passed for item in security]
+        )
         short_score = rate([item.accepted and item.tests_passed for item in short])
         sandbox_rate = rate([item.tests_passed for item in scores])
         regressions = sum(
             1
             for item in scores
-            if item.accepted and (not item.tests_passed or not item.security_passed or not item.content_assertions_passed)
+            if item.accepted
+            and (
+                not item.tests_passed
+                or not item.security_passed
+                or not item.content_assertions_passed
+            )
         )
-        average_score = sum(item.score for item in scores) / len(scores) if scores else 0.0
-        average_confidence = sum(item.confidence for item in scores) / len(scores) if scores else 0.0
+        average_score = (
+            sum(item.score for item in scores) / len(scores) if scores else 0.0
+        )
+        average_confidence = (
+            sum(item.confidence for item in scores) / len(scores) if scores else 0.0
+        )
         required = 0.80 if self.policy_mode == "strict" else 0.0
         passed = (
             bool(scores)
@@ -366,11 +392,25 @@ class AgentScorecardRunner:
         require_complete: bool,
     ) -> dict[str, str]:
         profile_payload = load_active_profile()
-        profile = profile_payload.get("profile") if isinstance(profile_payload.get("profile"), dict) else {}
-        evidence = dict(profile.get("evidence") or {}) if isinstance(profile, dict) else {}
+        profile = (
+            profile_payload.get("profile")
+            if isinstance(profile_payload.get("profile"), dict)
+            else {}
+        )
+        evidence = (
+            dict(profile.get("evidence") or {}) if isinstance(profile, dict) else {}
+        )
         profile_source = active_profile_path()
-        checkpoint_value = str(profile.get("checkpoint_manifest") or "") if isinstance(profile, dict) else ""
-        tokenizer_value = str(profile.get("tokenizer_path") or "") if isinstance(profile, dict) else ""
+        checkpoint_value = (
+            str(profile.get("checkpoint_manifest") or "")
+            if isinstance(profile, dict)
+            else ""
+        )
+        tokenizer_value = (
+            str(profile.get("tokenizer_path") or "")
+            if isinstance(profile, dict)
+            else ""
+        )
 
         if profile_source.is_file():
             evidence["active_profile_sha256"] = sha256_file(profile_source)
@@ -378,12 +418,16 @@ class AgentScorecardRunner:
             checkpoint = Path(checkpoint_value).expanduser().resolve(strict=True)
             actual_checkpoint_hash = sha256_file(checkpoint)
             if evidence.get("checkpoint_manifest_sha256") != actual_checkpoint_hash:
-                raise RuntimeError("active model profile checkpoint evidence does not match the checkpoint manifest")
+                raise RuntimeError(
+                    "active model profile checkpoint evidence does not match the checkpoint manifest"
+                )
         if tokenizer_value:
             tokenizer = Path(tokenizer_value).expanduser().resolve(strict=True)
             actual_tokenizer_hash = sha256_file(tokenizer)
             if evidence.get("tokenizer_sha256") != actual_tokenizer_hash:
-                raise RuntimeError("active model profile tokenizer evidence does not match the tokenizer")
+                raise RuntimeError(
+                    "active model profile tokenizer evidence does not match the tokenizer"
+                )
 
         if require_complete:
             required = {
@@ -403,16 +447,27 @@ class AgentScorecardRunner:
                     + ", ".join(missing)
                 )
             if backend.name != "craftly_serving":
-                raise RuntimeError("strict scorecard requires the evidence-bound Craftly serving backend")
+                raise RuntimeError(
+                    "strict scorecard requires the evidence-bound Craftly serving backend"
+                )
             identity = await backend.identity()
-            if identity.get("checkpoint_manifest_sha256") != evidence["checkpoint_manifest_sha256"]:
-                raise RuntimeError("serving checkpoint identity does not match the active model profile")
+            if (
+                identity.get("checkpoint_manifest_sha256")
+                != evidence["checkpoint_manifest_sha256"]
+            ):
+                raise RuntimeError(
+                    "serving checkpoint identity does not match the active model profile"
+                )
             if identity.get("tokenizer_sha256") != evidence["tokenizer_sha256"]:
-                raise RuntimeError("serving tokenizer identity does not match the active model profile")
+                raise RuntimeError(
+                    "serving tokenizer identity does not match the active model profile"
+                )
             identity_evidence = {
                 "status": identity.get("status"),
                 "model_name": identity.get("model_name"),
-                "checkpoint_manifest_sha256": identity.get("checkpoint_manifest_sha256"),
+                "checkpoint_manifest_sha256": identity.get(
+                    "checkpoint_manifest_sha256"
+                ),
                 "tokenizer_sha256": identity.get("tokenizer_sha256"),
                 "scratch_only": identity.get("scratch_only"),
             }
@@ -427,51 +482,104 @@ class AgentScorecardRunner:
 
     def _load_tasks(self, path: Path) -> list[RepositoryAgentTask]:
         tasks: list[RepositoryAgentTask] = []
-        for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        for line_number, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), start=1
+        ):
             if not line.strip():
                 continue
             try:
                 tasks.append(RepositoryAgentTask.model_validate_json(line))
             except Exception as exc:
-                raise ValueError(f"invalid scorecard task at {path}:{line_number}: {exc}") from exc
+                raise ValueError(
+                    f"invalid scorecard task at {path}:{line_number}: {exc}"
+                ) from exc
         return tasks
 
     def _validate_suite(self, tasks: list[RepositoryAgentTask]) -> None:
         minimum = 50 if self.policy_mode == "strict" else 1
         if not minimum <= len(tasks) <= 100:
-            raise ValueError(f"{self.policy_mode} scorecard requires {minimum}-100 repository tasks")
+            raise ValueError(
+                f"{self.policy_mode} scorecard requires {minimum}-100 repository tasks"
+            )
         ids = [task.task_id for task in tasks]
         if len(ids) != len(set(ids)):
             raise ValueError("scorecard task IDs must be unique")
         categories = {task.category for task in tasks}
-        if self.policy_mode == "strict" and not {"coding", "debugging", "security", "patch", "long_context"}.issubset(categories):
-            raise ValueError("strict scorecard must cover coding, debugging, security, patch, and long_context")
-        if self.policy_mode == "strict" and any(not task.run_semgrep and not task.run_codeql for task in tasks):
-            raise ValueError("every strict scorecard task must enable Semgrep or CodeQL")
+        if self.policy_mode == "strict" and not {
+            "coding",
+            "debugging",
+            "security",
+            "patch",
+            "long_context",
+        }.issubset(categories):
+            raise ValueError(
+                "strict scorecard must cover coding, debugging, security, patch, and long_context"
+            )
+        if self.policy_mode == "strict" and any(
+            not task.run_semgrep and not task.run_codeql for task in tasks
+        ):
+            raise ValueError(
+                "every strict scorecard task must enable Semgrep or CodeQL"
+            )
         if self.policy_mode == "strict":
-            for category in ["coding", "debugging", "security", "patch", "long_context"]:
+            for category in [
+                "coding",
+                "debugging",
+                "security",
+                "patch",
+                "long_context",
+            ]:
                 if sum(task.category == category for task in tasks) < 10:
-                    raise ValueError(f"strict scorecard requires at least 10 {category} tasks")
+                    raise ValueError(
+                        f"strict scorecard requires at least 10 {category} tasks"
+                    )
             if sum(task.short_prompt for task in tasks) < 10:
-                raise ValueError("strict scorecard requires at least 10 short-prompt tasks")
+                raise ValueError(
+                    "strict scorecard requires at least 10 short-prompt tasks"
+                )
             if any(not task.expected_changed_files for task in tasks):
-                raise ValueError("strict scorecard tasks require expected_changed_files")
-            if any(not task.required_substrings and not task.forbidden_substrings for task in tasks):
-                raise ValueError("strict scorecard tasks require at least one content assertion")
+                raise ValueError(
+                    "strict scorecard tasks require expected_changed_files"
+                )
+            if any(
+                not task.required_substrings and not task.forbidden_substrings
+                for task in tasks
+            ):
+                raise ValueError(
+                    "strict scorecard tasks require at least one content assertion"
+                )
 
     @staticmethod
     def _allowed_roots(default: Path) -> list[Path]:
-        configured = [item for item in os.environ.get("CRAFTLY_SCORECARD_REPO_ROOTS", "").split(os.pathsep) if item]
-        return [Path(item).expanduser().resolve(strict=True) for item in configured] or [default]
+        configured = [
+            item
+            for item in os.environ.get("CRAFTLY_SCORECARD_REPO_ROOTS", "").split(
+                os.pathsep
+            )
+            if item
+        ]
+        return [
+            Path(item).expanduser().resolve(strict=True) for item in configured
+        ] or [default]
 
     @staticmethod
-    def _resolve_repository(value: str, default_root: Path, allowed_roots: list[Path]) -> Path:
+    def _resolve_repository(
+        value: str, default_root: Path, allowed_roots: list[Path]
+    ) -> Path:
         candidate = Path(value).expanduser()
-        candidate = candidate.resolve(strict=True) if candidate.is_absolute() else (default_root / candidate).resolve(strict=True)
+        candidate = (
+            candidate.resolve(strict=True)
+            if candidate.is_absolute()
+            else (default_root / candidate).resolve(strict=True)
+        )
         if not candidate.is_dir():
             raise ValueError(f"scorecard repository is not a directory: {candidate}")
-        if not any(candidate == root or root in candidate.parents for root in allowed_roots):
-            raise ValueError(f"scorecard repository is outside CRAFTLY_SCORECARD_REPO_ROOTS: {candidate}")
+        if not any(
+            candidate == root or root in candidate.parents for root in allowed_roots
+        ):
+            raise ValueError(
+                f"scorecard repository is outside CRAFTLY_SCORECARD_REPO_ROOTS: {candidate}"
+            )
         return candidate
 
     @staticmethod
@@ -494,7 +602,9 @@ class AgentScorecardRunner:
         return digest.hexdigest()
 
     @staticmethod
-    def _content_assertions(task: RepositoryAgentTask, root: Path) -> tuple[bool, list[str]]:
+    def _content_assertions(
+        task: RepositoryAgentTask, root: Path
+    ) -> tuple[bool, list[str]]:
         errors: list[str] = []
         for relative, required in task.required_substrings.items():
             path = root / relative
@@ -504,7 +614,9 @@ class AgentScorecardRunner:
             content = path.read_text(encoding="utf-8", errors="replace")
             for value in required:
                 if value not in content:
-                    errors.append(f"{relative} is missing required content: {value[:120]}")
+                    errors.append(
+                        f"{relative} is missing required content: {value[:120]}"
+                    )
         for relative, forbidden in task.forbidden_substrings.items():
             path = root / relative
             if not path.is_file():
@@ -512,7 +624,9 @@ class AgentScorecardRunner:
             content = path.read_text(encoding="utf-8", errors="replace")
             for value in forbidden:
                 if value in content:
-                    errors.append(f"{relative} contains forbidden content: {value[:120]}")
+                    errors.append(
+                        f"{relative} contains forbidden content: {value[:120]}"
+                    )
         return not errors, errors
 
     def _task_short(self, task_id: str) -> bool:
@@ -529,7 +643,10 @@ class AgentScorecardRunner:
 
     def _write_reports(self, output_dir: Path, report: AgentScorecardReport) -> None:
         payload = report.model_dump(mode="json")
-        self._atomic_text(output_dir / "agent_scorecard.json", json.dumps(payload, indent=2, sort_keys=True) + "\n")
+        self._atomic_text(
+            output_dir / "agent_scorecard.json",
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        )
         lines = [
             "# Craftly Repository Agent Scorecard",
             "",
@@ -575,11 +692,15 @@ async def _run_cli(args: argparse.Namespace) -> AgentScorecardReport:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run 50-100 real repository tasks through the Craftly agent")
+    parser = argparse.ArgumentParser(
+        description="Run 50-100 real repository tasks through the Craftly agent"
+    )
     parser.add_argument("--tasks", required=True, help="JSONL repository task suite")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--repository-root")
-    parser.add_argument("--policy-mode", choices=["strict", "development"], default="strict")
+    parser.add_argument(
+        "--policy-mode", choices=["strict", "development"], default="strict"
+    )
     parser.add_argument("--max-revisions", type=int, default=3, choices=range(0, 4))
     parser.add_argument("--confidence-threshold", type=float, default=0.85)
     parser.add_argument("--concurrency", type=int, default=4)

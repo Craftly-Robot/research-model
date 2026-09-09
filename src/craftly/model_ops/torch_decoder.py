@@ -1,4 +1,4 @@
-﻿"""PyTorch Craftly decoder-only language model.
+"""PyTorch Craftly decoder-only language model.
 
 This is the numerical reference implementation for Craftly-owned scratch
 weights. Canonical architecture contracts and profiles live in ``foundation``;
@@ -8,8 +8,8 @@ for parity, checkpoint qualification, and single-node validation.
 
 from __future__ import annotations
 
-import math
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -22,9 +22,9 @@ from src.craftly.model_ops.foundation import (
 
 try:
     import torch
-    import torch.utils.checkpoint
     import torch.nn as nn
     import torch.nn.functional as F
+    import torch.utils.checkpoint
 except ImportError:  # pragma: no cover - exercised only on missing torch installs.
     torch = None  # type: ignore[assignment]
     nn = None  # type: ignore[assignment]
@@ -49,6 +49,7 @@ def require_torch() -> None:
 def select_torch_device(requested: str) -> "torch.device":
     """Resolve a requested PyTorch device with consistent CUDA fail-fast behavior."""
     require_torch()
+    assert torch is not None
     normalized = requested.strip().lower()
     if normalized == "auto":
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -68,12 +69,16 @@ def save_trusted_checkpoint(payload: dict[str, Any], path: str | Path) -> None:
     checkpoints must not be loaded through this path.
     """
     require_torch()
+    assert torch is not None
     torch.save(payload, path)  # nosec B614 # nosemgrep: trailofbits.python.pickles-in-pytorch.pickles-in-pytorch
 
 
-def load_trusted_checkpoint(path: str | Path, *, map_location: Any = "cpu") -> dict[str, Any]:
+def load_trusted_checkpoint(
+    path: str | Path, *, map_location: Any = "cpu"
+) -> dict[str, Any]:
     """Load a Craftly-owned checkpoint with PyTorch's restricted unpickler."""
     require_torch()
+    assert torch is not None
     checkpoint_path = Path(path).resolve()
     if checkpoint_path.suffix != ".pt":
         raise ValueError(f"unsupported checkpoint suffix: {checkpoint_path.suffix}")
@@ -84,34 +89,48 @@ def load_trusted_checkpoint(path: str | Path, *, map_location: Any = "cpu") -> d
         map_location=map_location,
         weights_only=True,
     )
-    if not isinstance(payload, dict) or "model" not in payload or "config" not in payload:
-        raise ValueError("checkpoint payload must contain model and config dictionaries")
+    if (
+        not isinstance(payload, dict)
+        or "model" not in payload
+        or "config" not in payload
+    ):
+        raise ValueError(
+            "checkpoint payload must contain model and config dictionaries"
+        )
     return payload
 
 
-class RMSNorm(nn.Module):  # type: ignore[misc]
+class RMSNorm(nn.Module):  # pyright: ignore[reportOptionalMemberAccess]
     def __init__(self, hidden_size: int, eps: float) -> None:
         require_torch()
+        assert nn is not None
+        assert torch is not None
         super().__init__()
         self.weight = nn.Parameter(torch.ones(hidden_size))
         self.eps = eps
 
     def forward(self, x: "torch.Tensor") -> "torch.Tensor":
+        require_torch()
+        assert torch is not None
         variance = x.float().pow(2).mean(dim=-1, keepdim=True)
         x = x * torch.rsqrt(variance + self.eps)
         return self.weight * x.to(dtype=self.weight.dtype)
 
 
 def rotate_half(x: "torch.Tensor") -> "torch.Tensor":
+    require_torch()
+    assert torch is not None
     left, right = x[..., ::2], x[..., 1::2]
     return torch.stack((-right, left), dim=-1).flatten(-2)
 
 
-def apply_rope(x: "torch.Tensor", cos: "torch.Tensor", sin: "torch.Tensor") -> "torch.Tensor":
+def apply_rope(
+    x: "torch.Tensor", cos: "torch.Tensor", sin: "torch.Tensor"
+) -> "torch.Tensor":
     return (x * cos) + (rotate_half(x) * sin)
 
 
-class RotaryEmbedding(nn.Module):  # type: ignore[misc]
+class RotaryEmbedding(nn.Module):  # pyright: ignore[reportOptionalMemberAccess]
     """RoPE without a sequence-length-sized persistent allocation.
 
     A 1M context profile must not allocate multi-gigabyte cosine/sine tables at
@@ -129,6 +148,7 @@ class RotaryEmbedding(nn.Module):  # type: ignore[misc]
         scaling_factor: float = 1.0,
     ) -> None:
         require_torch()
+        assert torch is not None
         super().__init__()
         inv_freq = 1.0 / (theta ** (torch.arange(0, dim, 2).float() / dim))
         self.register_buffer("inv_freq", inv_freq, persistent=False)
@@ -136,36 +156,52 @@ class RotaryEmbedding(nn.Module):  # type: ignore[misc]
         self.scaling_type = scaling_type
         self.scaling_factor = scaling_factor
 
-    def forward(self, q: "torch.Tensor", k: "torch.Tensor", *, position_offset: int = 0) -> tuple["torch.Tensor", "torch.Tensor"]:
+    def forward(
+        self, q: "torch.Tensor", k: "torch.Tensor", *, position_offset: int = 0
+    ) -> tuple["torch.Tensor", "torch.Tensor"]:
+        require_torch()
+        assert torch is not None
         seq_len = q.size(-2)
         end = position_offset + seq_len
         if end > self.max_position:
-            raise ValueError(f"sequence position {end} exceeds configured context {self.max_position}")
-        positions = torch.arange(position_offset, end, device=q.device, dtype=torch.float32)
+            raise ValueError(
+                f"sequence position {end} exceeds configured context {self.max_position}"
+            )
+        positions = torch.arange(
+            position_offset, end, device=q.device, dtype=torch.float32
+        )
         if self.scaling_type != "none":
             positions = positions / self.scaling_factor
-        freqs = torch.outer(positions, self.inv_freq.to(device=q.device, dtype=torch.float32))
+        freqs = torch.outer(
+            positions, self.inv_freq.to(device=q.device, dtype=torch.float32)
+        )
         emb = torch.cat((freqs, freqs), dim=-1)
         cos = emb.cos()[None, None, :, :].to(dtype=q.dtype)
         sin = emb.sin()[None, None, :, :].to(dtype=q.dtype)
         return apply_rope(q, cos, sin), apply_rope(k, cos, sin)
 
 
-class CausalSelfAttention(nn.Module):  # type: ignore[misc]
+class CausalSelfAttention(nn.Module):  # pyright: ignore[reportOptionalMemberAccess]
     def __init__(self, config: ScratchDecoderConfig) -> None:
         require_torch()
+        assert nn is not None
         super().__init__()
         self.config = config
         self.q_proj = nn.Linear(config.hidden_size, config.hidden_size, bias=False)
-        self.k_proj = nn.Linear(config.hidden_size, config.num_key_value_heads * config.head_dim, bias=False)
-        self.v_proj = nn.Linear(config.hidden_size, config.num_key_value_heads * config.head_dim, bias=False)
+        self.k_proj = nn.Linear(
+            config.hidden_size, config.num_key_value_heads * config.head_dim, bias=False
+        )
+        self.v_proj = nn.Linear(
+            config.hidden_size, config.num_key_value_heads * config.head_dim, bias=False
+        )
         self.o_proj = nn.Linear(config.hidden_size, config.hidden_size, bias=False)
         self.rope = RotaryEmbedding(
             config.head_dim,
             config.max_sequence_length,
             (
                 config.rope_theta * config.rope_scaling_factor
-                if config.rope_scaling_type == "none" and config.rope_scaling_factor > 1.0
+                if config.rope_scaling_type == "none"
+                and config.rope_scaling_factor > 1.0
                 else config.rope_theta
             ),
             scaling_type=config.rope_scaling_type,
@@ -181,13 +217,19 @@ class CausalSelfAttention(nn.Module):  # type: ignore[misc]
         past_len: int,
         device: "torch.device",
     ) -> "torch.Tensor | None":
+        require_torch()
+        assert torch is not None
         if self.config.attention_window is None and past_len == 0:
             return None
-        query_positions = torch.arange(past_len, past_len + query_len, device=device)[:, None]
+        query_positions = torch.arange(past_len, past_len + query_len, device=device)[
+            :, None
+        ]
         key_positions = torch.arange(0, key_len, device=device)[None, :]
         mask = key_positions <= query_positions
         if self.config.attention_window is not None:
-            mask = mask & (key_positions >= query_positions - self.config.attention_window + 1)
+            mask = mask & (
+                key_positions >= query_positions - self.config.attention_window + 1
+            )
         return mask[None, None, :, :]
 
     def eager_attention(
@@ -198,13 +240,20 @@ class CausalSelfAttention(nn.Module):  # type: ignore[misc]
         *,
         mask: "torch.Tensor | None",
     ) -> "torch.Tensor":
+        require_torch()
+        assert torch is not None
+        assert F is not None
         scale = 1.0 / math.sqrt(self.config.head_dim)
         scores = torch.matmul(q.float(), k.float().transpose(-2, -1)) * scale
         if mask is not None:
             scores = scores.masked_fill(~mask, torch.finfo(scores.dtype).min)
         else:
-            causal = torch.ones(scores.size(-2), scores.size(-1), device=scores.device, dtype=torch.bool).tril()
-            scores = scores.masked_fill(~causal[None, None, :, :], torch.finfo(scores.dtype).min)
+            causal = torch.ones(
+                scores.size(-2), scores.size(-1), device=scores.device, dtype=torch.bool
+            ).tril()
+            scores = scores.masked_fill(
+                ~causal[None, None, :, :], torch.finfo(scores.dtype).min
+            )
         probs = F.softmax(scores, dim=-1).to(dtype=q.dtype)
         if self.training and self.dropout > 0:
             probs = F.dropout(probs, p=self.dropout)
@@ -217,11 +266,26 @@ class CausalSelfAttention(nn.Module):  # type: ignore[misc]
         past_key_value: tuple["torch.Tensor", "torch.Tensor"] | None = None,
         use_cache: bool = False,
     ) -> tuple["torch.Tensor", tuple["torch.Tensor", "torch.Tensor"] | None]:
+        require_torch()
+        assert torch is not None
+        assert F is not None
         batch, seq_len, _ = x.shape
         past_len = 0 if past_key_value is None else int(past_key_value[0].size(-2))
-        q = self.q_proj(x).view(batch, seq_len, self.config.num_attention_heads, self.config.head_dim).transpose(1, 2)
-        k = self.k_proj(x).view(batch, seq_len, self.config.num_key_value_heads, self.config.head_dim).transpose(1, 2)
-        v = self.v_proj(x).view(batch, seq_len, self.config.num_key_value_heads, self.config.head_dim).transpose(1, 2)
+        q = (
+            self.q_proj(x)
+            .view(batch, seq_len, self.config.num_attention_heads, self.config.head_dim)
+            .transpose(1, 2)
+        )
+        k = (
+            self.k_proj(x)
+            .view(batch, seq_len, self.config.num_key_value_heads, self.config.head_dim)
+            .transpose(1, 2)
+        )
+        v = (
+            self.v_proj(x)
+            .view(batch, seq_len, self.config.num_key_value_heads, self.config.head_dim)
+            .transpose(1, 2)
+        )
         q, k = self.rope(q, k, position_offset=past_len)
         if past_key_value is not None:
             past_k, past_v = past_key_value
@@ -232,8 +296,12 @@ class CausalSelfAttention(nn.Module):  # type: ignore[misc]
         if repeat > 1:
             k = k.repeat_interleave(repeat, dim=1)
             v = v.repeat_interleave(repeat, dim=1)
-        mask = self.build_attention_mask(query_len=seq_len, key_len=k.size(-2), past_len=past_len, device=x.device)
-        use_eager = self.config.attention_impl == "eager" or not hasattr(F, "scaled_dot_product_attention")
+        mask = self.build_attention_mask(
+            query_len=seq_len, key_len=k.size(-2), past_len=past_len, device=x.device
+        )
+        use_eager = self.config.attention_impl == "eager" or not hasattr(
+            F, "scaled_dot_product_attention"
+        )
         if use_eager:
             attn = self.eager_attention(q, k, v, mask=mask)
         else:
@@ -245,11 +313,15 @@ class CausalSelfAttention(nn.Module):  # type: ignore[misc]
                 dropout_p=self.dropout if self.training else 0.0,
                 is_causal=mask is None and past_len == 0,
             )
-        attn = attn.transpose(1, 2).contiguous().view(batch, seq_len, self.config.hidden_size)
+        attn = (
+            attn.transpose(1, 2)
+            .contiguous()
+            .view(batch, seq_len, self.config.hidden_size)
+        )
         return self.o_proj(attn), present
 
 
-class MultiLatentAttention(nn.Module):  # type: ignore[misc]
+class MultiLatentAttention(nn.Module):  # pyright: ignore[reportOptionalMemberAccess]
     """DeepSeek-style latent attention with a compressed inference cache.
 
     The cache stores the latent KV representation and the decoupled rotary key,
@@ -259,6 +331,7 @@ class MultiLatentAttention(nn.Module):  # type: ignore[misc]
 
     def __init__(self, config: ScratchDecoderConfig) -> None:
         require_torch()
+        assert nn is not None
         super().__init__()
         if config.attention_architecture != "mla":
             raise ValueError("MultiLatentAttention requires an MLA config")
@@ -275,14 +348,18 @@ class MultiLatentAttention(nn.Module):  # type: ignore[misc]
             config.num_attention_heads * (self.nope_dim + self.rope_dim),
             bias=False,
         )
-        self.kv_down = nn.Linear(config.hidden_size, self.kv_rank + self.rope_dim, bias=False)
+        self.kv_down = nn.Linear(
+            config.hidden_size, self.kv_rank + self.rope_dim, bias=False
+        )
         self.kv_norm = RMSNorm(self.kv_rank, config.norm_eps)
         self.kv_up = nn.Linear(
             self.kv_rank,
             config.num_attention_heads * (self.nope_dim + self.value_dim),
             bias=False,
         )
-        self.o_proj = nn.Linear(config.num_attention_heads * self.value_dim, config.hidden_size, bias=False)
+        self.o_proj = nn.Linear(
+            config.num_attention_heads * self.value_dim, config.hidden_size, bias=False
+        )
         self.rope = RotaryEmbedding(
             self.rope_dim,
             config.max_sequence_length,
@@ -308,7 +385,10 @@ class MultiLatentAttention(nn.Module):  # type: ignore[misc]
                 "MLA latent cache must have shape "
                 f"[{x.size(0)}, past_sequence, {self.kv_rank}]"
             )
-        if rotary.ndim != 4 or (rotary.size(0), rotary.size(1), rotary.size(3)) != expected_rotary:
+        if (
+            rotary.ndim != 4
+            or (rotary.size(0), rotary.size(1), rotary.size(3)) != expected_rotary
+        ):
             raise ValueError(
                 "MLA rotary cache must have shape "
                 f"[{x.size(0)}, 1, past_sequence, {self.rope_dim}]"
@@ -324,10 +404,16 @@ class MultiLatentAttention(nn.Module):  # type: ignore[misc]
             raise ValueError("MLA cache plus input exceeds max_sequence_length")
         return past_len
 
-    def _mask(self, *, query_len: int, key_len: int, past_len: int, device: "torch.device") -> "torch.Tensor | None":
+    def _mask(
+        self, *, query_len: int, key_len: int, past_len: int, device: "torch.device"
+    ) -> "torch.Tensor | None":
+        require_torch()
+        assert torch is not None
         if self.config.attention_window is None and past_len == 0:
             return None
-        query_positions = torch.arange(past_len, past_len + query_len, device=device)[:, None]
+        query_positions = torch.arange(past_len, past_len + query_len, device=device)[
+            :, None
+        ]
         key_positions = torch.arange(key_len, device=device)[None, :]
         mask = key_positions <= query_positions
         if self.config.attention_window is not None:
@@ -342,10 +428,15 @@ class MultiLatentAttention(nn.Module):  # type: ignore[misc]
         *,
         mask: "torch.Tensor | None",
     ) -> "torch.Tensor":
+        require_torch()
+        assert torch is not None
+        assert F is not None
         scale = 1.0 / math.sqrt(self.nope_dim + self.rope_dim)
         scores = torch.matmul(q.float(), k.float().transpose(-2, -1)) * scale
         if mask is None:
-            causal = torch.ones(scores.size(-2), scores.size(-1), device=scores.device, dtype=torch.bool).tril()
+            causal = torch.ones(
+                scores.size(-2), scores.size(-1), device=scores.device, dtype=torch.bool
+            ).tril()
             mask = causal[None, None, :, :]
         scores = scores.masked_fill(~mask, torch.finfo(scores.dtype).min)
         probabilities = F.softmax(scores, dim=-1).to(dtype=q.dtype)
@@ -360,18 +451,29 @@ class MultiLatentAttention(nn.Module):  # type: ignore[misc]
         past_key_value: tuple["torch.Tensor", "torch.Tensor"] | None = None,
         use_cache: bool = False,
     ) -> tuple["torch.Tensor", tuple["torch.Tensor", "torch.Tensor"] | None]:
+        require_torch()
+        assert torch is not None
+        assert F is not None
         batch, sequence, _ = x.shape
-        past_len = 0 if past_key_value is None else self._validate_cache(past_key_value, x=x)
-        q = self.q_up(self.q_norm(self.q_down(x))).view(
-            batch,
-            sequence,
-            self.config.num_attention_heads,
-            self.nope_dim + self.rope_dim,
-        ).transpose(1, 2)
+        past_len = (
+            0 if past_key_value is None else self._validate_cache(past_key_value, x=x)
+        )
+        q = (
+            self.q_up(self.q_norm(self.q_down(x)))
+            .view(
+                batch,
+                sequence,
+                self.config.num_attention_heads,
+                self.nope_dim + self.rope_dim,
+            )
+            .transpose(1, 2)
+        )
         q_nope, q_rope = torch.split(q, [self.nope_dim, self.rope_dim], dim=-1)
 
         compressed = self.kv_down(x)
-        kv_latent, k_rope = torch.split(compressed, [self.kv_rank, self.rope_dim], dim=-1)
+        kv_latent, k_rope = torch.split(
+            compressed, [self.kv_rank, self.rope_dim], dim=-1
+        )
         kv_latent = self.kv_norm(kv_latent)
         k_rope_heads = k_rope[:, None, :, :]
         q_rope, k_rope_heads = self.rope(q_rope, k_rope_heads, position_offset=past_len)
@@ -382,12 +484,16 @@ class MultiLatentAttention(nn.Module):  # type: ignore[misc]
             k_rope_heads = torch.cat([past_rope, k_rope_heads], dim=-2)
         present = (kv_latent, k_rope_heads) if use_cache else None
 
-        expanded = self.kv_up(kv_latent).view(
-            batch,
-            kv_latent.size(1),
-            self.config.num_attention_heads,
-            self.nope_dim + self.value_dim,
-        ).transpose(1, 2)
+        expanded = (
+            self.kv_up(kv_latent)
+            .view(
+                batch,
+                kv_latent.size(1),
+                self.config.num_attention_heads,
+                self.nope_dim + self.value_dim,
+            )
+            .transpose(1, 2)
+        )
         k_nope, values = torch.split(expanded, [self.nope_dim, self.value_dim], dim=-1)
         repeated_rope = k_rope_heads.expand(-1, self.config.num_attention_heads, -1, -1)
         keys = torch.cat([k_nope, repeated_rope], dim=-1)
@@ -398,7 +504,9 @@ class MultiLatentAttention(nn.Module):  # type: ignore[misc]
             past_len=past_len,
             device=x.device,
         )
-        use_eager = self.config.attention_impl == "eager" or not hasattr(F, "scaled_dot_product_attention")
+        use_eager = self.config.attention_impl == "eager" or not hasattr(
+            F, "scaled_dot_product_attention"
+        )
         if use_eager:
             attended = self._eager(queries, keys, values, mask=mask)
         else:
@@ -410,28 +518,39 @@ class MultiLatentAttention(nn.Module):  # type: ignore[misc]
                 dropout_p=self.dropout if self.training else 0.0,
                 is_causal=mask is None and past_len == 0,
             )
-        attended = attended.transpose(1, 2).contiguous().view(
-            batch,
-            sequence,
-            self.config.num_attention_heads * self.value_dim,
+        attended = (
+            attended.transpose(1, 2)
+            .contiguous()
+            .view(
+                batch,
+                sequence,
+                self.config.num_attention_heads * self.value_dim,
+            )
         )
         return self.o_proj(attended), present
 
 
-class SwiGLU(nn.Module):  # type: ignore[misc]
-    def __init__(self, config: ScratchDecoderConfig, *, intermediate_size: int | None = None) -> None:
+class SwiGLU(nn.Module):  # pyright: ignore[reportOptionalMemberAccess]
+    def __init__(
+        self, config: ScratchDecoderConfig, *, intermediate_size: int | None = None
+    ) -> None:
         require_torch()
+        assert nn is not None
         super().__init__()
-        width = config.intermediate_size if intermediate_size is None else intermediate_size
+        width = (
+            config.intermediate_size if intermediate_size is None else intermediate_size
+        )
         self.gate_proj = nn.Linear(config.hidden_size, width, bias=False)
         self.up_proj = nn.Linear(config.hidden_size, width, bias=False)
         self.down_proj = nn.Linear(width, config.hidden_size, bias=False)
 
     def forward(self, x: "torch.Tensor") -> "torch.Tensor":
+        require_torch()
+        assert F is not None
         return self.down_proj(F.silu(self.gate_proj(x)) * self.up_proj(x))
 
 
-class DroplessMixtureOfExperts(nn.Module):  # type: ignore[misc]
+class DroplessMixtureOfExperts(nn.Module):  # pyright: ignore[reportOptionalMemberAccess]
     """Top-k routed MoE that never discards tokens.
 
     This reference dispatcher intentionally favors transparent correctness over
@@ -442,35 +561,55 @@ class DroplessMixtureOfExperts(nn.Module):  # type: ignore[misc]
 
     def __init__(self, config: ScratchDecoderConfig) -> None:
         require_torch()
+        assert nn is not None
+        assert torch is not None
         super().__init__()
         if config.feed_forward_architecture != "moe":
             raise ValueError("DroplessMixtureOfExperts requires an MoE config")
         width = int(config.moe_intermediate_size or 0)
         self.config = config
-        self.router = nn.Linear(config.hidden_size, config.num_routed_experts, bias=False)
+        self.router = nn.Linear(
+            config.hidden_size, config.num_routed_experts, bias=False
+        )
         self.routed_experts = nn.ModuleList(
-            [SwiGLU(config, intermediate_size=width) for _ in range(config.num_routed_experts)]
+            [
+                SwiGLU(config, intermediate_size=width)
+                for _ in range(config.num_routed_experts)
+            ]
         )
         self.shared_experts = nn.ModuleList(
-            [SwiGLU(config, intermediate_size=width) for _ in range(config.num_shared_experts)]
+            [
+                SwiGLU(config, intermediate_size=width)
+                for _ in range(config.num_shared_experts)
+            ]
         )
-        self.register_buffer("selection_bias", torch.zeros(config.num_routed_experts), persistent=True)
+        self.register_buffer(
+            "selection_bias", torch.zeros(config.num_routed_experts), persistent=True
+        )
         self.last_metrics: dict[str, float] = {}
 
     def forward(self, x: "torch.Tensor") -> tuple["torch.Tensor", dict[str, float]]:
+        require_torch()
+        assert torch is not None
         original_shape = x.shape
         flat = x.reshape(-1, self.config.hidden_size)
         raw_logits = self.router(flat).float()
         router_probabilities = torch.sigmoid(raw_logits)
         selection_scores = router_probabilities + self.selection_bias[None, :]
-        selected = torch.topk(selection_scores, k=self.config.experts_per_token, dim=-1).indices
+        selected = torch.topk(
+            selection_scores, k=self.config.experts_per_token, dim=-1
+        ).indices
         selected_probabilities = router_probabilities.gather(1, selected)
         weights = (
             selected_probabilities
-            / selected_probabilities.sum(dim=-1, keepdim=True).clamp_min(torch.finfo(torch.float32).eps)
+            / selected_probabilities.sum(dim=-1, keepdim=True).clamp_min(
+                torch.finfo(torch.float32).eps
+            )
         ).to(dtype=x.dtype)
         output = torch.zeros_like(flat)
-        counts = torch.bincount(selected.reshape(-1), minlength=self.config.num_routed_experts)
+        counts = torch.bincount(
+            selected.reshape(-1), minlength=self.config.num_routed_experts
+        )
         for expert_index, expert in enumerate(self.routed_experts):
             token_indices, slots = torch.where(selected == expert_index)
             if token_indices.numel() == 0:
@@ -487,7 +626,9 @@ class DroplessMixtureOfExperts(nn.Module):  # type: ignore[misc]
         expected = flat.size(0) * self.config.experts_per_token
         routed = int(counts.sum().item())
         if routed != expected:
-            raise RuntimeError(f"MoE token routing invariant violated: routed={routed}, expected={expected}")
+            raise RuntimeError(
+                f"MoE token routing invariant violated: routed={routed}, expected={expected}"
+            )
         mean_load = float(counts.float().mean().item())
         p99_load = float(torch.quantile(counts.float(), 0.99).item())
         load_ratio = p99_load / max(mean_load, 1.0)
@@ -505,12 +646,14 @@ class DroplessMixtureOfExperts(nn.Module):  # type: ignore[misc]
         if self.training and self.config.router_bias_update_rate > 0:
             with torch.no_grad():
                 direction = torch.sign(counts.float().mean() - counts.float())
-                self.selection_bias.add_(direction * self.config.router_bias_update_rate)
+                self.selection_bias.add_(
+                    direction * self.config.router_bias_update_rate
+                )
                 self.selection_bias.sub_(self.selection_bias.mean())
         return output.view(original_shape), metrics
 
 
-class DecoderBlock(nn.Module):  # type: ignore[misc]
+class DecoderBlock(nn.Module):  # pyright: ignore[reportOptionalMemberAccess]
     def __init__(
         self,
         config: ScratchDecoderConfig,
@@ -545,7 +688,9 @@ class DecoderBlock(nn.Module):  # type: ignore[misc]
         tuple["torch.Tensor", "torch.Tensor"] | None,
         dict[str, float] | None,
     ]:
-        attn, present = self.attention(self.input_norm(x), past_key_value=past_key_value, use_cache=use_cache)
+        attn, present = self.attention(
+            self.input_norm(x), past_key_value=past_key_value, use_cache=use_cache
+        )
         x = x + attn
         normalized = self.post_attention_norm(x)
         if self.is_moe:
@@ -557,7 +702,7 @@ class DecoderBlock(nn.Module):  # type: ignore[misc]
         return x, present, router_metrics
 
 
-class MultiTokenPredictionLayer(nn.Module):  # type: ignore[misc]
+class MultiTokenPredictionLayer(nn.Module):  # pyright: ignore[reportOptionalMemberAccess]
     """Training-only next-next-token prediction transformer.
 
     For position ``t`` the layer combines the main decoder state at ``t`` with
@@ -569,6 +714,7 @@ class MultiTokenPredictionLayer(nn.Module):  # type: ignore[misc]
 
     def __init__(self, config: ScratchDecoderConfig) -> None:
         require_torch()
+        assert nn is not None
         super().__init__()
         self.hidden_norm = RMSNorm(config.hidden_size, config.norm_eps)
         self.next_embedding_norm = RMSNorm(config.hidden_size, config.norm_eps)
@@ -581,8 +727,12 @@ class MultiTokenPredictionLayer(nn.Module):  # type: ignore[misc]
         hidden_states: "torch.Tensor",
         next_token_embeddings: "torch.Tensor",
     ) -> "torch.Tensor":
+        require_torch()
+        assert torch is not None
         if hidden_states.shape != next_token_embeddings.shape:
-            raise ValueError("MTP hidden states and next-token embeddings must have identical shapes")
+            raise ValueError(
+                "MTP hidden states and next-token embeddings must have identical shapes"
+            )
         fused = self.fusion(
             torch.cat(
                 [
@@ -594,13 +744,16 @@ class MultiTokenPredictionLayer(nn.Module):  # type: ignore[misc]
         )
         predicted, present, router_metrics = self.block(fused, use_cache=False)
         if present is not None or router_metrics is not None:
-            raise RuntimeError("MTP dense prediction block produced unexpected cache or router state")
+            raise RuntimeError(
+                "MTP dense prediction block produced unexpected cache or router state"
+            )
         return self.output_norm(predicted)
 
 
-class CraftlyDecoderLM(nn.Module):  # type: ignore[misc]
+class CraftlyDecoderLM(nn.Module):  # pyright: ignore[reportOptionalMemberAccess]
     def __init__(self, config: ScratchDecoderConfig) -> None:
         require_torch()
+        assert nn is not None
         super().__init__()
         if config.runtime_backend != "native_reference":
             raise RuntimeError(
@@ -610,14 +763,15 @@ class CraftlyDecoderLM(nn.Module):  # type: ignore[misc]
         self.config = config
         self.embed_tokens = nn.Embedding(config.vocab_size, config.hidden_size)
         self.layers = nn.ModuleList(
-            [DecoderBlock(config, layer_index=index) for index in range(config.num_layers)]
+            [
+                DecoderBlock(config, layer_index=index)
+                for index in range(config.num_layers)
+            ]
         )
         self.norm = RMSNorm(config.hidden_size, config.norm_eps)
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
         self.mtp_head = (
-            MultiTokenPredictionLayer(config)
-            if config.mtp_num_layers
-            else None
+            MultiTokenPredictionLayer(config) if config.mtp_num_layers else None
         )
         if config.tie_word_embeddings:
             self.lm_head.weight = self.embed_tokens.weight
@@ -625,6 +779,8 @@ class CraftlyDecoderLM(nn.Module):  # type: ignore[misc]
         self.gradient_checkpointing = config.gradient_checkpointing
 
     def _init_weights(self, module: nn.Module) -> None:
+        require_torch()
+        assert nn is not None
         if isinstance(module, nn.Linear):
             nn.init.normal_(module.weight, mean=0.0, std=self.config.initializer_range)
         elif isinstance(module, nn.Embedding):
@@ -640,24 +796,35 @@ class CraftlyDecoderLM(nn.Module):  # type: ignore[misc]
         self,
         input_ids: "torch.Tensor",
         labels: "torch.Tensor | None" = None,
-        past_key_values: tuple[tuple["torch.Tensor", "torch.Tensor"], ...] | None = None,
+        past_key_values: tuple[tuple["torch.Tensor", "torch.Tensor"], ...]
+        | None = None,
         use_cache: bool | None = None,
     ) -> DecoderForwardOutput:
+        require_torch()
+        assert torch is not None
+        assert F is not None
         if input_ids.ndim != 2:
             raise ValueError("input_ids must be [batch, sequence]")
         if input_ids.size(0) < 1 or input_ids.size(1) < 1:
             raise ValueError("input_ids cannot contain an empty batch or sequence")
         if input_ids.dtype not in {torch.int32, torch.int64}:
             raise ValueError("input_ids must use an integer tensor dtype")
-        if int(input_ids.min().item()) < 0 or int(input_ids.max().item()) >= self.config.vocab_size:
-            raise ValueError("input_ids contain a token outside the configured vocabulary")
+        if (
+            int(input_ids.min().item()) < 0
+            or int(input_ids.max().item()) >= self.config.vocab_size
+        ):
+            raise ValueError(
+                "input_ids contain a token outside the configured vocabulary"
+            )
         if labels is not None:
             if labels.shape != input_ids.shape:
                 raise ValueError("labels must have the same shape as input_ids")
             if labels.dtype not in {torch.int32, torch.int64}:
                 raise ValueError("labels must use an integer tensor dtype")
         if past_key_values is not None and len(past_key_values) != len(self.layers):
-            raise ValueError("past_key_values must contain exactly one cache tuple per decoder layer")
+            raise ValueError(
+                "past_key_values must contain exactly one cache tuple per decoder layer"
+            )
         past_len = 0 if not past_key_values else int(past_key_values[0][0].size(-2))
         if past_len + input_ids.size(1) > self.config.max_sequence_length:
             raise ValueError("input sequence exceeds max_sequence_length")
@@ -672,11 +839,16 @@ class CraftlyDecoderLM(nn.Module):  # type: ignore[misc]
         for index, layer in enumerate(self.layers):
             past = None if past_key_values is None else past_key_values[index]
             if self.gradient_checkpointing and self.training and not active_use_cache:
-                def custom_forward(hidden: "torch.Tensor", active_layer: DecoderBlock = layer) -> "torch.Tensor":
+
+                def custom_forward(
+                    hidden: "torch.Tensor", active_layer: DecoderBlock = layer
+                ) -> "torch.Tensor":
                     output, _present, _router = active_layer(hidden, use_cache=False)
                     return output
 
-                x = torch.utils.checkpoint.checkpoint(custom_forward, x, use_reentrant=False)
+                x = torch.utils.checkpoint.checkpoint(
+                    custom_forward, x, use_reentrant=False
+                )
                 present = None
             else:
                 x, present, layer_router_metrics = layer(
@@ -723,7 +895,6 @@ class CraftlyDecoderLM(nn.Module):  # type: ignore[misc]
             router_metrics=tuple(router_metrics),
         )
 
-    @torch.no_grad()
     def generate(
         self,
         input_ids: "torch.Tensor",
@@ -733,35 +904,59 @@ class CraftlyDecoderLM(nn.Module):  # type: ignore[misc]
         top_k: int | None = None,
         eos_token_id: int | None = None,
     ) -> "torch.Tensor":
+        require_torch()
+        assert torch is not None
+        assert F is not None
         if max_new_tokens < 1:
             return input_ids
         self.eval()
         generated = input_ids
         past: tuple[tuple["torch.Tensor", "torch.Tensor"], ...] | None = None
         next_input = input_ids
-        for _ in range(max_new_tokens):
-            output = self(next_input, past_key_values=past, use_cache=True)
-            past = output.past_key_values
-            logits = output.logits[:, -1, :]
-            if temperature and temperature > 0:
-                logits = logits / temperature
-                if top_k is not None and top_k > 0:
-                    values, _indices = torch.topk(logits, min(top_k, logits.size(-1)))
-                    logits = logits.masked_fill(logits < values[:, [-1]], torch.finfo(logits.dtype).min)
-                next_token = torch.multinomial(F.softmax(logits, dim=-1), num_samples=1)
-            else:
-                next_token = logits.argmax(dim=-1, keepdim=True)
-            generated = torch.cat([generated, next_token], dim=1)
-            next_input = next_token
-            if eos_token_id is not None and bool((next_token == eos_token_id).all()):
-                break
+        with torch.no_grad():
+            for _ in range(max_new_tokens):
+                output = self(next_input, past_key_values=past, use_cache=True)
+                past = output.past_key_values
+                logits = output.logits[:, -1, :]
+                if temperature and temperature > 0:
+                    logits = logits / temperature
+                    if top_k is not None and top_k > 0:
+                        values, _indices = torch.topk(
+                            logits, min(top_k, logits.size(-1))
+                        )
+                        logits = logits.masked_fill(
+                            logits < values[:, [-1]], torch.finfo(logits.dtype).min
+                        )
+                    next_token = torch.multinomial(
+                        F.softmax(logits, dim=-1), num_samples=1
+                    )
+                else:
+                    next_token = logits.argmax(dim=-1, keepdim=True)
+                generated = torch.cat([generated, next_token], dim=1)
+                next_input = next_token
+                if eos_token_id is not None and bool(
+                    (next_token == eos_token_id).all()
+                ):
+                    break
         return generated
 
-    def export_checkpoint(self, output_dir: str | Path, *, dtype: str = "float32") -> Path:
+    def export_checkpoint(
+        self, output_dir: str | Path, *, dtype: str = "float32"
+    ) -> Path:
         target = Path(output_dir)
         target.mkdir(parents=True, exist_ok=True)
-        (target / "config.json").write_text(self.config.model_dump_json(indent=2), encoding="utf-8")
-        save_trusted_checkpoint({"model": self.state_dict(), "config": self.config.model_dump(), "format": "craftly_decoder_v2", "dtype": dtype}, target / "model.pt")
+        (target / "config.json").write_text(
+            self.config.model_dump_json(indent=2), encoding="utf-8"
+        )
+        save_trusted_checkpoint(
+            {
+                "model": self.state_dict(),
+                "config": self.config.model_dump(),
+                "format": "craftly_decoder_v2",
+                "dtype": dtype,
+            },
+            target / "model.pt",
+        )
         serving_contract = {
             "format": "craftly_decoder_v2",
             "scratch_only": True,
@@ -809,7 +1004,9 @@ class CraftlyDecoderLM(nn.Module):  # type: ignore[misc]
                 "KV-cache decode numerically matches native Craftly decode on a fixed prompt",
             ],
         }
-        (target / "serving_compatibility.json").write_text(json.dumps(serving_contract, indent=2, sort_keys=True), encoding="utf-8")
+        (target / "serving_compatibility.json").write_text(
+            json.dumps(serving_contract, indent=2, sort_keys=True), encoding="utf-8"
+        )
         (target / "generation_config.json").write_text(
             json.dumps(
                 {
@@ -826,4 +1023,3 @@ class CraftlyDecoderLM(nn.Module):  # type: ignore[misc]
             encoding="utf-8",
         )
         return target
-

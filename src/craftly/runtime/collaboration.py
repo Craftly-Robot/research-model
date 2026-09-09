@@ -28,7 +28,6 @@ from src.craftly.db import LocalStore
 from src.craftly.memory import MemoryIngestRequest, UnifiedMemoryManager
 from src.craftly.shared.schemas import StrictModel
 
-
 MAX_MESSAGE_BYTES = 64 * 1024
 MAX_EVIDENCE_REFS = 128
 REFLECTION_QUESTIONS = (
@@ -37,7 +36,9 @@ REFLECTION_QUESTIONS = (
     "What security risks exist?",
     "What was not verified?",
 )
-SECRET_KEY_PATTERN = re.compile(r"(?i)(authorization|api[_-]?key|access[_-]?token|password|secret)")
+SECRET_KEY_PATTERN = re.compile(
+    r"(?i)(authorization|api[_-]?key|access[_-]?token|password|secret)"
+)
 SECRET_VALUE_PATTERN = re.compile(
     r"(?i)(bearer\s+[A-Za-z0-9._~+/=-]{16,}|"
     r"(?:api[_-]?key|access[_-]?token|password|secret)\s*[:=]\s*[^\s,;]{8,}|"
@@ -75,12 +76,22 @@ class BlackboardKind(StrEnum):
 ROLE_MESSAGE_POLICY: dict[AgentRole, frozenset[MessageKind]] = {
     AgentRole.ARCHITECT: frozenset({MessageKind.PROPOSAL, MessageKind.EVIDENCE}),
     AgentRole.CODER: frozenset({MessageKind.PROPOSAL, MessageKind.EVIDENCE}),
-    AgentRole.TESTER: frozenset({MessageKind.EVIDENCE, MessageKind.CHALLENGE, MessageKind.REVIEW}),
-    AgentRole.SECURITY_REVIEWER: frozenset({MessageKind.EVIDENCE, MessageKind.CHALLENGE, MessageKind.REVIEW}),
+    AgentRole.TESTER: frozenset(
+        {MessageKind.EVIDENCE, MessageKind.CHALLENGE, MessageKind.REVIEW}
+    ),
+    AgentRole.SECURITY_REVIEWER: frozenset(
+        {MessageKind.EVIDENCE, MessageKind.CHALLENGE, MessageKind.REVIEW}
+    ),
     AgentRole.CRITIC: frozenset({MessageKind.CHALLENGE, MessageKind.REVIEW}),
     AgentRole.VERIFIER: frozenset({MessageKind.DECISION}),
     AgentRole.ORCHESTRATOR: frozenset(
-        {MessageKind.PROPOSAL, MessageKind.EVIDENCE, MessageKind.CHALLENGE, MessageKind.REVIEW, MessageKind.DECISION}
+        {
+            MessageKind.PROPOSAL,
+            MessageKind.EVIDENCE,
+            MessageKind.CHALLENGE,
+            MessageKind.REVIEW,
+            MessageKind.DECISION,
+        }
     ),
 }
 
@@ -104,7 +115,10 @@ def _redact_payload(value: Any, *, key: str = "") -> Any:
     if SECRET_KEY_PATTERN.search(key):
         return "[REDACTED]"
     if isinstance(value, dict):
-        return {str(item_key): _redact_payload(item_value, key=str(item_key)) for item_key, item_value in value.items()}
+        return {
+            str(item_key): _redact_payload(item_value, key=str(item_key))
+            for item_key, item_value in value.items()
+        }
     if isinstance(value, list):
         return [_redact_payload(item, key=key) for item in value]
     if isinstance(value, str):
@@ -113,7 +127,11 @@ def _redact_payload(value: Any, *, key: str = "") -> Any:
 
 
 def _payload_size(payload: dict[str, Any]) -> int:
-    return len(json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8"))
+    return len(
+        json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+        ).encode("utf-8")
+    )
 
 
 class AgentMessage(StrictModel):
@@ -121,7 +139,9 @@ class AgentMessage(StrictModel):
     run_id: str = Field(min_length=1, max_length=128)
     task_graph_id: str = Field(min_length=1, max_length=128)
     task_id: str | None = Field(default=None, min_length=1, max_length=128)
-    correlation_id: str = Field(default_factory=lambda: str(uuid.uuid4()), min_length=1, max_length=128)
+    correlation_id: str = Field(
+        default_factory=lambda: str(uuid.uuid4()), min_length=1, max_length=128
+    )
     sender_role: AgentRole
     recipient_role: AgentRole
     kind: MessageKind
@@ -170,11 +190,16 @@ class AgentMessage(StrictModel):
             raise ValueError("broadcast is a recipient only")
         allowed = ROLE_MESSAGE_POLICY[self.sender_role]
         if self.kind not in allowed:
-            raise ValueError(f"{self.sender_role.value} cannot emit {self.kind.value} messages")
+            raise ValueError(
+                f"{self.sender_role.value} cannot emit {self.kind.value} messages"
+            )
         artifact_type = str(self.payload.get("artifact_type") or "")
         if not artifact_type:
             raise ValueError("agent messages require a typed artifact_type")
-        if artifact_type and artifact_type not in ROLE_ARTIFACT_POLICY[self.sender_role]:
+        if (
+            artifact_type
+            and artifact_type not in ROLE_ARTIFACT_POLICY[self.sender_role]
+        ):
             raise ValueError(
                 f"{self.sender_role.value} cannot publish artifact_type={artifact_type}; role mixing is forbidden"
             )
@@ -183,27 +208,43 @@ class AgentMessage(StrictModel):
             MessageKind.REVIEW,
             MessageKind.DECISION,
         }:
-            raise ValueError("review, challenge, and decision messages require a distinct recipient")
-        forbidden_reasoning_keys = {"chain_of_thought", "raw_thoughts", "reasoning_steps"}
+            raise ValueError(
+                "review, challenge, and decision messages require a distinct recipient"
+            )
+        forbidden_reasoning_keys = {
+            "chain_of_thought",
+            "raw_thoughts",
+            "reasoning_steps",
+        }
         if forbidden_reasoning_keys.intersection(self.payload):
-            raise ValueError("raw private reasoning must not be persisted in agent messages")
+            raise ValueError(
+                "raw private reasoning must not be persisted in agent messages"
+            )
         if self.sender_role == AgentRole.CRITIC and self.kind == MessageKind.REVIEW:
             confidence = self.payload.get("confidence")
-            if not isinstance(confidence, (int, float)) or isinstance(confidence, bool) or not 0.0 <= confidence <= 1.0:
+            if (
+                not isinstance(confidence, (int, float))
+                or isinstance(confidence, bool)
+                or not 0.0 <= confidence <= 1.0
+            ):
                 raise ValueError("critic review requires confidence between 0 and 1")
         if self.sender_role == AgentRole.VERIFIER:
             accepted = self.payload.get("accepted")
             if not isinstance(accepted, bool):
                 raise ValueError("verifier decision requires a boolean accepted field")
             if accepted and not self.evidence_refs:
-                raise ValueError("accepted verifier decisions require verification evidence references")
+                raise ValueError(
+                    "accepted verifier decisions require verification evidence references"
+                )
         return self
 
 
 class BlackboardWrite(StrictModel):
     run_id: str = Field(min_length=1, max_length=128)
     task_graph_id: str = Field(min_length=1, max_length=128)
-    entry_key: str = Field(min_length=1, max_length=256, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:/-]*$")
+    entry_key: str = Field(
+        min_length=1, max_length=256, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+    )
     kind: BlackboardKind
     value: dict[str, Any]
     expected_version: int | None = Field(default=None, ge=0)
@@ -216,7 +257,9 @@ class BlackboardWrite(StrictModel):
         try:
             return str(uuid.UUID(value))
         except ValueError as exc:
-            raise ValueError("run and task graph identifiers must be canonical UUIDs") from exc
+            raise ValueError(
+                "run and task graph identifiers must be canonical UUIDs"
+            ) from exc
 
     @field_validator("source_message_id")
     @classmethod
@@ -285,11 +328,15 @@ class NegotiationReport(StrictModel):
     decision_message_id: str
     message_count: int
     memory_promoted: bool = False
-    reflection_questions: list[str] = Field(default_factory=lambda: list(REFLECTION_QUESTIONS))
+    reflection_questions: list[str] = Field(
+        default_factory=lambda: list(REFLECTION_QUESTIONS)
+    )
 
 
 PeerReviewer = Callable[[AgentMessage], Awaitable[PeerReviewResult]]
-EvidenceResponder = Callable[[AgentMessage, PeerReviewResult], Awaitable[dict[str, Any]]]
+EvidenceResponder = Callable[
+    [AgentMessage, PeerReviewResult], Awaitable[dict[str, Any]]
+]
 Critic = Callable[[AgentMessage, PeerReviewResult], Awaitable[CriticScore]]
 Verifier = Callable[[AgentMessage, CriticScore], Awaitable[VerifierDecision]]
 Reviser = Callable[[AgentMessage, CriticScore, list[str]], Awaitable[dict[str, Any]]]
@@ -298,7 +345,13 @@ Reviser = Callable[[AgentMessage, CriticScore, list[str]], Awaitable[dict[str, A
 class CollaborationRuntime:
     """Validated durable message bus, blackboard, and bounded negotiation."""
 
-    def __init__(self, store: LocalStore, *, confidence_threshold: float = 0.85, max_revisions: int = 3) -> None:
+    def __init__(
+        self,
+        store: LocalStore,
+        *,
+        confidence_threshold: float = 0.85,
+        max_revisions: int = 3,
+    ) -> None:
         if not 0.0 <= confidence_threshold <= 1.0:
             raise ValueError("confidence_threshold must be between 0 and 1")
         if not 0 <= max_revisions <= 3:
@@ -308,15 +361,23 @@ class CollaborationRuntime:
         self.max_revisions = max_revisions
 
     def publish(self, message: AgentMessage) -> AgentMessage:
-        self._validate_run_binding(message.run_id, message.task_graph_id, message.task_id)
-        return AgentMessage.model_validate(self.store.insert_agent_message(message.model_dump(mode="json")))
+        self._validate_run_binding(
+            message.run_id, message.task_graph_id, message.task_id
+        )
+        return AgentMessage.model_validate(
+            self.store.insert_agent_message(message.model_dump(mode="json"))
+        )
 
-    def history(self, run_id: str, *, correlation_id: str | None = None, limit: int = 500) -> list[AgentMessage]:
+    def history(
+        self, run_id: str, *, correlation_id: str | None = None, limit: int = 500
+    ) -> list[AgentMessage]:
         if self.store.get_run(run_id) is None:
             raise KeyError(f"unknown run: {run_id}")
         return [
             AgentMessage.model_validate(item)
-            for item in self.store.list_agent_messages(run_id, correlation_id=correlation_id, limit=limit)
+            for item in self.store.list_agent_messages(
+                run_id, correlation_id=correlation_id, limit=limit
+            )
         ]
 
     def write_blackboard(self, request: BlackboardWrite) -> BlackboardEntry:
@@ -324,7 +385,9 @@ class CollaborationRuntime:
         if request.source_message_id:
             source = self.store.get_agent_message(request.source_message_id)
             if source is None or source["run_id"] != request.run_id:
-                raise ValueError("blackboard source message must belong to the same run")
+                raise ValueError(
+                    "blackboard source message must belong to the same run"
+                )
         immutable = request.kind == BlackboardKind.EVIDENCE
         stored = self.store.put_blackboard_entry(
             entry_id=str(uuid.uuid4()),
@@ -340,12 +403,16 @@ class CollaborationRuntime:
         )
         return BlackboardEntry.model_validate(stored)
 
-    def blackboard(self, run_id: str, *, kind: BlackboardKind | None = None) -> list[BlackboardEntry]:
+    def blackboard(
+        self, run_id: str, *, kind: BlackboardKind | None = None
+    ) -> list[BlackboardEntry]:
         if self.store.get_run(run_id) is None:
             raise KeyError(f"unknown run: {run_id}")
         return [
             BlackboardEntry.model_validate(item)
-            for item in self.store.list_blackboard_entries(run_id, kind=kind.value if kind else None)
+            for item in self.store.list_blackboard_entries(
+                run_id, kind=kind.value if kind else None
+            )
         ]
 
     async def negotiate(
@@ -363,7 +430,9 @@ class CollaborationRuntime:
         if proposal.kind != MessageKind.PROPOSAL:
             raise ValueError("negotiation must start with a proposal message")
         if peer_role == proposal.sender_role or peer_role not in REVIEW_ARTIFACT_TYPE:
-            raise ValueError("peer reviewer must be a distinct tester, security reviewer, or critic")
+            raise ValueError(
+                "peer reviewer must be a distinct tester, security reviewer, or critic"
+            )
         correlation_id = proposal.correlation_id
         current = self.publish(proposal)
         self.write_blackboard(
@@ -372,7 +441,11 @@ class CollaborationRuntime:
                 task_graph_id=current.task_graph_id,
                 entry_key=f"artifact/{correlation_id}",
                 kind=BlackboardKind.ARTIFACT,
-                value={"proposal_message_id": current.message_id, "payload": current.payload, "revision": 0},
+                value={
+                    "proposal_message_id": current.message_id,
+                    "payload": current.payload,
+                    "revision": 0,
+                },
                 expected_version=0,
                 source_message_id=current.message_id,
             )
@@ -385,7 +458,9 @@ class CollaborationRuntime:
 
         while True:
             peer_result = await peer_reviewer(current)
-            peer_kind = MessageKind.REVIEW if peer_result.accepted else MessageKind.CHALLENGE
+            peer_kind = (
+                MessageKind.REVIEW if peer_result.accepted else MessageKind.CHALLENGE
+            )
             peer_message = self.publish(
                 AgentMessage(
                     run_id=current.run_id,
@@ -422,7 +497,10 @@ class CollaborationRuntime:
                     task_graph_id=current.task_graph_id,
                     entry_key=f"evidence/{evidence_message.message_id}",
                     kind=BlackboardKind.EVIDENCE,
-                    value={"payload": evidence_message.payload, "peer_message_id": peer_message.message_id},
+                    value={
+                        "payload": evidence_message.payload,
+                        "peer_message_id": peer_message.message_id,
+                    },
                     verified=False,
                     source_message_id=evidence_message.message_id,
                 )
@@ -438,7 +516,10 @@ class CollaborationRuntime:
                     sender_role=AgentRole.CRITIC,
                     recipient_role=AgentRole.VERIFIER,
                     kind=MessageKind.REVIEW,
-                    payload={"artifact_type": "critic_review", **critic_score.model_dump()},
+                    payload={
+                        "artifact_type": "critic_review",
+                        **critic_score.model_dump(),
+                    },
                     evidence_refs=[evidence_message.message_id],
                 )
             )
@@ -471,7 +552,9 @@ class CollaborationRuntime:
             if accepted or revision >= self.max_revisions:
                 break
             revision += 1
-            revised_payload = await reviser(current, critic_score, list(REFLECTION_QUESTIONS))
+            revised_payload = await reviser(
+                current, critic_score, list(REFLECTION_QUESTIONS)
+            )
             current = self.publish(
                 AgentMessage(
                     run_id=current.run_id,
@@ -548,11 +631,15 @@ class CollaborationRuntime:
             confidence=final_score,
             final_proposal_message_id=current.message_id,
             decision_message_id=decision_message.message_id,
-            message_count=len(self.history(current.run_id, correlation_id=correlation_id)),
+            message_count=len(
+                self.history(current.run_id, correlation_id=correlation_id)
+            ),
             memory_promoted=promoted,
         )
 
-    def _validate_run_binding(self, run_id: str, task_graph_id: str, task_id: str | None) -> None:
+    def _validate_run_binding(
+        self, run_id: str, task_graph_id: str, task_id: str | None
+    ) -> None:
         run = self.store.get_run(run_id)
         graph = self.store.get_task_graph(task_graph_id)
         if run is None:
@@ -561,7 +648,11 @@ class CollaborationRuntime:
             raise ValueError("task graph does not belong to the supplied run")
         if task_id:
             task = self.store.get_task(task_id)
-            if task is None or task["run_id"] != run_id or task["task_graph_id"] != task_graph_id:
+            if (
+                task is None
+                or task["run_id"] != run_id
+                or task["task_graph_id"] != task_graph_id
+            ):
                 raise ValueError("task does not belong to the supplied run and graph")
 
 
@@ -627,16 +718,27 @@ class FailureIntelligence:
         verification_ref: str,
         verification_passed: bool,
     ) -> dict[str, Any]:
-        if not root_cause.strip() or not patch_id.strip() or not verification_ref.strip():
-            raise ValueError("root cause, patch, and verification reference are required")
+        if (
+            not root_cause.strip()
+            or not patch_id.strip()
+            or not verification_ref.strip()
+        ):
+            raise ValueError(
+                "root cause, patch, and verification reference are required"
+            )
         result = self.store.link_failure_resolution(
             failure_id,
-            root_cause=str(_redact_payload({"root_cause": root_cause[:8_000]})["root_cause"]),
+            root_cause=str(
+                _redact_payload({"root_cause": root_cause[:8_000]})["root_cause"]
+            ),
             patch_id=patch_id,
             verification_ref=verification_ref[:2_000],
             verified=verification_passed,
         )
-        if verification_passed and int(result["occurrence_count"]) >= self.candidate_threshold:
+        if (
+            verification_passed
+            and int(result["occurrence_count"]) >= self.candidate_threshold
+        ):
             candidate = self.store.insert_learning_candidate(
                 project_id=result.get("project_id"),
                 run_id=result.get("run_id"),
@@ -661,7 +763,9 @@ class FailureIntelligence:
         return self.store.list_failure_clusters(project_id)
 
 
-async def prove_postgres_collaboration(database_url: str, output_dir: str | Path) -> dict[str, Any]:
+async def prove_postgres_collaboration(
+    database_url: str, output_dir: str | Path
+) -> dict[str, Any]:
     """Run a destructive-safe, namespaced Postgres lifecycle and contention proof."""
 
     if not database_url.startswith(("postgres://", "postgresql://")):
@@ -669,7 +773,9 @@ async def prove_postgres_collaboration(database_url: str, output_dir: str | Path
     try:
         import asyncpg
     except ImportError as exc:
-        raise RuntimeError("asyncpg is required for the Postgres collaboration proof") from exc
+        raise RuntimeError(
+            "asyncpg is required for the Postgres collaboration proof"
+        ) from exc
 
     proof_id = uuid.uuid4()
     project_id = uuid.uuid4()
@@ -679,7 +785,9 @@ async def prove_postgres_collaboration(database_url: str, output_dir: str | Path
     message_id = uuid.uuid4()
     blackboard_id = uuid.uuid4()
     started = time.perf_counter()
-    pool = await asyncpg.create_pool(database_url, min_size=2, max_size=4, command_timeout=30)
+    pool = await asyncpg.create_pool(
+        database_url, min_size=2, max_size=4, command_timeout=30
+    )
     stale_update_rejected = False
     claim_winners: list[str] = []
 
@@ -709,11 +817,23 @@ async def prove_postgres_collaboration(database_url: str, output_dir: str | Path
 
     try:
         async with pool.acquire() as connection:
-            required_tables = ["projects", "runs", "task_graphs", "tasks", "agent_messages", "blackboard_entries", "failure_records"]
+            required_tables = [
+                "projects",
+                "runs",
+                "task_graphs",
+                "tasks",
+                "agent_messages",
+                "blackboard_entries",
+                "failure_records",
+            ]
             for table in required_tables:
-                present = await connection.fetchval("SELECT to_regclass($1)", f"public.{table}")
+                present = await connection.fetchval(
+                    "SELECT to_regclass($1)", f"public.{table}"
+                )
                 if present is None:
-                    raise RuntimeError(f"required Postgres table is missing: {table}; apply migration 0005")
+                    raise RuntimeError(
+                        f"required Postgres table is missing: {table}; apply migration 0005"
+                    )
             async with connection.transaction():
                 await connection.execute(
                     """
@@ -781,7 +901,9 @@ async def prove_postgres_collaboration(database_url: str, output_dir: str | Path
         winners = await asyncio.gather(claim("worker-a"), claim("worker-b"))
         claim_winners = [item for item in winners if item is not None]
         if len(claim_winners) != 1:
-            raise RuntimeError(f"atomic claim proof expected one winner, got {claim_winners}")
+            raise RuntimeError(
+                f"atomic claim proof expected one winner, got {claim_winners}"
+            )
 
         async with pool.acquire() as connection:
             updated = await connection.execute(
@@ -792,7 +914,9 @@ async def prove_postgres_collaboration(database_url: str, output_dir: str | Path
                 blackboard_id,
             )
             if updated != "UPDATE 1":
-                raise RuntimeError("blackboard compare-and-swap proof did not update version 1")
+                raise RuntimeError(
+                    "blackboard compare-and-swap proof did not update version 1"
+                )
             stale = await connection.execute(
                 """
                 UPDATE blackboard_entries SET value_json = '{"value":3}'::jsonb, version = version + 1
@@ -812,7 +936,9 @@ async def prove_postgres_collaboration(database_url: str, output_dir: str | Path
     finally:
         try:
             async with pool.acquire() as connection:
-                await connection.execute("DELETE FROM projects WHERE id = $1", project_id)
+                await connection.execute(
+                    "DELETE FROM projects WHERE id = $1", project_id
+                )
         finally:
             await pool.close()
 
@@ -835,14 +961,22 @@ async def prove_postgres_collaboration(database_url: str, output_dir: str | Path
 
 
 def _main() -> None:
-    parser = argparse.ArgumentParser(description="Craftly agent collaboration production proof")
+    parser = argparse.ArgumentParser(
+        description="Craftly agent collaboration production proof"
+    )
     parser.add_argument("--postgres-proof", action="store_true")
-    parser.add_argument("--database-url", default=os.environ.get("CRAFTLY_DATABASE_URL", ""))
-    parser.add_argument("--output-dir", default="artifacts/craftly/agent-collaboration-proof")
+    parser.add_argument(
+        "--database-url", default=os.environ.get("CRAFTLY_DATABASE_URL", "")
+    )
+    parser.add_argument(
+        "--output-dir", default="artifacts/craftly/agent-collaboration-proof"
+    )
     args = parser.parse_args()
     if not args.postgres_proof:
         parser.error("--postgres-proof is required")
-    report = asyncio.run(prove_postgres_collaboration(args.database_url, args.output_dir))
+    report = asyncio.run(
+        prove_postgres_collaboration(args.database_url, args.output_dir)
+    )
     print(json.dumps(report, indent=2, sort_keys=True))
 
 

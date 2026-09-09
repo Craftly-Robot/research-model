@@ -1,4 +1,4 @@
-﻿"""Dataset quality gates for scratch pretraining corpora."""
+"""Dataset quality gates for scratch pretraining corpora."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ from typing import Any, Iterable
 from pydantic import Field
 
 from src.craftly.shared.schemas import StrictModel
-
 
 SECRET_RE = re.compile(
     r"(?i)(-----BEGIN .*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|api[_-]?key\s*[:=]\s*['\"][A-Za-z0-9_\-]{20,})"
@@ -164,7 +163,9 @@ def iter_jsonl(path: str | Path) -> Iterable[dict[str, Any]]:
                     yield json.loads(line)
                 except json.JSONDecodeError as exc:
                     snippet = line[:240].replace("\n", "\\n")
-                    raise ValueError(f"invalid JSONL in {source} at line {line_number}: {exc.msg}; snippet={snippet!r}") from exc
+                    raise ValueError(
+                        f"invalid JSONL in {source} at line {line_number}: {exc.msg}; snippet={snippet!r}"
+                    ) from exc
 
 
 def infer_language(text: str, url: str = "") -> str | None:
@@ -200,11 +201,21 @@ def infer_language(text: str, url: str = "") -> str | None:
         return "c_cpp"
     if "public class " in lowered or "private static" in lowered:
         return "java"
-    if "def " in text or "import " in text and "python" in lowered or "traceback (most recent call last)" in lowered:
+    if (
+        "def " in text
+        or "import " in text
+        and "python" in lowered
+        or "traceback (most recent call last)" in lowered
+    ):
         return "python"
     if "#!/bin/bash" in lowered or "set -euo pipefail" in lowered:
         return "bash"
-    if "interface " in lowered and "typescript" in lowered or ": string" in lowered and "const " in lowered:
+    if (
+        "interface " in lowered
+        and "typescript" in lowered
+        or ": string" in lowered
+        and "const " in lowered
+    ):
         return "typescript"
     if "function " in lowered or "const " in lowered and "=>" in lowered:
         return "javascript"
@@ -213,13 +224,31 @@ def infer_language(text: str, url: str = "") -> str | None:
 
 def infer_data_type(text: str, labels: list[str]) -> str:
     lowered = text.lower()
-    if "diff --git" in lowered or lowered.startswith("--- ") and "\n+++ " in lowered or "patch" in labels:
+    if (
+        "diff --git" in lowered
+        or lowered.startswith("--- ")
+        and "\n+++ " in lowered
+        or "patch" in labels
+    ):
         return "patch"
-    if "traceback (most recent call last)" in lowered or "compile error" in lowered or "stack trace" in lowered:
+    if (
+        "traceback (most recent call last)" in lowered
+        or "compile error" in lowered
+        or "stack trace" in lowered
+    ):
         return "debug_trace"
-    if "test_" in lowered or "pytest" in lowered or "unittest" in lowered or "assert " in lowered:
+    if (
+        "test_" in lowered
+        or "pytest" in lowered
+        or "unittest" in lowered
+        or "assert " in lowered
+    ):
         return "test"
-    if CVE_RE.search(text) or CWE_RE.search(text) or "known exploited vulnerabilities" in lowered:
+    if (
+        CVE_RE.search(text)
+        or CWE_RE.search(text)
+        or "known exploited vulnerabilities" in lowered
+    ):
         return "security_advisory"
     if "vulnerability" in lowered or "mitigation" in lowered or "owasp" in lowered:
         return "security_reference"
@@ -270,7 +299,11 @@ def _text_metrics(normalized: str) -> dict[str, float]:
 def build_labels(text: str) -> list[str]:
     lowered = text.lower()
     labels: list[str] = []
-    if any(term in lowered for term in DEFENSIVE_SECURITY_TERMS) or CVE_RE.search(text) or CWE_RE.search(text):
+    if (
+        any(term in lowered for term in DEFENSIVE_SECURITY_TERMS)
+        or CVE_RE.search(text)
+        or CWE_RE.search(text)
+    ):
         labels.append("defensive_security")
     if any(term in lowered for term in AGENTIC_CODING_TERMS):
         labels.append("agentic_coding")
@@ -287,7 +320,9 @@ def build_labels(text: str) -> list[str]:
     return labels
 
 
-def quality_score(*, text: str, labels: list[str], reasons: list[str]) -> tuple[float, dict[str, float], list[str]]:
+def quality_score(
+    *, text: str, labels: list[str], reasons: list[str]
+) -> tuple[float, dict[str, float], list[str]]:
     if reasons:
         return 0.0, {}, []
     normalized = text.strip()
@@ -304,8 +339,12 @@ def quality_score(*, text: str, labels: list[str], reasons: list[str]) -> tuple[
         "agentic_signal": _bounded(agentic_hits / 4),
         "code_signal": _bounded((code_hits + (1 if "code" in labels else 0)) / 5),
         "test_signal": 1.0 if "tests" in labels else 0.0,
-        "structure": _bounded((metrics["line_count"] / 80) + (0.3 if "patch" in labels else 0.0)),
-        "low_noise": _bounded(1.0 - (noise_hits * 0.18) - metrics["repeated_line_ratio"]),
+        "structure": _bounded(
+            (metrics["line_count"] / 80) + (0.3 if "patch" in labels else 0.0)
+        ),
+        "low_noise": _bounded(
+            1.0 - (noise_hits * 0.18) - metrics["repeated_line_ratio"]
+        ),
         "lexical_diversity": _bounded(metrics["unique_word_ratio"] * 4),
     }
     score = (
@@ -332,14 +371,20 @@ def quality_score(*, text: str, labels: list[str], reasons: list[str]) -> tuple[
         risk_flags.append("repeated_lines")
     if metrics["unique_word_ratio"] < 0.12:
         risk_flags.append("low_lexical_diversity")
-    return round(_bounded(score), 6), {key: round(value, 6) for key, value in components.items()}, risk_flags
+    return (
+        round(_bounded(score), 6),
+        {key: round(value, 6) for key, value in components.items()},
+        risk_flags,
+    )
 
 
 class DatasetQualityGate:
     def __init__(self, config: QualityGateConfig | None = None) -> None:
         self.config = config or QualityGateConfig()
 
-    def evaluate(self, row: dict[str, Any], *, seen: set[str] | None = None) -> QualityDecision:
+    def evaluate(
+        self, row: dict[str, Any], *, seen: set[str] | None = None
+    ) -> QualityDecision:
         text = str(row.get("text") or row.get("content") or "")
         normalized = "\n".join(line.rstrip() for line in text.splitlines()).strip()
         compact = " ".join(normalized.split())
@@ -350,12 +395,24 @@ class DatasetQualityGate:
             reasons.append("too_short")
         if len(compact) > self.config.max_chars:
             reasons.append("too_large")
-        license_name = str(row.get("license") or row.get("metadata", {}).get("license") or "").lower()
-        metadata = row.get("metadata", {}) if isinstance(row.get("metadata"), dict) else {}
-        content_type = str(metadata.get("content_type") or row.get("content_type") or "").split(";")[0].strip().lower()
+        license_name = str(
+            row.get("license") or row.get("metadata", {}).get("license") or ""
+        ).lower()
+        metadata = (
+            row.get("metadata", {}) if isinstance(row.get("metadata"), dict) else {}
+        )
+        content_type = (
+            str(metadata.get("content_type") or row.get("content_type") or "")
+            .split(";")[0]
+            .strip()
+            .lower()
+        )
         if content_type in BINARY_CONTENT_TYPES:
             reasons.append("non_text_content_type")
-        if self.config.require_license and license_name not in self.config.allowed_licenses:
+        if (
+            self.config.require_license
+            and license_name not in self.config.allowed_licenses
+        ):
             reasons.append("license_not_allowed")
         if self.config.reject_secrets and SECRET_RE.search(text):
             reasons.append("secret_like_content")
@@ -364,9 +421,15 @@ class DatasetQualityGate:
         if seen is not None and digest in seen:
             reasons.append("duplicate")
         metrics = _text_metrics(compact)
-        if len(compact) >= self.config.min_chars and metrics["alpha_ratio"] < self.config.min_alpha_ratio:
+        if (
+            len(compact) >= self.config.min_chars
+            and metrics["alpha_ratio"] < self.config.min_alpha_ratio
+        ):
             reasons.append("low_text_signal")
-        if metrics["word_count"] >= 80 and metrics["unique_word_ratio"] < self.config.min_unique_word_ratio:
+        if (
+            metrics["word_count"] >= 80
+            and metrics["unique_word_ratio"] < self.config.min_unique_word_ratio
+        ):
             risk_flags.append("low_unique_word_ratio")
             if metrics["unique_word_ratio"] < 0.025:
                 reasons.append("low_unique_word_ratio")
@@ -376,11 +439,19 @@ class DatasetQualityGate:
         labels = build_labels(normalized)
         language_hint = infer_language(text, str(row.get("url") or ""))
         data_type = infer_data_type(text, labels)
-        score, component_scores, score_flags = quality_score(text=normalized, labels=labels, reasons=reasons)
+        score, component_scores, score_flags = quality_score(
+            text=normalized, labels=labels, reasons=reasons
+        )
         risk_flags.extend(score_flags)
-        if "heavy_boilerplate_noise" in risk_flags and "code" not in labels and "defensive_security" not in labels:
+        if (
+            "heavy_boilerplate_noise" in risk_flags
+            and "code" not in labels
+            and "defensive_security" not in labels
+        ):
             reasons.append("heavy_boilerplate_noise")
-            score, component_scores, score_flags = quality_score(text=normalized, labels=labels, reasons=reasons)
+            score, component_scores, score_flags = quality_score(
+                text=normalized, labels=labels, reasons=reasons
+            )
             risk_flags.extend(score_flags)
         return QualityDecision(
             accepted=not reasons,
@@ -394,7 +465,9 @@ class DatasetQualityGate:
             risk_flags=sorted(set(risk_flags)),
         )
 
-    def filter_jsonl(self, input_path: str | Path, output_path: str | Path) -> QualityGateReport:
+    def filter_jsonl(
+        self, input_path: str | Path, output_path: str | Path
+    ) -> QualityGateReport:
         seen: set[str] = set()
         accepted = rejected = duplicate = 0
         target = Path(output_path)
@@ -411,5 +484,10 @@ class DatasetQualityGate:
                 row["quality"] = decision.model_dump()
                 handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
                 accepted += 1
-        return QualityGateReport(input_path=str(input_path), output_path=str(target), accepted=accepted, rejected=rejected, duplicate=duplicate)
-
+        return QualityGateReport(
+            input_path=str(input_path),
+            output_path=str(target),
+            accepted=accepted,
+            rejected=rejected,
+            duplicate=duplicate,
+        )

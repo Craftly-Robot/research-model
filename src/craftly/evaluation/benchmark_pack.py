@@ -1,4 +1,4 @@
-﻿"""One-command benchmark pack runner for Craftly coding/security evaluation."""
+"""One-command benchmark pack runner for Craftly coding/security evaluation."""
 
 from __future__ import annotations
 
@@ -14,11 +14,17 @@ from urllib.parse import urlparse
 import httpx
 from pydantic import Field, field_validator, model_validator
 
+from src.craftly.evaluation.benchmark_suites import (
+    BenchmarkSuiteSpec,
+    BenchmarkSuitesReport,
+    run_benchmark_suites,
+)
 from src.craftly.evaluation.benchmarks import built_in_security_tasks
-from src.craftly.evaluation.benchmark_suites import BenchmarkSuiteSpec, BenchmarkSuitesReport, run_benchmark_suites
-from src.craftly.learning.benchmark_contamination_filter import build_protected_fingerprint_index
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.learning.benchmark_contamination_filter import (
+    build_protected_fingerprint_index,
+)
 from src.craftly.shared.integrity import sha256_file as _sha256_file
+from src.craftly.shared.schemas import StrictModel
 
 
 class BenchmarkPackConfig(StrictModel):
@@ -68,17 +74,28 @@ class BenchmarkMaterializationReport(StrictModel):
             "train_policy": self.train_policy,
         }.items():
             if set(values) != expected_keys:
-                raise ValueError(f"materialization report {name} keys do not match files")
+                raise ValueError(
+                    f"materialization report {name} keys do not match files"
+                )
         for digest in self.sha256.values():
             normalized = digest.lower()
-            if len(normalized) != 64 or any(character not in "0123456789abcdef" for character in normalized):
+            if len(normalized) != 64 or any(
+                character not in "0123456789abcdef" for character in normalized
+            ):
                 raise ValueError("materialized benchmark hash must be SHA-256 hex")
         return self
 
 
 class ProtectedBenchmarkSource(StrictModel):
     name: str = Field(pattern=r"^[a-z0-9][a-z0-9._-]{1,79}$")
-    kind: Literal["jsonl_gzip", "jsonl", "json", "parquet", "huggingface_dataset", "builtin_craftly"]
+    kind: Literal[
+        "jsonl_gzip",
+        "jsonl",
+        "json",
+        "parquet",
+        "huggingface_dataset",
+        "builtin_craftly",
+    ]
     revision: str = Field(min_length=7, max_length=128)
     license: str = Field(min_length=2, max_length=100)
     output_file: str = Field(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9._/-]*\.jsonl$")
@@ -93,12 +110,19 @@ class ProtectedBenchmarkSource(StrictModel):
     @model_validator(mode="after")
     def validate_source(self) -> "ProtectedBenchmarkSource":
         if ".." in Path(self.output_file).parts or Path(self.output_file).is_absolute():
-            raise ValueError("benchmark output_file must stay inside the target directory")
+            raise ValueError(
+                "benchmark output_file must stay inside the target directory"
+            )
         if self.kind in {"jsonl_gzip", "jsonl", "json", "parquet"}:
             if not self.url:
                 raise ValueError(f"{self.name} requires url")
             parsed = urlparse(self.url)
-            if parsed.scheme != "https" or parsed.username or parsed.password or not parsed.hostname:
+            if (
+                parsed.scheme != "https"
+                or parsed.username
+                or parsed.password
+                or not parsed.hostname
+            ):
                 raise ValueError(f"{self.name} requires a credential-free HTTPS URL")
             if self.revision not in parsed.path:
                 raise ValueError(f"{self.name} URL must contain its immutable revision")
@@ -139,7 +163,9 @@ class ProtectedBenchmarkArtifact(StrictModel):
     @classmethod
     def validate_sha256(cls, value: str) -> str:
         normalized = value.lower()
-        if len(normalized) != 64 or any(character not in "0123456789abcdef" for character in normalized):
+        if len(normalized) != 64 or any(
+            character not in "0123456789abcdef" for character in normalized
+        ):
             raise ValueError("artifact sha256 must be SHA-256 hex")
         return normalized
 
@@ -225,7 +251,9 @@ def _download_bytes(url: str, *, max_bytes: int = 20_000_000) -> bytes:
             for chunk in response.iter_bytes():
                 payload.extend(chunk)
                 if len(payload) > max_bytes:
-                    raise ValueError(f"benchmark download exceeded {max_bytes} bytes: {url}")
+                    raise ValueError(
+                        f"benchmark download exceeded {max_bytes} bytes: {url}"
+                    )
             return bytes(payload)
     raise ValueError(f"benchmark download exceeded redirect limit: {url}")
 
@@ -238,16 +266,26 @@ def _write_jsonl_rows(path: Path, rows: list[dict[str, Any]]) -> int:
     return len(rows)
 
 
-def materialize_public_benchmark_pack(output_dir: str | Path) -> BenchmarkMaterializationReport:
+def materialize_public_benchmark_pack(
+    output_dir: str | Path,
+) -> BenchmarkMaterializationReport:
     """Fetch public coding benchmarks into Craftly' local eval JSONL format."""
     root = Path(output_dir)
     root.mkdir(parents=True, exist_ok=True)
     human_contract = PUBLIC_BENCHMARK_SOURCES["humaneval"]
     mbpp_contract = PUBLIC_BENCHMARK_SOURCES["mbpp"]
     human_payload = gzip.decompress(_download_bytes(str(human_contract["url"])))
-    human_rows = [json.loads(line) for line in human_payload.decode("utf-8").splitlines() if line.strip()]
+    human_rows = [
+        json.loads(line)
+        for line in human_payload.decode("utf-8").splitlines()
+        if line.strip()
+    ]
     mbpp_payload = _download_bytes(str(mbpp_contract["url"]))
-    mbpp_rows = [json.loads(line) for line in mbpp_payload.decode("utf-8").splitlines() if line.strip()]
+    mbpp_rows = [
+        json.loads(line)
+        for line in mbpp_payload.decode("utf-8").splitlines()
+        if line.strip()
+    ]
     files = {
         "humaneval": str(root / "humaneval.jsonl"),
         "mbpp": str(root / "mbpp.jsonl"),
@@ -261,7 +299,9 @@ def materialize_public_benchmark_pack(output_dir: str | Path) -> BenchmarkMateri
         "mbpp": int(mbpp_contract["minimum_rows"]),
     }
     report = BenchmarkMaterializationReport(
-        status="passed" if all(rows[name] >= minimums[name] for name in minimums) else "failed",
+        status="passed"
+        if all(rows[name] >= minimums[name] for name in minimums)
+        else "failed",
         output_dir=str(root),
         files=files,
         rows=rows,
@@ -280,21 +320,35 @@ def materialize_public_benchmark_pack(output_dir: str | Path) -> BenchmarkMateri
         sha256={name: _sha256_file(Path(path)) for name, path in files.items()},
         train_policy={"humaneval": "eval_holdout", "mbpp": "eval_holdout"},
     )
-    (root / "benchmark_materialization_report.json").write_text(json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+    (root / "benchmark_materialization_report.json").write_text(
+        json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8"
+    )
     return report
 
 
-def _rows_from_payload(source: ProtectedBenchmarkSource, payload: bytes) -> list[dict[str, Any]]:
+def _rows_from_payload(
+    source: ProtectedBenchmarkSource, payload: bytes
+) -> list[dict[str, Any]]:
     if source.kind == "jsonl_gzip":
         payload = gzip.decompress(payload)
-        return [json.loads(line) for line in payload.decode("utf-8").splitlines() if line.strip()]
+        return [
+            json.loads(line)
+            for line in payload.decode("utf-8").splitlines()
+            if line.strip()
+        ]
     if source.kind == "jsonl":
-        return [json.loads(line) for line in payload.decode("utf-8-sig").splitlines() if line.strip()]
+        return [
+            json.loads(line)
+            for line in payload.decode("utf-8-sig").splitlines()
+            if line.strip()
+        ]
     if source.kind == "parquet":
         try:
             import pyarrow.parquet as parquet
         except ImportError as exc:
-            raise RuntimeError("pyarrow is required to materialize a protected Parquet benchmark") from exc
+            raise RuntimeError(
+                "pyarrow is required to materialize a protected Parquet benchmark"
+            ) from exc
         table = parquet.read_table(io.BytesIO(payload))
         return [dict(row) for row in table.to_pylist()]
     parsed = json.loads(payload.decode("utf-8-sig"))
@@ -311,11 +365,15 @@ def _rows_from_payload(source: ProtectedBenchmarkSource, payload: bytes) -> list
 
 def _load_huggingface_rows(source: ProtectedBenchmarkSource) -> list[dict[str, Any]]:
     if source.dataset_id not in HUGGINGFACE_DATASETS:
-        raise ValueError(f"Hugging Face dataset is not allowlisted: {source.dataset_id}")
+        raise ValueError(
+            f"Hugging Face dataset is not allowlisted: {source.dataset_id}"
+        )
     try:
         from datasets import load_dataset
     except ImportError as exc:
-        raise RuntimeError("datasets is required to materialize the protected SWE-bench holdout") from exc
+        raise RuntimeError(
+            "datasets is required to materialize the protected SWE-bench holdout"
+        ) from exc
     dataset = load_dataset(
         source.dataset_id,
         source.subset,
@@ -327,7 +385,9 @@ def _load_huggingface_rows(source: ProtectedBenchmarkSource) -> list[dict[str, A
 
 
 def load_protected_benchmark_config(path: str | Path) -> ProtectedBenchmarkConfig:
-    return ProtectedBenchmarkConfig.model_validate_json(Path(path).read_text(encoding="utf-8"))
+    return ProtectedBenchmarkConfig.model_validate_json(
+        Path(path).read_text(encoding="utf-8")
+    )
 
 
 def validate_protected_benchmark_manifest(
@@ -337,7 +397,9 @@ def validate_protected_benchmark_manifest(
     config_file = Path(config_path).resolve()
     manifest_file = Path(manifest_path).resolve()
     config = load_protected_benchmark_config(config_file)
-    manifest = ProtectedBenchmarkManifest.model_validate_json(manifest_file.read_text(encoding="utf-8"))
+    manifest = ProtectedBenchmarkManifest.model_validate_json(
+        manifest_file.read_text(encoding="utf-8")
+    )
     failures: list[str] = []
     if manifest.pack_id != config.pack_id:
         failures.append("pack_id mismatch")
@@ -351,7 +413,9 @@ def validate_protected_benchmark_manifest(
         source = configured.get(artifact.name)
         path = (root / artifact.path).resolve()
         if root not in path.parents:
-            failures.append(f"{artifact.name}: artifact path escapes manifest directory")
+            failures.append(
+                f"{artifact.name}: artifact path escapes manifest directory"
+            )
             continue
         if source is None:
             continue
@@ -363,11 +427,16 @@ def validate_protected_benchmark_manifest(
         rows = _jsonl_count(str(path))
         if rows != artifact.rows or rows < source.minimum_rows:
             failures.append(f"{artifact.name}: row count mismatch or below minimum")
-        if artifact.revision != source.revision or artifact.license.lower() != source.license.lower():
+        if (
+            artifact.revision != source.revision
+            or artifact.license.lower() != source.license.lower()
+        ):
             failures.append(f"{artifact.name}: source contract mismatch")
     index_path = (root / manifest.fingerprint_index_path).resolve()
     if root not in index_path.parents or not index_path.is_file():
-        failures.append("protected fingerprint index missing or outside manifest directory")
+        failures.append(
+            "protected fingerprint index missing or outside manifest directory"
+        )
     elif _sha256_file(index_path) != manifest.fingerprint_index_sha256:
         failures.append("protected fingerprint index hash mismatch")
     if failures:
@@ -380,7 +449,9 @@ def materialize_protected_benchmark_pack(
     output_dir: str | Path,
     *,
     downloader: Callable[..., bytes] = _download_bytes,
-    huggingface_loader: Callable[[ProtectedBenchmarkSource], list[dict[str, Any]]] = _load_huggingface_rows,
+    huggingface_loader: Callable[
+        [ProtectedBenchmarkSource], list[dict[str, Any]]
+    ] = _load_huggingface_rows,
 ) -> ProtectedBenchmarkManifest:
     """Materialize an immutable, eval-only benchmark pack and fingerprint DB."""
 
@@ -388,7 +459,9 @@ def materialize_protected_benchmark_pack(
     config = load_protected_benchmark_config(config_file)
     root = Path(output_dir).resolve()
     if root.exists() and any(root.iterdir()):
-        raise FileExistsError(f"protected benchmark output directory must be empty: {root}")
+        raise FileExistsError(
+            f"protected benchmark output directory must be empty: {root}"
+        )
     root.mkdir(parents=True, exist_ok=True)
     artifacts: list[ProtectedBenchmarkArtifact] = []
     holdouts: list[Path] = []
@@ -399,14 +472,18 @@ def materialize_protected_benchmark_pack(
             rows = huggingface_loader(source)
         else:
             assert source.url is not None
-            rows = _rows_from_payload(source, downloader(source.url, max_bytes=source.maximum_bytes))
+            rows = _rows_from_payload(
+                source, downloader(source.url, max_bytes=source.maximum_bytes)
+            )
         if len(rows) < source.minimum_rows:
             raise ValueError(
                 f"{source.name} produced {len(rows)} rows; minimum is {source.minimum_rows}"
             )
         target = (root / source.output_file).resolve()
         if root not in target.parents:
-            raise ValueError(f"benchmark output escapes target directory: {source.output_file}")
+            raise ValueError(
+                f"benchmark output escapes target directory: {source.output_file}"
+            )
         _write_jsonl_rows(target, rows)
         holdouts.append(target)
         artifacts.append(
@@ -439,7 +516,9 @@ def materialize_protected_benchmark_pack(
     return manifest
 
 
-def _spec(name: str, kind: str, path: str | None, *, required: bool) -> BenchmarkSuiteSpec | None:
+def _spec(
+    name: str, kind: str, path: str | None, *, required: bool
+) -> BenchmarkSuiteSpec | None:
     if not path:
         return None
     return BenchmarkSuiteSpec(name=name, kind=kind, path=path, required=required)  # type: ignore[arg-type]
@@ -448,7 +527,11 @@ def _spec(name: str, kind: str, path: str | None, *, required: bool) -> Benchmar
 def _jsonl_count(path: str | None) -> int:
     if not path or not Path(path).exists():
         return 0
-    return sum(1 for line in Path(path).read_text(encoding="utf-8-sig").splitlines() if line.strip())
+    return sum(
+        1
+        for line in Path(path).read_text(encoding="utf-8-sig").splitlines()
+        if line.strip()
+    )
 
 
 def validate_production_benchmark_pack(config: BenchmarkPackConfig) -> list[str]:
@@ -464,11 +547,15 @@ def validate_production_benchmark_pack(config: BenchmarkPackConfig) -> list[str]
     for name, (path, minimum) in required.items():
         count = _jsonl_count(path)
         if count < minimum:
-            failures.append(f"{name} requires at least {minimum} JSONL rows, found {count}")
+            failures.append(
+                f"{name} requires at least {minimum} JSONL rows, found {count}"
+            )
     return failures
 
 
-def run_benchmark_pack(config: BenchmarkPackConfig, *, output_dir: str | Path) -> BenchmarkPackReport:
+def run_benchmark_pack(
+    config: BenchmarkPackConfig, *, output_dir: str | Path
+) -> BenchmarkPackReport:
     production_failures = validate_production_benchmark_pack(config)
     if production_failures:
         root = Path(output_dir)
@@ -478,17 +565,42 @@ def run_benchmark_pack(config: BenchmarkPackConfig, *, output_dir: str | Path) -
             strict=config.strict,
             required_suites=[],
             optional_suites=[],
-            suite_report={"status": "failed", "production_failures": production_failures},
+            suite_report={
+                "status": "failed",
+                "production_failures": production_failures,
+            },
             recommendations=production_failures,
         )
-        (root / "benchmark_pack_report.json").write_text(json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+        (root / "benchmark_pack_report.json").write_text(
+            json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8"
+        )
         return report
     specs = [
-        _spec("humaneval", "human_eval_style", config.human_eval_path, required=config.strict),
+        _spec(
+            "humaneval",
+            "human_eval_style",
+            config.human_eval_path,
+            required=config.strict,
+        ),
         _spec("mbpp", "mbpp_style", config.mbpp_path, required=config.strict),
-        _spec("swe_bench", "swe_bench_style", config.swe_bench_path, required=config.strict),
-        _spec("cyberseceval", "cyberseceval_style", config.cyberseceval_path, required=config.strict),
-        _spec("custom_security", "custom_security", config.custom_security_path, required=False),
+        _spec(
+            "swe_bench",
+            "swe_bench_style",
+            config.swe_bench_path,
+            required=config.strict,
+        ),
+        _spec(
+            "cyberseceval",
+            "cyberseceval_style",
+            config.cyberseceval_path,
+            required=config.strict,
+        ),
+        _spec(
+            "custom_security",
+            "custom_security",
+            config.custom_security_path,
+            required=False,
+        ),
     ]
     active_specs = [item for item in specs if item is not None]
     if not active_specs:
@@ -499,13 +611,23 @@ def run_benchmark_pack(config: BenchmarkPackConfig, *, output_dir: str | Path) -
     required = [item.name for item in active_specs if item.required]
     optional = [item.name for item in active_specs if not item.required]
     recommendations: list[str] = []
-    missing_required = [item.name for item in suite_report.suites if item.status == "failed" and "missing" in item.reason]
+    missing_required = [
+        item.name
+        for item in suite_report.suites
+        if item.status == "failed" and "missing" in item.reason
+    ]
     if missing_required:
-        recommendations.append("Provide local benchmark JSONL files for required suites before claiming benchmark coverage.")
+        recommendations.append(
+            "Provide local benchmark JSONL files for required suites before claiming benchmark coverage."
+        )
     if suite_report.aggregate_score < 0.75:
-        recommendations.append("Investigate benchmark failures before promoting the checkpoint.")
+        recommendations.append(
+            "Investigate benchmark failures before promoting the checkpoint."
+        )
     if "custom_security" not in optional:
-        recommendations.append("Add Craftly-owned custom security regression suite for non-public holdout coverage.")
+        recommendations.append(
+            "Add Craftly-owned custom security regression suite for non-public holdout coverage."
+        )
     report = BenchmarkPackReport(
         status=suite_report.status,
         strict=config.strict,
@@ -514,15 +636,29 @@ def run_benchmark_pack(config: BenchmarkPackConfig, *, output_dir: str | Path) -
         suite_report=suite_report.model_dump(),
         recommendations=recommendations,
     )
-    (root / "benchmark_pack_report.json").write_text(json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+    (root / "benchmark_pack_report.json").write_text(
+        json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8"
+    )
     return report
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run Craftly HumanEval/MBPP/SWE/CyberSec benchmark pack.")
-    parser.add_argument("--materialize-public", action="store_true", help="Download public HumanEval and MBPP JSONL files into --target-dir.")
-    parser.add_argument("--materialize-protected", action="store_true", help="Build the pinned, eval-only protected benchmark pack.")
-    parser.add_argument("--protected-config", default="config/protected_benchmarks.json")
+    parser = argparse.ArgumentParser(
+        description="Run Craftly HumanEval/MBPP/SWE/CyberSec benchmark pack."
+    )
+    parser.add_argument(
+        "--materialize-public",
+        action="store_true",
+        help="Download public HumanEval and MBPP JSONL files into --target-dir.",
+    )
+    parser.add_argument(
+        "--materialize-protected",
+        action="store_true",
+        help="Build the pinned, eval-only protected benchmark pack.",
+    )
+    parser.add_argument(
+        "--protected-config", default="config/protected_benchmarks.json"
+    )
     parser.add_argument("--validate-protected-manifest")
     parser.add_argument("--target-dir", default="data/eval")
     parser.add_argument("--human-eval")
@@ -543,11 +679,15 @@ def _parse_args() -> argparse.Namespace:
 def main() -> None:
     args = _parse_args()
     if args.materialize_protected:
-        manifest = materialize_protected_benchmark_pack(args.protected_config, args.target_dir)
+        manifest = materialize_protected_benchmark_pack(
+            args.protected_config, args.target_dir
+        )
         print(json.dumps(manifest.model_dump(mode="json"), indent=2, sort_keys=True))
         return
     if args.validate_protected_manifest:
-        manifest = validate_protected_benchmark_manifest(args.protected_config, args.validate_protected_manifest)
+        manifest = validate_protected_benchmark_manifest(
+            args.protected_config, args.validate_protected_manifest
+        )
         print(json.dumps(manifest.model_dump(mode="json"), indent=2, sort_keys=True))
         return
     if args.materialize_public:
@@ -579,4 +719,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

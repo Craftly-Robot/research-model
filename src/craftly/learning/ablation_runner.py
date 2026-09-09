@@ -33,14 +33,16 @@ from pydantic import Field, field_validator, model_validator
 
 from src.craftly.learning.mixer import MixManifest, build_mix, load_mix_config
 from src.craftly.model_ops.foundation import ScratchDecoderConfig, model_profile
-from src.craftly.model_ops.tokenizer_pipeline import SPECIAL_TOKENS, TokenizerArtifactManifest
+from src.craftly.model_ops.tokenizer_pipeline import (
+    SPECIAL_TOKENS,
+    TokenizerArtifactManifest,
+)
 from src.craftly.shared.config_contracts import (
     ScientificExperimentCampaignContract,
     load_scientific_experiment_registry,
 )
 from src.craftly.shared.integrity import canonical_json_bytes, sha256_file
 from src.craftly.shared.schemas import StrictModel
-
 
 ExperimentStatus = Literal["passed", "failed", "blocked", "not_run"]
 HEX_SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -72,7 +74,9 @@ def _exclusive_json(path: Path, payload: Any) -> Path:
     return path
 
 
-def _json_object(path: str | Path, *, maximum_bytes: int = 64 * 1024 * 1024) -> dict[str, Any]:
+def _json_object(
+    path: str | Path, *, maximum_bytes: int = 64 * 1024 * 1024
+) -> dict[str, Any]:
     source = Path(path).expanduser().resolve(strict=True)
     if not source.is_file():
         raise ValueError(f"JSON evidence is not a regular file: {source}")
@@ -101,7 +105,9 @@ def _git_commit() -> str:
     )
     commit = result.stdout.strip().lower()
     if result.returncode != 0 or re.fullmatch(r"[0-9a-f]{7,64}", commit) is None:
-        raise RuntimeError("a readable immutable Git commit is required for an experiment")
+        raise RuntimeError(
+            "a readable immutable Git commit is required for an experiment"
+        )
     return commit
 
 
@@ -163,7 +169,9 @@ def _bind_evaluation_inputs(
             raise ValueError(f"evaluation manifest is missing {name}")
         artifact = BoundArtifact.bind(name, raw_path)
         declared = policy.get(f"{name}_sha256")
-        if declared is not None and not hmac.compare_digest(str(declared), artifact.sha256):
+        if declared is not None and not hmac.compare_digest(
+            str(declared), artifact.sha256
+        ):
             raise ValueError(f"evaluation manifest {name} hash mismatch")
         bindings[name] = artifact
 
@@ -184,13 +192,17 @@ def _bind_evaluation_inputs(
             raise ValueError(f"evaluation suite path is missing: {name}")
         artifact = BoundArtifact.bind(name, path)
         declared = row.get("sha256")
-        if declared is not None and not hmac.compare_digest(str(declared), artifact.sha256):
+        if declared is not None and not hmac.compare_digest(
+            str(declared), artifact.sha256
+        ):
             raise ValueError(f"evaluation suite hash mismatch: {name}")
         bindings[f"suite:{name}"] = artifact
         seen.add(name)
     missing = sorted(set(required_suites) - seen)
     if missing:
-        raise ValueError(f"evaluation manifest is missing required campaign suites: {missing}")
+        raise ValueError(
+            f"evaluation manifest is missing required campaign suites: {missing}"
+        )
     return bindings
 
 
@@ -218,15 +230,22 @@ class ExperimentArmPlan(StrictModel):
     @model_validator(mode="after")
     def verify_model_contract(self) -> "ExperimentArmPlan":
         contract = ScratchDecoderConfig.model_validate(self.model_contract)
-        if not hmac.compare_digest(contract.contract_sha256(), self.model_contract_sha256):
+        if not hmac.compare_digest(
+            contract.contract_sha256(), self.model_contract_sha256
+        ):
             raise ValueError("experiment arm model contract hash mismatch")
         report = contract.parameter_report()
-        if int(report["total"]) != self.total_parameters or int(report["active"]) != self.active_parameters:
+        if (
+            int(report["total"]) != self.total_parameters
+            or int(report["active"]) != self.active_parameters
+        ):
             raise ValueError("experiment arm parameter accounting mismatch")
         if contract.vocab_size != self.vocab_size:
             raise ValueError("experiment arm vocabulary does not match model contract")
         expected_flops = float(6 * self.active_parameters * self.token_budget)
-        if not math.isclose(self.canonical_training_flops, expected_flops, rel_tol=1e-12):
+        if not math.isclose(
+            self.canonical_training_flops, expected_flops, rel_tol=1e-12
+        ):
             raise ValueError("experiment arm canonical training FLOPs mismatch")
         return self
 
@@ -274,8 +293,12 @@ class ScientificArmExecutionRequest(StrictModel):
         if self.optimizer_steps * self.tokens_per_optimizer_step != self.token_budget:
             raise ValueError("scientific arm token budget is not exactly executable")
         expected_flops = float(6 * self.active_parameters * self.token_budget)
-        if not math.isclose(self.canonical_training_flops, expected_flops, rel_tol=1e-12):
-            raise ValueError("scientific execution request FLOPs do not match its active compute")
+        if not math.isclose(
+            self.canonical_training_flops, expected_flops, rel_tol=1e-12
+        ):
+            raise ValueError(
+                "scientific execution request FLOPs do not match its active compute"
+            )
         for value in (
             self.tokenizer_manifest_sha256,
             self.shard_manifest_sha256,
@@ -286,15 +309,21 @@ class ScientificArmExecutionRequest(StrictModel):
             self.evaluation_manifest_sha256,
         ):
             if HEX_SHA256.fullmatch(value) is None:
-                raise ValueError("scientific execution request contains an invalid SHA-256")
+                raise ValueError(
+                    "scientific execution request contains an invalid SHA-256"
+                )
         if SAFE_CONTAINER_DIGEST.fullmatch(self.container_digest) is None:
-            raise ValueError("scientific execution request requires a pinned container digest")
+            raise ValueError(
+                "scientific execution request requires a pinned container digest"
+            )
         return self
 
 
 class ExperimentManifest(StrictModel):
     schema_version: Literal[2] = 2
-    authority: Literal["craftly_scientific_experiment"] = "craftly_scientific_experiment"
+    authority: Literal["craftly_scientific_experiment"] = (
+        "craftly_scientific_experiment"
+    )
     experiment_id: str
     campaign: ScientificExperimentCampaignContract
     campaign_sha256: str
@@ -343,19 +372,27 @@ class ExperimentManifest(StrictModel):
                 "experiment tokenizer bindings do not match the campaign: "
                 f"expected={sorted(expected_tokenizer_keys)} actual={sorted(self.tokenizers)}"
             )
-        required_evaluation_keys = {f"suite:{name}" for name in self.campaign.required_evaluation_suites}
-        if not {"protected_config", "protected_manifest", *required_evaluation_keys}.issubset(
-            self.evaluation_inputs
-        ):
+        required_evaluation_keys = {
+            f"suite:{name}" for name in self.campaign.required_evaluation_suites
+        }
+        if not {
+            "protected_config",
+            "protected_manifest",
+            *required_evaluation_keys,
+        }.issubset(self.evaluation_inputs):
             raise ValueError("experiment evaluation inputs are incomplete")
         return self
 
     def sealed(self) -> "ExperimentManifest":
-        return self.model_copy(update={"manifest_sha256": _digest_model(self, omitted={"manifest_sha256"})})
+        return self.model_copy(
+            update={"manifest_sha256": _digest_model(self, omitted={"manifest_sha256"})}
+        )
 
     def verify(self) -> None:
         expected = _digest_model(self, omitted={"manifest_sha256"})
-        if not self.manifest_sha256 or not hmac.compare_digest(expected, self.manifest_sha256):
+        if not self.manifest_sha256 or not hmac.compare_digest(
+            expected, self.manifest_sha256
+        ):
             raise ValueError("experiment manifest has been modified")
         for artifact in self.bindings.values():
             artifact.verify()
@@ -370,9 +407,13 @@ class ExperimentManifest(StrictModel):
         }
         for key, contract in contracts.items():
             if key != "selected" and contract.vocab_size != int(key):
-                raise ValueError(f"tokenizer candidate {key} contains vocabulary {contract.vocab_size}")
+                raise ValueError(
+                    f"tokenizer candidate {key} contains vocabulary {contract.vocab_size}"
+                )
         selected_vocab = contracts.get("selected")
-        if selected_vocab is not None and any(arm.vocab_size != selected_vocab.vocab_size for arm in self.arms):
+        if selected_vocab is not None and any(
+            arm.vocab_size != selected_vocab.vocab_size for arm in self.arms
+        ):
             raise ValueError("model arms do not use the selected tokenizer vocabulary")
 
 
@@ -385,21 +426,30 @@ def _verified_tokenizer_contract(
     contract = TokenizerArtifactManifest.model_validate(_json_object(artifact.path))
     if contract.status != "passed":
         raise ValueError(f"tokenizer manifest did not pass: {artifact.name}")
-    if not contract.family_safe_split or contract.split_strategy != "pre_split_family_safe":
+    if (
+        not contract.family_safe_split
+        or contract.split_strategy != "pre_split_family_safe"
+    ):
         raise ValueError(f"tokenizer corpus is not family-safe: {artifact.name}")
-    missing_control_tokens = sorted({"<unk>", *SPECIAL_TOKENS} - set(contract.special_tokens))
+    missing_control_tokens = sorted(
+        {"<unk>", *SPECIAL_TOKENS} - set(contract.special_tokens)
+    )
     if missing_control_tokens:
         raise ValueError(
             f"tokenizer manifest is missing required control tokens: {missing_control_tokens}"
         )
-    if not hmac.compare_digest(contract.dataset_manifest_sha256, dataset_manifest_sha256):
+    if not hmac.compare_digest(
+        contract.dataset_manifest_sha256, dataset_manifest_sha256
+    ):
         raise ValueError(f"tokenizer dataset binding mismatch: {artifact.name}")
     for label, path, expected in (
         ("tokenizer", contract.tokenizer_path, contract.tokenizer_sha256),
         ("token shards", contract.shard_manifest_path, contract.shard_manifest_sha256),
     ):
         source = Path(path).expanduser().resolve(strict=True)
-        if not source.is_file() or not hmac.compare_digest(sha256_file(source), expected):
+        if not source.is_file() or not hmac.compare_digest(
+            sha256_file(source), expected
+        ):
             raise ValueError(f"{label} integrity verification failed: {artifact.name}")
     return contract
 
@@ -408,7 +458,11 @@ def _manifest_tokenizer_contract(
     manifest: ExperimentManifest,
     arm: ExperimentArmPlan,
 ) -> TokenizerArtifactManifest:
-    key = str(arm.vocab_size) if manifest.campaign.experiment_type == "tokenizer_selection" else "selected"
+    key = (
+        str(arm.vocab_size)
+        if manifest.campaign.experiment_type == "tokenizer_selection"
+        else "selected"
+    )
     return _verified_tokenizer_contract(
         manifest.tokenizers[key],
         dataset_manifest_sha256=manifest.bindings["dataset_manifest"].sha256,
@@ -468,8 +522,12 @@ class ArmEvidence(StrictModel):
         if self.status == "passed" and self.blockers:
             raise ValueError("passed arm evidence cannot contain blockers")
         if self.evaluation_authority != PROMOTION_EVALUATION_AUTHORITY:
-            raise ValueError("only executable_model evaluation is admissible for promotion")
-        if not math.isfinite(self.validation_loss) or not math.isfinite(self.training_flops):
+            raise ValueError(
+                "only executable_model evaluation is admissible for promotion"
+            )
+        if not math.isfinite(self.validation_loss) or not math.isfinite(
+            self.training_flops
+        ):
             raise ValueError("training evidence contains non-finite metrics")
         return self
 
@@ -493,50 +551,88 @@ class ArmEvidence(StrictModel):
         if training.get("scratch_only") is not True:
             raise ValueError("bound training report is not scratch-origin")
         if training.get("objective") != self.objective:
-            raise ValueError("training report objective does not match the preregistered objective")
+            raise ValueError(
+                "training report objective does not match the preregistered objective"
+            )
         if not hmac.compare_digest(
             str(training.get("optimizer_policy_sha256") or ""),
             self.optimizer_policy_sha256,
         ):
-            raise ValueError("training report optimizer policy does not match the experiment")
+            raise ValueError(
+                "training report optimizer policy does not match the experiment"
+            )
         training_args = training.get("training_args")
         if not isinstance(training_args, dict):
             raise ValueError("training report is missing immutable training arguments")
         if training_args.get("step_semantics") != "optimizer_update_v2":
             raise ValueError("training report does not use optimizer-step semantics")
         if int(training_args.get("model_seed", -1)) != arm.seed:
-            raise ValueError("training report model seed does not match the preregistered arm seed")
-        expected_runtime_seed = arm.seed + int(training_args.get("distributed_rank", 0)) * 1_000_003
+            raise ValueError(
+                "training report model seed does not match the preregistered arm seed"
+            )
+        expected_runtime_seed = (
+            arm.seed + int(training_args.get("distributed_rank", 0)) * 1_000_003
+        )
         if int(training_args.get("runtime_seed", -1)) != expected_runtime_seed:
-            raise ValueError("training report runtime seed is not derived from the preregistered arm seed")
+            raise ValueError(
+                "training report runtime seed is not derived from the preregistered arm seed"
+            )
         if int(training_args.get("target_tokens", -1)) != self.trained_tokens:
-            raise ValueError("training arguments do not bind the preregistered token budget")
+            raise ValueError(
+                "training arguments do not bind the preregistered token budget"
+            )
         if int(training.get("trained_tokens", -1)) != self.trained_tokens:
-            raise ValueError("trained token count is not supported by the training report")
+            raise ValueError(
+                "trained token count is not supported by the training report"
+            )
         config = ScratchDecoderConfig.model_validate(training.get("model_config"))
         if config.contract_sha256() != self.model_contract_sha256:
             raise ValueError("training report model contract does not match the arm")
-        if training.get("checkpoint_reload_verified") is not self.checkpoint_reload_parity:
-            raise ValueError("checkpoint reload evidence does not match the arm summary")
-        if training.get("checkpoint_reload_logit_parity") is not self.checkpoint_reload_parity:
+        if (
+            training.get("checkpoint_reload_verified")
+            is not self.checkpoint_reload_parity
+        ):
+            raise ValueError(
+                "checkpoint reload evidence does not match the arm summary"
+            )
+        if (
+            training.get("checkpoint_reload_logit_parity")
+            is not self.checkpoint_reload_parity
+        ):
             raise ValueError("checkpoint logit parity does not match the arm summary")
         reported_validation = float(training.get("best_validation_loss", math.inf))
-        if not math.isclose(reported_validation, self.validation_loss, rel_tol=1e-8, abs_tol=1e-10):
+        if not math.isclose(
+            reported_validation, self.validation_loss, rel_tol=1e-8, abs_tol=1e-10
+        ):
             raise ValueError("validation loss is not supported by the training report")
         expected_flops = float(6 * self.active_parameters * self.trained_tokens)
         if not math.isclose(self.training_flops, expected_flops, rel_tol=1e-9):
-            raise ValueError("training FLOPs must use canonical 6*N_active*tokens accounting")
-        checkpoint_path = str(training.get("best_checkpoint_manifest") or training.get("checkpoint_manifest") or "")
+            raise ValueError(
+                "training FLOPs must use canonical 6*N_active*tokens accounting"
+            )
+        checkpoint_path = str(
+            training.get("best_checkpoint_manifest")
+            or training.get("checkpoint_manifest")
+            or ""
+        )
         checkpoint_sha = str(
             training.get("best_checkpoint_manifest_sha256")
             or training.get("checkpoint_manifest_sha256")
             or ""
         )
-        if Path(checkpoint_path).expanduser().resolve(strict=True) != Path(self.checkpoint_manifest.path):
-            raise ValueError("bound checkpoint differs from the selected training checkpoint")
+        if Path(checkpoint_path).expanduser().resolve(strict=True) != Path(
+            self.checkpoint_manifest.path
+        ):
+            raise ValueError(
+                "bound checkpoint differs from the selected training checkpoint"
+            )
         if checkpoint_sha != self.checkpoint_manifest.sha256:
             raise ValueError("selected training checkpoint hash mismatch")
-        router = training.get("router_metrics") if isinstance(training.get("router_metrics"), dict) else {}
+        router = (
+            training.get("router_metrics")
+            if isinstance(training.get("router_metrics"), dict)
+            else {}
+        )
         if int(router.get("dropped_assignments", 0)) != self.dropped_tokens:
             raise ValueError("router token-drop summary differs from training evidence")
         reported_router = router.get("maximum_p99_to_mean_load")
@@ -544,23 +640,32 @@ class ArmEvidence(StrictModel):
             float(reported_router), self.router_p99_to_mean, rel_tol=1e-8, abs_tol=1e-10
         ):
             raise ValueError("router load summary differs from training evidence")
-        if evaluation.get("status") != "passed" or evaluation.get("evaluation_mode") != "executable_model":
+        if (
+            evaluation.get("status") != "passed"
+            or evaluation.get("evaluation_mode") != "executable_model"
+        ):
             raise ValueError("bound evaluation is not a passed executable-model report")
         if not hmac.compare_digest(
             str(evaluation.get("evaluation_manifest_sha256") or ""),
             self.evaluation_manifest_sha256,
         ):
-            raise ValueError("executable evaluation is not bound to the experiment evaluation manifest")
+            raise ValueError(
+                "executable evaluation is not bound to the experiment evaluation manifest"
+            )
         if not hmac.compare_digest(
             str(evaluation.get("checkpoint_manifest_sha256") or ""),
             self.checkpoint_manifest.sha256,
         ):
-            raise ValueError("executable evaluation checkpoint hash differs from the selected checkpoint")
+            raise ValueError(
+                "executable evaluation checkpoint hash differs from the selected checkpoint"
+            )
         if not hmac.compare_digest(
             str(evaluation.get("tokenizer_sha256") or ""),
             self.tokenizer_sha256,
         ):
-            raise ValueError("executable evaluation tokenizer hash differs from the selected tokenizer")
+            raise ValueError(
+                "executable evaluation tokenizer hash differs from the selected tokenizer"
+            )
         reported_suite_hashes = evaluation.get("suite_artifact_sha256")
         if not isinstance(reported_suite_hashes, dict):
             raise ValueError("executable evaluation is missing suite artifact hashes")
@@ -570,7 +675,9 @@ class ArmEvidence(StrictModel):
             if key.startswith("suite:")
         }
         for name, expected_hash in expected_suite_hashes.items():
-            if not hmac.compare_digest(str(reported_suite_hashes.get(name) or ""), expected_hash):
+            if not hmac.compare_digest(
+                str(reported_suite_hashes.get(name) or ""), expected_hash
+            ):
                 raise ValueError(f"executable evaluation suite hash mismatch: {name}")
         if not math.isclose(
             float(evaluation.get("aggregate_score", math.nan)),
@@ -578,45 +685,87 @@ class ArmEvidence(StrictModel):
             rel_tol=1e-8,
             abs_tol=1e-10,
         ):
-            raise ValueError("benchmark score differs from executable evaluation evidence")
-        suites = evaluation.get("suites") if isinstance(evaluation.get("suites"), list) else []
+            raise ValueError(
+                "benchmark score differs from executable evaluation evidence"
+            )
+        suites = (
+            evaluation.get("suites")
+            if isinstance(evaluation.get("suites"), list)
+            else []
+        )
         suite_names = {str(row.get("name")) for row in suites if isinstance(row, dict)}
         missing_suites = sorted(set(arm.required_evaluation_suites) - suite_names)
         if missing_suites:
-            raise ValueError(f"executable evaluation is missing required suites: {missing_suites}")
-        foundation_kinds = {"human_eval_style", "mbpp_style", "swe_bench_style", "repoqa_style"}
+            raise ValueError(
+                f"executable evaluation is missing required suites: {missing_suites}"
+            )
+        foundation_kinds = {
+            "human_eval_style",
+            "mbpp_style",
+            "swe_bench_style",
+            "repoqa_style",
+        }
         security_kinds = {"cyberseceval_style", "custom_security"}
         foundation_scores = [
             float(row["score"])
             for row in suites
-            if isinstance(row, dict) and row.get("kind") in foundation_kinds and row.get("status") == "passed"
+            if isinstance(row, dict)
+            and row.get("kind") in foundation_kinds
+            and row.get("status") == "passed"
         ]
         security_scores = [
             float(row["score"])
             for row in suites
-            if isinstance(row, dict) and row.get("kind") in security_kinds and row.get("status") == "passed"
+            if isinstance(row, dict)
+            and row.get("kind") in security_kinds
+            and row.get("status") == "passed"
         ]
         if not foundation_scores or not security_scores:
-            raise ValueError("executable evaluation lacks passed foundation or security suites")
+            raise ValueError(
+                "executable evaluation lacks passed foundation or security suites"
+            )
         if not math.isclose(
-            statistics.fmean(foundation_scores), self.foundation_score, rel_tol=1e-8, abs_tol=1e-10
+            statistics.fmean(foundation_scores),
+            self.foundation_score,
+            rel_tol=1e-8,
+            abs_tol=1e-10,
         ):
             raise ValueError("foundation score differs from executable suite evidence")
         if not math.isclose(
-            statistics.fmean(security_scores), self.security_score, rel_tol=1e-8, abs_tol=1e-10
+            statistics.fmean(security_scores),
+            self.security_score,
+            rel_tol=1e-8,
+            abs_tol=1e-10,
         ):
             raise ValueError("security score differs from executable suite evidence")
-        if generation.get("evaluation_authority") != "diagnostic_keyword" or generation.get("promotion_eligible") is not False:
-            raise ValueError("generation audit must be explicitly diagnostic and non-promotable")
-        candidate = generation.get("candidate") if isinstance(generation.get("candidate"), dict) else {}
+        if (
+            generation.get("evaluation_authority") != "diagnostic_keyword"
+            or generation.get("promotion_eligible") is not False
+        ):
+            raise ValueError(
+                "generation audit must be explicitly diagnostic and non-promotable"
+            )
+        candidate = (
+            generation.get("candidate")
+            if isinstance(generation.get("candidate"), dict)
+            else {}
+        )
         collapsed = int(candidate.get("collapsed_count", -1)) > 0
         if collapsed is not self.generation_collapsed:
-            raise ValueError("generation-collapse summary differs from diagnostic evidence")
+            raise ValueError(
+                "generation-collapse summary differs from diagnostic evidence"
+            )
         if float(candidate.get("hallucination_rate", 1.0)) > 0.0:
             raise ValueError("diagnostic generation audit contains hallucination flags")
-        candidate_checkpoint = Path(str(candidate.get("checkpoint_manifest") or "")).expanduser().resolve(strict=True)
+        candidate_checkpoint = (
+            Path(str(candidate.get("checkpoint_manifest") or ""))
+            .expanduser()
+            .resolve(strict=True)
+        )
         if candidate_checkpoint != Path(self.checkpoint_manifest.path):
-            raise ValueError("generation audit checkpoint differs from the selected checkpoint")
+            raise ValueError(
+                "generation audit checkpoint differs from the selected checkpoint"
+            )
         if (
             tokenizer.get("status") != "passed"
             or tokenizer.get("audit_failures")
@@ -711,7 +860,9 @@ class StatisticalComparisonReport(StrictModel):
         return value
 
     def sealed(self) -> "StatisticalComparisonReport":
-        return self.model_copy(update={"report_sha256": _digest_model(self, omitted={"report_sha256"})})
+        return self.model_copy(
+            update={"report_sha256": _digest_model(self, omitted={"report_sha256"})}
+        )
 
 
 class ExperimentDecision(StrictModel):
@@ -728,7 +879,9 @@ class ExperimentDecision(StrictModel):
     decision_sha256: str = ""
 
     def sealed(self) -> "ExperimentDecision":
-        return self.model_copy(update={"decision_sha256": _digest_model(self, omitted={"decision_sha256"})})
+        return self.model_copy(
+            update={"decision_sha256": _digest_model(self, omitted={"decision_sha256"})}
+        )
 
 
 class PromotionDecision(StrictModel):
@@ -744,7 +897,11 @@ class PromotionDecision(StrictModel):
     promotion_sha256: str = ""
 
     def sealed(self) -> "PromotionDecision":
-        return self.model_copy(update={"promotion_sha256": _digest_model(self, omitted={"promotion_sha256"})})
+        return self.model_copy(
+            update={
+                "promotion_sha256": _digest_model(self, omitted={"promotion_sha256"})
+            }
+        )
 
 
 class ModelProgressionDecision(StrictModel):
@@ -789,7 +946,9 @@ class ModelProgressionDecision(StrictModel):
             raise ValueError("model progression contains an invalid SHA-256")
         return value
 
-    @field_validator("selected_tokenizer_manifest_sha256", "target_model_contract_sha256")
+    @field_validator(
+        "selected_tokenizer_manifest_sha256", "target_model_contract_sha256"
+    )
     @classmethod
     def validate_optional_progression_digest(cls, value: str | None) -> str | None:
         if value is not None and HEX_SHA256.fullmatch(value) is None:
@@ -801,19 +960,34 @@ class ModelProgressionDecision(StrictModel):
         if self.status == "authorized":
             if self.blockers:
                 raise ValueError("authorized model progression cannot contain blockers")
-            if self.selected_tokenizer_vocab_size is None or not self.selected_architecture:
-                raise ValueError("authorized model progression requires tokenizer and architecture choices")
+            if (
+                self.selected_tokenizer_vocab_size is None
+                or not self.selected_architecture
+            ):
+                raise ValueError(
+                    "authorized model progression requires tokenizer and architecture choices"
+                )
             if self.selected_tokenizer_manifest_sha256 is None:
-                raise ValueError("authorized model progression requires the selected tokenizer manifest hash")
+                raise ValueError(
+                    "authorized model progression requires the selected tokenizer manifest hash"
+                )
             if self.target_model_contract_sha256 is None:
-                raise ValueError("authorized model progression requires the exact target model contract hash")
-            expected_profile = "7b_moe" if self.selected_architecture == "1b_moe" else "7b"
+                raise ValueError(
+                    "authorized model progression requires the exact target model contract hash"
+                )
+            expected_profile = (
+                "7b_moe" if self.selected_architecture == "1b_moe" else "7b"
+            )
             if self.target_model_profile != expected_profile:
-                raise ValueError("7B target profile does not match the selected 1B architecture")
+                raise ValueError(
+                    "7B target profile does not match the selected 1B architecture"
+                )
         return self
 
     def sealed(self) -> "ModelProgressionDecision":
-        return self.model_copy(update={"decision_sha256": _digest_model(self, omitted={"decision_sha256"})})
+        return self.model_copy(
+            update={"decision_sha256": _digest_model(self, omitted={"decision_sha256"})}
+        )
 
 
 class AblationReport(StrictModel):
@@ -880,9 +1054,13 @@ def _campaign_arms(
                 )
     else:
         if selected_vocab_size is None:
-            raise ValueError("architecture and scaling campaigns require an evidence-selected tokenizer")
+            raise ValueError(
+                "architecture and scaling campaigns require an evidence-selected tokenizer"
+            )
         for profile_name, seeds in sorted(campaign.profile_seeds.items()):
-            budgets = campaign.profile_token_budgets.get(profile_name, [campaign.token_budget])
+            budgets = campaign.profile_token_budgets.get(
+                profile_name, [campaign.token_budget]
+            )
             for budget in budgets:
                 for seed in seeds:
                     arms.append(
@@ -917,7 +1095,9 @@ def create_experiment_manifest(
         "dataset_manifest": BoundArtifact.bind("dataset_manifest", dataset_manifest),
         "split_manifest": BoundArtifact.bind("split_manifest", split_manifest),
         "optimizer_policy": BoundArtifact.bind("optimizer_policy", optimizer_policy),
-        "evaluation_manifest": BoundArtifact.bind("evaluation_manifest", evaluation_manifest),
+        "evaluation_manifest": BoundArtifact.bind(
+            "evaluation_manifest", evaluation_manifest
+        ),
     }
     evaluation_inputs = _bind_evaluation_inputs(
         evaluation_manifest,
@@ -949,7 +1129,9 @@ def create_experiment_manifest(
     }
     for key, contract in tokenizer_contracts.items():
         if key != "selected" and contract.vocab_size != int(key):
-            raise ValueError(f"tokenizer candidate {key} contains vocabulary {contract.vocab_size}")
+            raise ValueError(
+                f"tokenizer candidate {key} contains vocabulary {contract.vocab_size}"
+            )
     selected_vocab_size = (
         tokenizer_contracts["selected"].vocab_size
         if campaign.experiment_type != "tokenizer_selection"
@@ -961,7 +1143,9 @@ def create_experiment_manifest(
         "evaluation_inputs": {
             name: item.sha256 for name, item in sorted(evaluation_inputs.items())
         },
-        "tokenizers": {name: item.sha256 for name, item in sorted(tokenizer_bindings.items())},
+        "tokenizers": {
+            name: item.sha256 for name, item in sorted(tokenizer_bindings.items())
+        },
         "git_commit": _git_commit(),
         "container_digest": container_digest,
     }
@@ -988,12 +1172,16 @@ def create_experiment_manifest(
 
 def _load_manifest(experiment_dir: str | Path) -> ExperimentManifest:
     root = Path(experiment_dir).expanduser().resolve(strict=True)
-    manifest = ExperimentManifest.model_validate(_json_object(root / "experiment_manifest.json"))
+    manifest = ExperimentManifest.model_validate(
+        _json_object(root / "experiment_manifest.json")
+    )
     manifest.verify()
     return manifest
 
 
-def _load_arm_evidence(manifest: ExperimentManifest, evidence_dir: str | Path) -> tuple[list[ArmEvidence], list[str]]:
+def _load_arm_evidence(
+    manifest: ExperimentManifest, evidence_dir: str | Path
+) -> tuple[list[ArmEvidence], list[str]]:
     root = Path(evidence_dir).expanduser().resolve()
     planned = {arm.arm_id: arm for arm in manifest.arms}
     evidence: list[ArmEvidence] = []
@@ -1006,7 +1194,9 @@ def _load_arm_evidence(manifest: ExperimentManifest, evidence_dir: str | Path) -
         try:
             item = ArmEvidence.model_validate(_json_object(path))
             if item.arm_id != arm.arm_id or item.seed != arm.seed:
-                raise ValueError("arm identity or seed does not match the immutable plan")
+                raise ValueError(
+                    "arm identity or seed does not match the immutable plan"
+                )
             if item.objective != manifest.objective:
                 raise ValueError("training objective differs from the immutable plan")
             if item.model_contract_sha256 != arm.model_contract_sha256:
@@ -1014,18 +1204,31 @@ def _load_arm_evidence(manifest: ExperimentManifest, evidence_dir: str | Path) -
             if item.tokenizer_vocab_size != arm.vocab_size:
                 raise ValueError("tokenizer vocabulary differs from the immutable plan")
             tokenizer_contract = _manifest_tokenizer_contract(manifest, arm)
-            if not hmac.compare_digest(item.tokenizer_sha256, tokenizer_contract.tokenizer_sha256):
-                raise ValueError("tokenizer hash differs from the immutable experiment binding")
+            if not hmac.compare_digest(
+                item.tokenizer_sha256, tokenizer_contract.tokenizer_sha256
+            ):
+                raise ValueError(
+                    "tokenizer hash differs from the immutable experiment binding"
+                )
             if item.trained_tokens != arm.token_budget:
-                raise ValueError("trained token count differs from the immutable token budget")
-            if item.total_parameters != arm.total_parameters or item.active_parameters != arm.active_parameters:
-                raise ValueError("arm parameter evidence differs from canonical accounting")
+                raise ValueError(
+                    "trained token count differs from the immutable token budget"
+                )
+            if (
+                item.total_parameters != arm.total_parameters
+                or item.active_parameters != arm.active_parameters
+            ):
+                raise ValueError(
+                    "arm parameter evidence differs from canonical accounting"
+                )
             item.verify_artifacts(arm=arm, evaluation_inputs=manifest.evaluation_inputs)
             expected_bindings = {
                 "dataset_manifest_sha256": manifest.bindings["dataset_manifest"].sha256,
                 "split_manifest_sha256": manifest.bindings["split_manifest"].sha256,
                 "optimizer_policy_sha256": manifest.bindings["optimizer_policy"].sha256,
-                "evaluation_manifest_sha256": manifest.bindings["evaluation_manifest"].sha256,
+                "evaluation_manifest_sha256": manifest.bindings[
+                    "evaluation_manifest"
+                ].sha256,
             }
             for field, expected in expected_bindings.items():
                 if not hmac.compare_digest(str(getattr(item, field)), expected):
@@ -1035,7 +1238,9 @@ def _load_arm_evidence(manifest: ExperimentManifest, evidence_dir: str | Path) -
             evidence.append(item)
         except Exception as exc:
             blockers.append(f"invalid arm evidence {arm_id}: {exc}")
-    unexpected = sorted(path.stem for path in root.glob("*.json") if path.stem not in planned)
+    unexpected = sorted(
+        path.stem for path in root.glob("*.json") if path.stem not in planned
+    )
     if unexpected:
         blockers.append(f"unexpected arm evidence files: {unexpected}")
     return evidence, blockers
@@ -1052,8 +1257,7 @@ def _bootstrap_summary(values: Sequence[float], *, seed: int) -> MetricSummary:
     else:
         rng = random.Random(seed)
         means = sorted(
-            statistics.fmean(rng.choice(samples) for _ in samples)
-            for _ in range(2_000)
+            statistics.fmean(rng.choice(samples) for _ in samples) for _ in range(2_000)
         )
         low = means[int(0.025 * (len(means) - 1))]
         high = means[int(0.975 * (len(means) - 1))]
@@ -1066,7 +1270,9 @@ def _bootstrap_summary(values: Sequence[float], *, seed: int) -> MetricSummary:
     )
 
 
-def _minmax_quality(value: float, values: Sequence[float], *, lower_is_better: bool) -> float:
+def _minmax_quality(
+    value: float, values: Sequence[float], *, lower_is_better: bool
+) -> float:
     low, high = min(values), max(values)
     if math.isclose(low, high, rel_tol=0.0, abs_tol=1e-12):
         return 1.0
@@ -1081,11 +1287,15 @@ def _common_hard_gate_blockers(
     blockers: list[str] = []
     if any(item.status != "passed" for item in items):
         blockers.append("one or more runs did not pass")
-    if campaign.gate.require_checkpoint_reload_parity and any(not item.checkpoint_reload_parity for item in items):
+    if campaign.gate.require_checkpoint_reload_parity and any(
+        not item.checkpoint_reload_parity for item in items
+    ):
         blockers.append("checkpoint reload parity failed")
     if any(item.generation_collapsed for item in items):
         blockers.append("generation collapse detected")
-    if campaign.gate.require_zero_dropped_tokens and any(item.dropped_tokens != 0 for item in items):
+    if campaign.gate.require_zero_dropped_tokens and any(
+        item.dropped_tokens != 0 for item in items
+    ):
         blockers.append("token drops detected")
     if campaign.gate.require_executable_evaluation and any(
         item.evaluation_authority != PROMOTION_EVALUATION_AUTHORITY for item in items
@@ -1114,11 +1324,21 @@ def compare_tokenizer_candidates(
         expected_seed_count = len(manifest.campaign.tokenizer_seeds)
         if len(items) != expected_seed_count:
             hard.append(f"expected {expected_seed_count} seeds, found {len(items)}")
-        validation = _bootstrap_summary([item.validation_loss for item in items], seed=vocab_size + 1)
-        executable = _bootstrap_summary([item.executable_benchmark_score for item in items], seed=vocab_size + 2)
-        foundation = _bootstrap_summary([item.foundation_score for item in items], seed=vocab_size + 3)
-        security = _bootstrap_summary([item.security_score for item in items], seed=vocab_size + 4)
-        efficiency = _bootstrap_summary([item.tokens_per_byte for item in items], seed=vocab_size + 5)
+        validation = _bootstrap_summary(
+            [item.validation_loss for item in items], seed=vocab_size + 1
+        )
+        executable = _bootstrap_summary(
+            [item.executable_benchmark_score for item in items], seed=vocab_size + 2
+        )
+        foundation = _bootstrap_summary(
+            [item.foundation_score for item in items], seed=vocab_size + 3
+        )
+        security = _bootstrap_summary(
+            [item.security_score for item in items], seed=vocab_size + 4
+        )
+        efficiency = _bootstrap_summary(
+            [item.tokens_per_byte for item in items], seed=vocab_size + 5
+        )
         downstream_values = [
             0.50 * item.executable_benchmark_score
             + 0.30 * item.security_score
@@ -1126,8 +1346,12 @@ def compare_tokenizer_candidates(
             for item in items
         ]
         downstream_summary = _bootstrap_summary(downstream_values, seed=vocab_size + 6)
-        validation_quality = _minmax_quality(validation.mean, all_loss, lower_is_better=True)
-        efficiency_quality = _minmax_quality(efficiency.mean, all_efficiency, lower_is_better=True)
+        validation_quality = _minmax_quality(
+            validation.mean, all_loss, lower_is_better=True
+        )
+        efficiency_quality = _minmax_quality(
+            efficiency.mean, all_efficiency, lower_is_better=True
+        )
         composite = (
             0.40 * executable.mean
             + 0.25 * security.mean
@@ -1135,7 +1359,9 @@ def compare_tokenizer_candidates(
             + 0.15 * validation_quality
             + 0.05 * efficiency_quality
         )
-        downstream = 0.50 * executable.mean + 0.30 * security.mean + 0.20 * foundation.mean
+        downstream = (
+            0.50 * executable.mean + 0.30 * security.mean + 0.20 * foundation.mean
+        )
         comparisons.append(
             CandidateComparison(
                 candidate=str(vocab_size),
@@ -1158,7 +1384,9 @@ def compare_tokenizer_candidates(
         gap = manifest.campaign.gate.maximum_tokenizer_noninferiority_gap
         noninferior = [item for item in eligible if best - item.downstream_score <= gap]
         candidate = min(noninferior, key=lambda item: int(item.candidate))
-        smaller = [item for item in eligible if int(item.candidate) < int(candidate.candidate)]
+        smaller = [
+            item for item in eligible if int(item.candidate) < int(candidate.candidate)
+        ]
         if smaller and any(
             candidate.downstream_score_summary.confidence_low
             <= item.downstream_score_summary.confidence_high
@@ -1170,7 +1398,11 @@ def compare_tokenizer_candidates(
         else:
             selected = candidate.candidate
     else:
-        blockers.extend("candidate hard gate failed: " + item.candidate for item in comparisons if not item.hard_gate_passed)
+        blockers.extend(
+            "candidate hard gate failed: " + item.candidate
+            for item in comparisons
+            if not item.hard_gate_passed
+        )
     return StatisticalComparisonReport(
         experiment_id=manifest.experiment_id,
         experiment_type="tokenizer_selection",
@@ -1193,7 +1425,11 @@ def compare_architecture_candidates(
     arm_profiles = {arm.arm_id: arm.model_profile for arm in manifest.arms}
     for item in evidence:
         by_profile.setdefault(arm_profiles[item.arm_id], []).append(item)
-    pair_names = [("100m", "100m", "100m_moe"), ("300m", "300m", "300m_moe"), ("1b", "1b", "1b_moe")]
+    pair_names = [
+        ("100m", "100m", "100m_moe"),
+        ("300m", "300m", "300m_moe"),
+        ("1b", "1b", "1b_moe"),
+    ]
     pairs: list[ArchitecturePairComparison] = []
     authority_blockers: list[str] = []
     for scale, dense_name, moe_name in pair_names:
@@ -1217,11 +1453,17 @@ def compare_architecture_candidates(
                     blockers=pair_blockers,
                 )
             )
-            authority_blockers.append(f"{scale}: paired dense/MoE evidence is incomplete")
+            authority_blockers.append(
+                f"{scale}: paired dense/MoE evidence is incomplete"
+            )
             continue
         dense_blockers = _common_hard_gate_blockers(dense, manifest.campaign)
-        authority_blockers.extend(f"{scale} dense baseline: {item}" for item in dense_blockers)
-        pair_blockers.extend(_common_hard_gate_blockers([*dense, *moe], manifest.campaign))
+        authority_blockers.extend(
+            f"{scale} dense baseline: {item}" for item in dense_blockers
+        )
+        pair_blockers.extend(
+            _common_hard_gate_blockers([*dense, *moe], manifest.campaign)
+        )
         dense_active = _profile_mean(dense, "active_parameters")
         moe_active = _profile_mean(moe, "active_parameters")
         active_delta = abs(moe_active - dense_active) / dense_active
@@ -1235,25 +1477,36 @@ def compare_architecture_candidates(
         dense_loss = _profile_mean(dense, "validation_loss")
         moe_loss = _profile_mean(moe, "validation_loss")
         relative_improvement = (dense_loss - moe_loss) / dense_loss
-        benchmark_delta = _profile_mean(moe, "executable_benchmark_score") - _profile_mean(dense, "executable_benchmark_score")
-        foundation_regression = _profile_mean(dense, "foundation_score") - _profile_mean(moe, "foundation_score")
-        security_regression = _profile_mean(dense, "security_score") - _profile_mean(moe, "security_score")
+        benchmark_delta = _profile_mean(
+            moe, "executable_benchmark_score"
+        ) - _profile_mean(dense, "executable_benchmark_score")
+        foundation_regression = _profile_mean(
+            dense, "foundation_score"
+        ) - _profile_mean(moe, "foundation_score")
+        security_regression = _profile_mean(dense, "security_score") - _profile_mean(
+            moe, "security_score"
+        )
         if foundation_regression > manifest.campaign.gate.maximum_foundation_regression:
             pair_blockers.append("foundation regression exceeds policy")
         if security_regression > manifest.campaign.gate.maximum_security_regression:
             pair_blockers.append("security regression exceeds policy")
         if any(
             item.router_p99_to_mean is None
-            or item.router_p99_to_mean > manifest.campaign.gate.maximum_router_p99_to_mean
+            or item.router_p99_to_mean
+            > manifest.campaign.gate.maximum_router_p99_to_mean
             for item in moe
         ):
             pair_blockers.append("MoE router p99 load exceeds policy or is missing")
         quality_gate = (
-            relative_improvement >= manifest.campaign.gate.minimum_relative_validation_improvement
-            or benchmark_delta >= manifest.campaign.gate.minimum_benchmark_point_improvement
+            relative_improvement
+            >= manifest.campaign.gate.minimum_relative_validation_improvement
+            or benchmark_delta
+            >= manifest.campaign.gate.minimum_benchmark_point_improvement
         )
         if not quality_gate:
-            pair_blockers.append("MoE did not meet validation-loss or benchmark improvement gate")
+            pair_blockers.append(
+                "MoE did not meet validation-loss or benchmark improvement gate"
+            )
         pairs.append(
             ArchitecturePairComparison(
                 scale=scale,
@@ -1269,7 +1522,13 @@ def compare_architecture_candidates(
                 blockers=pair_blockers,
             )
         )
-    selected = None if authority_blockers else "1b_moe" if all(pair.passed for pair in pairs) else "1b"
+    selected = (
+        None
+        if authority_blockers
+        else "1b_moe"
+        if all(pair.passed for pair in pairs)
+        else "1b"
+    )
     return StatisticalComparisonReport(
         experiment_id=manifest.experiment_id,
         experiment_type="architecture_ab",
@@ -1333,43 +1592,54 @@ def _linear_scaling_coefficients(
         design.append(
             [
                 weight,
-                (parameters ** -parameter_exponent) * weight,
-                (tokens ** -token_exponent) * weight,
+                (parameters**-parameter_exponent) * weight,
+                (tokens**-token_exponent) * weight,
             ]
         )
         target.append(1.0)
     xtx = [[sum(row[i] * row[j] for row in design) for j in range(3)] for i in range(3)]
     xty = [sum(row[i] * value for row, value in zip(design, target)) for i in range(3)]
-    irreducible, parameter_coefficient, token_coefficient = _solve_linear_system(xtx, xty)
+    irreducible, parameter_coefficient, token_coefficient = _solve_linear_system(
+        xtx, xty
+    )
     if irreducible < 0 or parameter_coefficient <= 0 or token_coefficient <= 0:
         raise ValueError("non-physical scaling coefficients")
     errors = []
     for parameters, tokens, loss in rows:
         predicted = (
             irreducible
-            + parameter_coefficient * parameters ** -parameter_exponent
-            + token_coefficient * tokens ** -token_exponent
+            + parameter_coefficient * parameters**-parameter_exponent
+            + token_coefficient * tokens**-token_exponent
         )
         if predicted <= 0 or not math.isfinite(predicted):
             raise ValueError("non-finite scaling prediction")
         errors.append(((predicted - loss) / loss) ** 2)
-    return irreducible, parameter_coefficient, token_coefficient, statistics.fmean(errors)
+    return (
+        irreducible,
+        parameter_coefficient,
+        token_coefficient,
+        statistics.fmean(errors),
+    )
 
 
 def _fit_scaling_law(rows: Sequence[tuple[float, float, float]]) -> ScalingCoefficients:
     shapes = _aggregate_scaling_shapes(rows)
     if len(shapes) < 8:
-        raise ValueError("additive scaling-law fit requires at least eight distinct crossed shapes")
+        raise ValueError(
+            "additive scaling-law fit requires at least eight distinct crossed shapes"
+        )
     candidates: list[tuple[float, float, float, float, float, float]] = []
     for parameter_step in range(1, 16):
         parameter_exponent = parameter_step * 0.02
         for token_step in range(1, 16):
             token_exponent = token_step * 0.02
             try:
-                irreducible, parameter_coefficient, token_coefficient, error = _linear_scaling_coefficients(
-                    shapes,
-                    parameter_exponent=parameter_exponent,
-                    token_exponent=token_exponent,
+                irreducible, parameter_coefficient, token_coefficient, error = (
+                    _linear_scaling_coefficients(
+                        shapes,
+                        parameter_exponent=parameter_exponent,
+                        token_exponent=token_exponent,
+                    )
                 )
             except ValueError:
                 continue
@@ -1396,10 +1666,12 @@ def _fit_scaling_law(rows: Sequence[tuple[float, float, float]]) -> ScalingCoeff
             if token_exponent <= 0:
                 continue
             try:
-                irreducible, parameter_coefficient, token_coefficient, error = _linear_scaling_coefficients(
-                    shapes,
-                    parameter_exponent=parameter_exponent,
-                    token_exponent=token_exponent,
+                irreducible, parameter_coefficient, token_coefficient, error = (
+                    _linear_scaling_coefficients(
+                        shapes,
+                        parameter_exponent=parameter_exponent,
+                        token_exponent=token_exponent,
+                    )
                 )
             except ValueError:
                 continue
@@ -1413,9 +1685,14 @@ def _fit_scaling_law(rows: Sequence[tuple[float, float, float]]) -> ScalingCoeff
                     token_exponent,
                 )
             )
-    _, irreducible, parameter_coefficient, token_coefficient, parameter_exponent, token_exponent = min(
-        refined, key=lambda item: item[0]
-    )
+    (
+        _,
+        irreducible,
+        parameter_coefficient,
+        token_coefficient,
+        parameter_exponent,
+        token_exponent,
+    ) = min(refined, key=lambda item: item[0])
     return (
         irreducible,
         parameter_coefficient,
@@ -1425,12 +1702,20 @@ def _fit_scaling_law(rows: Sequence[tuple[float, float, float]]) -> ScalingCoeff
     )
 
 
-def _scaling_prediction(coefficients: ScalingCoefficients, parameters: float, tokens: float) -> float:
-    irreducible, parameter_coefficient, token_coefficient, parameter_exponent, token_exponent = coefficients
+def _scaling_prediction(
+    coefficients: ScalingCoefficients, parameters: float, tokens: float
+) -> float:
+    (
+        irreducible,
+        parameter_coefficient,
+        token_coefficient,
+        parameter_exponent,
+        token_exponent,
+    ) = coefficients
     return (
         irreducible
-        + parameter_coefficient * parameters ** -parameter_exponent
-        + token_coefficient * tokens ** -token_exponent
+        + parameter_coefficient * parameters**-parameter_exponent
+        + token_coefficient * tokens**-token_exponent
     )
 
 
@@ -1443,15 +1728,23 @@ def _leave_one_shape_out_mape(rows: Sequence[tuple[float, float, float]]) -> flo
             coefficients = _fit_scaling_law(train)
         except ValueError:
             continue
-        predicted = _scaling_prediction(coefficients, shapes[index][0], shapes[index][1])
+        predicted = _scaling_prediction(
+            coefficients, shapes[index][0], shapes[index][1]
+        )
         errors.append(abs(predicted - actual) / actual)
     if len(errors) != len(shapes):
-        raise ValueError("scaling-law leave-one-shape-out validation was not identifiable")
+        raise ValueError(
+            "scaling-law leave-one-shape-out validation was not identifiable"
+        )
     return statistics.fmean(errors)
 
 
-def _compute_optimal_shape(coefficients: ScalingCoefficients, training_flops: float) -> dict[str, float]:
-    _, parameter_coefficient, token_coefficient, parameter_exponent, token_exponent = coefficients
+def _compute_optimal_shape(
+    coefficients: ScalingCoefficients, training_flops: float
+) -> dict[str, float]:
+    _, parameter_coefficient, token_coefficient, parameter_exponent, token_exponent = (
+        coefficients
+    )
     compute_constant = training_flops / 6.0
     parameters = (
         (parameter_coefficient * parameter_exponent)
@@ -1463,7 +1756,9 @@ def _compute_optimal_shape(coefficients: ScalingCoefficients, training_flops: fl
         "training_flops": training_flops,
         "parameters": parameters,
         "tokens": tokens,
-        "predicted_validation_loss": _scaling_prediction(coefficients, parameters, tokens),
+        "predicted_validation_loss": _scaling_prediction(
+            coefficients, parameters, tokens
+        ),
     }
 
 
@@ -1472,18 +1767,36 @@ def fit_scaling_law(
     evidence: Sequence[ArmEvidence],
 ) -> ScalingLawReport:
     blockers = _common_hard_gate_blockers(evidence, manifest.campaign)
-    rows = [(float(item.active_parameters), float(item.trained_tokens), item.validation_loss) for item in evidence]
+    rows = [
+        (
+            float(item.active_parameters),
+            float(item.trained_tokens),
+            item.validation_loss,
+        )
+        for item in evidence
+    ]
     unique_shapes = {(parameters, tokens) for parameters, tokens, _ in rows}
     parameter_values = {parameters for parameters, _, _ in rows}
     token_values = {tokens for _, tokens, _ in rows}
     crossed_pairs = {
-        tokens: {parameters for parameters, candidate_tokens, _ in rows if candidate_tokens == tokens}
+        tokens: {
+            parameters
+            for parameters, candidate_tokens, _ in rows
+            if candidate_tokens == tokens
+        }
         for tokens in token_values
     }
     if len(unique_shapes) < 8:
-        blockers.append("scaling-law fit requires at least eight distinct parameter/token shapes")
-    if len(parameter_values) < 4 or sum(len(values) >= 2 for values in crossed_pairs.values()) < 2:
-        blockers.append("scaling-law design does not independently identify parameter and data effects")
+        blockers.append(
+            "scaling-law fit requires at least eight distinct parameter/token shapes"
+        )
+    if (
+        len(parameter_values) < 4
+        or sum(len(values) >= 2 for values in crossed_pairs.values()) < 2
+    ):
+        blockers.append(
+            "scaling-law design does not independently identify parameter and data effects"
+        )
     if blockers:
         return ScalingLawReport(
             status="blocked",
@@ -1522,7 +1835,9 @@ def fit_scaling_law(
                 "parameters": parameters,
                 "tokens": tokens,
                 "training_flops": 6.0 * parameters * tokens,
-                "predicted_validation_loss": _scaling_prediction(coefficients, parameters, tokens),
+                "predicted_validation_loss": _scaling_prediction(
+                    coefficients, parameters, tokens
+                ),
                 "prediction_ci_low": bootstrap_predictions[low_index],
                 "prediction_ci_high": bootstrap_predictions[high_index],
             }
@@ -1539,7 +1854,10 @@ def fit_scaling_law(
             parameter_exponent=coefficients[3],
             token_exponent=coefficients[4],
             holdout_mape=mape,
-            parameter_exponent_ci=(parameter_samples[low_index], parameter_samples[high_index]),
+            parameter_exponent_ci=(
+                parameter_samples[low_index],
+                parameter_samples[high_index],
+            ),
             token_exponent_ci=(token_samples[low_index], token_samples[high_index]),
             predictions=predictions,
             compute_optimal=compute_optimal,
@@ -1638,7 +1956,9 @@ def decide_experiment(
 
 def promote_experiment(decision: ExperimentDecision) -> PromotionDecision:
     expected = _digest_model(decision, omitted={"decision_sha256"})
-    if not decision.decision_sha256 or not hmac.compare_digest(expected, decision.decision_sha256):
+    if not decision.decision_sha256 or not hmac.compare_digest(
+        expected, decision.decision_sha256
+    ):
         raise ValueError("experiment decision has been modified")
     promoted = decision.status == "passed" and bool(decision.selected_candidate)
     return PromotionDecision(
@@ -1646,11 +1966,15 @@ def promote_experiment(decision: ExperimentDecision) -> PromotionDecision:
         status="promoted" if promoted else "blocked",
         promoted_candidate=decision.selected_candidate if promoted else None,
         experiment_decision_sha256=decision.decision_sha256,
-        blockers=[] if promoted else [*decision.blockers, "scientific experiment did not pass"],
+        blockers=[]
+        if promoted
+        else [*decision.blockers, "scientific experiment did not pass"],
     ).sealed()
 
 
-def verify_promotion_chain(promotion_path: str | Path) -> tuple[
+def verify_promotion_chain(
+    promotion_path: str | Path,
+) -> tuple[
     PromotionDecision,
     ExperimentDecision,
     StatisticalComparisonReport,
@@ -1666,11 +1990,17 @@ def verify_promotion_chain(promotion_path: str | Path) -> tuple[
         expected_promotion, promotion.promotion_sha256
     ):
         raise ValueError("scientific promotion decision has been modified")
-    decision = ExperimentDecision.model_validate(_json_object(root / "experiment_decision.json"))
+    decision = ExperimentDecision.model_validate(
+        _json_object(root / "experiment_decision.json")
+    )
     expected_decision = _digest_model(decision, omitted={"decision_sha256"})
-    if not decision.decision_sha256 or not hmac.compare_digest(expected_decision, decision.decision_sha256):
+    if not decision.decision_sha256 or not hmac.compare_digest(
+        expected_decision, decision.decision_sha256
+    ):
         raise ValueError("scientific experiment decision has been modified")
-    if not hmac.compare_digest(promotion.experiment_decision_sha256, decision.decision_sha256):
+    if not hmac.compare_digest(
+        promotion.experiment_decision_sha256, decision.decision_sha256
+    ):
         raise ValueError("promotion is not bound to the colocated experiment decision")
     comparison = StatisticalComparisonReport.model_validate(
         _json_object(root / "statistical_comparison.json")
@@ -1682,7 +2012,9 @@ def verify_promotion_chain(promotion_path: str | Path) -> tuple[
         raise ValueError("scientific comparison report has been modified")
     if not hmac.compare_digest(decision.comparison_sha256, comparison.report_sha256):
         raise ValueError("experiment decision is not bound to the comparison report")
-    manifest = ExperimentManifest.model_validate(_json_object(root / "experiment_manifest.json"))
+    manifest = ExperimentManifest.model_validate(
+        _json_object(root / "experiment_manifest.json")
+    )
     manifest.verify()
     if not hmac.compare_digest(decision.manifest_sha256, manifest.manifest_sha256):
         raise ValueError("experiment decision is not bound to the experiment manifest")
@@ -1693,7 +2025,9 @@ def verify_promotion_chain(promotion_path: str | Path) -> tuple[
         manifest.experiment_id,
     }
     if len(identities) != 1:
-        raise ValueError("scientific promotion chain contains mixed experiment identities")
+        raise ValueError(
+            "scientific promotion chain contains mixed experiment identities"
+        )
     arm_reports_path = root / "arm_reports.json"
     if not comparison.arm_reports_sha256:
         raise ValueError("scientific comparison is not bound to admitted arm evidence")
@@ -1740,7 +2074,12 @@ def build_model_progression_decision(
     blockers: list[str] = []
     by_type: dict[
         str,
-        tuple[PromotionDecision, ExperimentDecision, StatisticalComparisonReport, ExperimentManifest],
+        tuple[
+            PromotionDecision,
+            ExperimentDecision,
+            StatisticalComparisonReport,
+            ExperimentManifest,
+        ],
     ] = {}
     for supplied_name, chain in chains.items():
         actual_name = chain[3].campaign.experiment_type
@@ -1758,20 +2097,27 @@ def build_model_progression_decision(
     architecture_chain = by_type.get("architecture_ab")
     scaling_chain = by_type.get("scaling_law")
     if tokenizer_chain is None or architecture_chain is None or scaling_chain is None:
-        raise ValueError("model progression requires tokenizer, architecture, and scaling promotion chains")
+        raise ValueError(
+            "model progression requires tokenizer, architecture, and scaling promotion chains"
+        )
 
     manifests = [tokenizer_chain[3], architecture_chain[3], scaling_chain[3]]
     for binding_name in ("dataset_manifest", "split_manifest", "evaluation_manifest"):
         digests = {manifest.bindings[binding_name].sha256 for manifest in manifests}
         if len(digests) != 1:
-            blockers.append(f"scientific campaigns do not share one {binding_name} lineage")
+            blockers.append(
+                f"scientific campaigns do not share one {binding_name} lineage"
+            )
 
     tokenizer_candidate = tokenizer_chain[0].promoted_candidate
     architecture_candidate = architecture_chain[0].promoted_candidate
     scaling_candidate = scaling_chain[0].promoted_candidate
     selected_tokenizer_artifact: BoundArtifact | None = None
     selected_vocab_size: int | None = None
-    if tokenizer_candidate is None or tokenizer_candidate not in tokenizer_chain[3].tokenizers:
+    if (
+        tokenizer_candidate is None
+        or tokenizer_candidate not in tokenizer_chain[3].tokenizers
+    ):
         blockers.append("tokenizer promotion does not identify a bound candidate")
     else:
         selected_vocab_size = int(tokenizer_candidate)
@@ -1790,13 +2136,17 @@ def build_model_progression_decision(
                 )
 
     if architecture_candidate not in {"1b", "1b_moe"}:
-        blockers.append("architecture promotion did not select a supported 1B confirmation")
+        blockers.append(
+            "architecture promotion did not select a supported 1B confirmation"
+        )
     if scaling_candidate != "7b":
         blockers.append("scaling-law promotion did not authorize the 7B experiment")
     target_profile = (
         "7b_moe"
         if architecture_candidate == "1b_moe"
-        else "7b" if architecture_candidate == "1b" else None
+        else "7b"
+        if architecture_candidate == "1b"
+        else None
     )
     target_contract_sha256: str | None = None
     if target_profile is not None:
@@ -1820,9 +2170,13 @@ def build_model_progression_decision(
         scaling_promotion_sha256=scaling_chain[0].promotion_sha256,
         dataset_manifest_sha256=tokenizer_chain[3].bindings["dataset_manifest"].sha256,
         split_manifest_sha256=tokenizer_chain[3].bindings["split_manifest"].sha256,
-        evaluation_manifest_sha256=tokenizer_chain[3].bindings["evaluation_manifest"].sha256,
+        evaluation_manifest_sha256=tokenizer_chain[3]
+        .bindings["evaluation_manifest"]
+        .sha256,
         selected_tokenizer_manifest_sha256=(
-            selected_tokenizer_artifact.sha256 if selected_tokenizer_artifact and not blockers else None
+            selected_tokenizer_artifact.sha256
+            if selected_tokenizer_artifact and not blockers
+            else None
         ),
         blockers=sorted(set(blockers)),
     ).sealed()
@@ -1833,7 +2187,9 @@ def verify_model_progression_decision(path: str | Path) -> ModelProgressionDecis
     source = Path(path).expanduser().resolve(strict=True)
     decision = ModelProgressionDecision.model_validate(_json_object(source))
     expected = _digest_model(decision, omitted={"decision_sha256"})
-    if not decision.decision_sha256 or not hmac.compare_digest(expected, decision.decision_sha256):
+    if not decision.decision_sha256 or not hmac.compare_digest(
+        expected, decision.decision_sha256
+    ):
         raise ValueError("model progression decision has been modified")
     return decision
 
@@ -1914,7 +2270,9 @@ def build_arm_execution_requests(
                 optimizer_policy_path=manifest.bindings["optimizer_policy"].path,
                 optimizer_policy_sha256=manifest.bindings["optimizer_policy"].sha256,
                 evaluation_manifest_path=manifest.bindings["evaluation_manifest"].path,
-                evaluation_manifest_sha256=manifest.bindings["evaluation_manifest"].sha256,
+                evaluation_manifest_sha256=manifest.bindings[
+                    "evaluation_manifest"
+                ].sha256,
                 container_digest=manifest.container_digest,
                 required_evaluation_suites=arm.required_evaluation_suites,
             )
@@ -1938,7 +2296,9 @@ def admit_arm_evidence_from_reports(
     arms = {arm.arm_id: arm for arm in manifest.arms}
     arm = arms.get(arm_id)
     if arm is None:
-        raise ValueError(f"arm is not present in the immutable experiment plan: {arm_id}")
+        raise ValueError(
+            f"arm is not present in the immutable experiment plan: {arm_id}"
+        )
     training_artifact = BoundArtifact.bind("training", training_report_path)
     evaluation_artifact = BoundArtifact.bind("evaluation", evaluation_report_path)
     generation_artifact = BoundArtifact.bind("generation_audit", generation_audit_path)
@@ -1949,28 +2309,43 @@ def admit_arm_evidence_from_reports(
     tokenizer = _json_object(tokenizer_artifact.path)
 
     checkpoint_path = str(
-        training.get("best_checkpoint_manifest") or training.get("checkpoint_manifest") or ""
+        training.get("best_checkpoint_manifest")
+        or training.get("checkpoint_manifest")
+        or ""
     )
     if not checkpoint_path:
-        raise ValueError("training report does not identify its selected checkpoint manifest")
+        raise ValueError(
+            "training report does not identify its selected checkpoint manifest"
+        )
     checkpoint_artifact = BoundArtifact.bind("checkpoint", checkpoint_path)
     suites = evaluation.get("suites")
     if not isinstance(suites, list):
         raise ValueError("evaluation report does not contain suite results")
-    foundation_kinds = {"human_eval_style", "mbpp_style", "swe_bench_style", "repoqa_style"}
+    foundation_kinds = {
+        "human_eval_style",
+        "mbpp_style",
+        "swe_bench_style",
+        "repoqa_style",
+    }
     security_kinds = {"cyberseceval_style", "custom_security"}
     foundation_scores = [
         float(row["score"])
         for row in suites
-        if isinstance(row, dict) and row.get("kind") in foundation_kinds and row.get("status") == "passed"
+        if isinstance(row, dict)
+        and row.get("kind") in foundation_kinds
+        and row.get("status") == "passed"
     ]
     security_scores = [
         float(row["score"])
         for row in suites
-        if isinstance(row, dict) and row.get("kind") in security_kinds and row.get("status") == "passed"
+        if isinstance(row, dict)
+        and row.get("kind") in security_kinds
+        and row.get("status") == "passed"
     ]
     if not foundation_scores or not security_scores:
-        raise ValueError("evaluation report requires passed foundation and security suites")
+        raise ValueError(
+            "evaluation report requires passed foundation and security suites"
+        )
     token_statistics = tokenizer.get("token_statistics")
     if not isinstance(token_statistics, dict):
         raise ValueError("tokenizer audit is missing token statistics")
@@ -2023,9 +2398,15 @@ def admit_arm_evidence_from_reports(
         tokenizer_audit=tokenizer_artifact,
     )
     evidence.verify_artifacts(arm=arm, evaluation_inputs=manifest.evaluation_inputs)
-    destination = Path(output_dir or (Path(experiment_dir) / "arm-evidence")).expanduser().resolve()
+    destination = (
+        Path(output_dir or (Path(experiment_dir) / "arm-evidence"))
+        .expanduser()
+        .resolve()
+    )
     destination.mkdir(parents=True, exist_ok=True)
-    _exclusive_json(destination / f"{arm.arm_id}.json", evidence.model_dump(mode="json"))
+    _exclusive_json(
+        destination / f"{arm.arm_id}.json", evidence.model_dump(mode="json")
+    )
     return evidence
 
 
@@ -2039,15 +2420,22 @@ def assemble_scientific_evaluation_report(
     """Combine executable code and repository evidence without re-scoring either."""
 
     manifest = _load_manifest(experiment_dir)
-    code_artifact = BoundArtifact.bind("code_benchmark_report", code_benchmark_report_path)
+    code_artifact = BoundArtifact.bind(
+        "code_benchmark_report", code_benchmark_report_path
+    )
     scorecard_artifact = BoundArtifact.bind(
         "repository_scorecard_report",
         repository_scorecard_report_path,
     )
     code = _json_object(code_artifact.path)
     scorecard = _json_object(scorecard_artifact.path)
-    if code.get("status") != "passed" or code.get("evaluation_mode") != "executable_model":
-        raise ValueError("code benchmark report is not passed executable-model evidence")
+    if (
+        code.get("status") != "passed"
+        or code.get("evaluation_mode") != "executable_model"
+    ):
+        raise ValueError(
+            "code benchmark report is not passed executable-model evidence"
+        )
     if not hmac.compare_digest(
         str(code.get("evaluation_manifest_sha256") or ""),
         manifest.bindings["evaluation_manifest"].sha256,
@@ -2055,7 +2443,10 @@ def assemble_scientific_evaluation_report(
         raise ValueError("code benchmark report uses a different evaluation manifest")
     checkpoint_sha256 = str(code.get("checkpoint_manifest_sha256") or "")
     tokenizer_sha256 = str(code.get("tokenizer_sha256") or "")
-    if HEX_SHA256.fullmatch(checkpoint_sha256) is None or HEX_SHA256.fullmatch(tokenizer_sha256) is None:
+    if (
+        HEX_SHA256.fullmatch(checkpoint_sha256) is None
+        or HEX_SHA256.fullmatch(tokenizer_sha256) is None
+    ):
         raise ValueError("code benchmark report lacks checkpoint or tokenizer identity")
     if scorecard.get("status") != "passed" or scorecard.get("policy_mode") != "strict":
         raise ValueError("repository scorecard is not a passed strict run")
@@ -2094,7 +2485,9 @@ def assemble_scientific_evaluation_report(
             str(reported_code_hashes.get(name) or ""),
             expected,
         ):
-            raise ValueError(f"code benchmark suite hash differs from the experiment: {name}")
+            raise ValueError(
+                f"code benchmark suite hash differs from the experiment: {name}"
+            )
 
     scorecard_hash = str(scorecard.get("task_suite_sha256") or "")
     scorecard_suite_rows = {
@@ -2106,7 +2499,8 @@ def assemble_scientific_evaluation_report(
             "total": sum(
                 1
                 for row in scorecard.get("tasks", [])
-                if isinstance(row, dict) and row.get("category") in {"security", "patch"}
+                if isinstance(row, dict)
+                and row.get("category") in {"security", "patch"}
             ),
             "passed": sum(
                 1
@@ -2128,7 +2522,9 @@ def assemble_scientific_evaluation_report(
             "passed": sum(
                 1
                 for row in scorecard.get("tasks", [])
-                if isinstance(row, dict) and row.get("accepted") is True and row.get("tests_passed") is True
+                if isinstance(row, dict)
+                and row.get("accepted") is True
+                and row.get("tests_passed") is True
             ),
             "reason": "passed strict governed repository workflow scorecard",
             "report": {"source_report_sha256": scorecard_artifact.sha256},
@@ -2138,7 +2534,9 @@ def assemble_scientific_evaluation_report(
         if name not in manifest.campaign.required_evaluation_suites:
             continue
         if not hmac.compare_digest(scorecard_hash, expected_suite_hashes.get(name, "")):
-            raise ValueError(f"repository scorecard task-suite hash differs from the experiment: {name}")
+            raise ValueError(
+                f"repository scorecard task-suite hash differs from the experiment: {name}"
+            )
         suites.append(row)
 
     suite_names = {str(row.get("name") or "") for row in suites}
@@ -2147,7 +2545,9 @@ def assemble_scientific_evaluation_report(
         raise ValueError(f"assembled evaluation is missing required suites: {missing}")
     scores = [float(row["score"]) for row in suites if row.get("status") == "passed"]
     if len(scores) != len(suites) or any(not math.isfinite(score) for score in scores):
-        raise ValueError("assembled evaluation contains failed or non-finite suite evidence")
+        raise ValueError(
+            "assembled evaluation contains failed or non-finite suite evidence"
+        )
     payload = {
         "schema_version": 2,
         "status": "passed",
@@ -2201,32 +2601,47 @@ class ExperimentAuthority:
             "status": "not_run",
             "arms": [request.model_dump(mode="json") for request in execution_requests],
         }
-        _atomic_json(self.root / "experiment_manifest.json", manifest.model_dump(mode="json"))
+        _atomic_json(
+            self.root / "experiment_manifest.json", manifest.model_dump(mode="json")
+        )
         _atomic_json(self.root / "arm_execution_requests.json", requests)
         return manifest
 
     def inspect(self, *, evidence_dir: str | Path | None = None) -> dict[str, Any]:
         manifest = _load_manifest(self.root)
-        evidence, blockers = _load_arm_evidence(manifest, evidence_dir or (self.root / "arm-evidence"))
+        evidence, blockers = _load_arm_evidence(
+            manifest, evidence_dir or (self.root / "arm-evidence")
+        )
         return {
             "experiment_id": manifest.experiment_id,
             "campaign_id": manifest.campaign.campaign_id,
             "experiment_type": manifest.campaign.experiment_type,
-            "status": "ready_to_compare" if not blockers and len(evidence) == len(manifest.arms) else "blocked",
+            "status": "ready_to_compare"
+            if not blockers and len(evidence) == len(manifest.arms)
+            else "blocked",
             "planned_arms": len(manifest.arms),
             "admitted_arms": len(evidence),
             "blockers": blockers,
         }
 
-    def run(self, *, evidence_dir: str | Path | None = None) -> StatisticalComparisonReport:
-        if (self.root / "experiment_decision.json").exists() or (self.root / "promotion_decision.json").exists():
-            raise RuntimeError("a decided experiment is immutable; create a new experiment for new evidence")
+    def run(
+        self, *, evidence_dir: str | Path | None = None
+    ) -> StatisticalComparisonReport:
+        if (self.root / "experiment_decision.json").exists() or (
+            self.root / "promotion_decision.json"
+        ).exists():
+            raise RuntimeError(
+                "a decided experiment is immutable; create a new experiment for new evidence"
+            )
         manifest = _load_manifest(self.root)
-        evidence, blockers = _load_arm_evidence(manifest, evidence_dir or (self.root / "arm-evidence"))
+        evidence, blockers = _load_arm_evidence(
+            manifest, evidence_dir or (self.root / "arm-evidence")
+        )
         evidence_bindings = {
             item.arm_id: BoundArtifact.bind(
                 item.arm_id,
-                Path(evidence_dir or (self.root / "arm-evidence")) / f"{item.arm_id}.json",
+                Path(evidence_dir or (self.root / "arm-evidence"))
+                / f"{item.arm_id}.json",
             ).model_dump(mode="json")
             for item in evidence
         }
@@ -2247,9 +2662,15 @@ class ExperimentAuthority:
                 "report_sha256": "",
             }
         ).sealed()
-        _atomic_json(self.root / "statistical_comparison.json", comparison.model_dump(mode="json"))
+        _atomic_json(
+            self.root / "statistical_comparison.json",
+            comparison.model_dump(mode="json"),
+        )
         if comparison.scaling_law is not None:
-            _atomic_json(self.root / "scaling_law_report.json", comparison.scaling_law.model_dump(mode="json"))
+            _atomic_json(
+                self.root / "scaling_law_report.json",
+                comparison.scaling_law.model_dump(mode="json"),
+            )
         return comparison
 
     def decide(self) -> ExperimentDecision:
@@ -2260,15 +2681,21 @@ class ExperimentAuthority:
             _json_object(self.root / "statistical_comparison.json")
         )
         decision = decide_experiment(manifest, comparison)
-        _exclusive_json(self.root / "experiment_decision.json", decision.model_dump(mode="json"))
+        _exclusive_json(
+            self.root / "experiment_decision.json", decision.model_dump(mode="json")
+        )
         return decision
 
     def promote(self) -> PromotionDecision:
         if (self.root / "promotion_decision.json").exists():
             raise FileExistsError("promotion decision is immutable and already exists")
-        decision = ExperimentDecision.model_validate(_json_object(self.root / "experiment_decision.json"))
+        decision = ExperimentDecision.model_validate(
+            _json_object(self.root / "experiment_decision.json")
+        )
         promotion = promote_experiment(decision)
-        _exclusive_json(self.root / "promotion_decision.json", promotion.model_dump(mode="json"))
+        _exclusive_json(
+            self.root / "promotion_decision.json", promotion.model_dump(mode="json")
+        )
         return promotion
 
 
@@ -2333,13 +2760,17 @@ def write_markdown(report: AblationReport, path: str | Path) -> Path:
         "|---|---:|---:|",
     ]
     for item in report.experiments:
-        lines.append(f"| {item['name']} | {item['total_rows']} | {item['total_tokens']} |")
+        lines.append(
+            f"| {item['name']} | {item['total_rows']} | {item['total_tokens']} |"
+        )
     target.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return target
 
 
 def _legacy_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Prepare Craftly data-mix ablations (legacy compatibility).")
+    parser = argparse.ArgumentParser(
+        description="Prepare Craftly data-mix ablations (legacy compatibility)."
+    )
     parser.add_argument("--inputs", nargs="+")
     parser.add_argument("--mix-config", default="config/mix_ratios.json")
     parser.add_argument("--base-run-dir")
@@ -2350,11 +2781,15 @@ def _legacy_args() -> argparse.Namespace:
 
 
 def _authority_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Craftly scientific experiment authority")
+    parser = argparse.ArgumentParser(
+        description="Craftly scientific experiment authority"
+    )
     commands = parser.add_subparsers(dest="command", required=True)
     plan = commands.add_parser("plan")
     plan.add_argument("--campaign", required=True)
-    plan.add_argument("--registry", default="config/training_qualification_campaigns.json")
+    plan.add_argument(
+        "--registry", default="config/training_qualification_campaigns.json"
+    )
     plan.add_argument("--dataset-manifest", required=True)
     plan.add_argument("--split-manifest", required=True)
     plan.add_argument("--optimizer-policy", required=True)
@@ -2410,7 +2845,9 @@ def _parse_keyed_paths(values: Sequence[str]) -> dict[str, str]:
 
 def _run_authority_cli(args: argparse.Namespace) -> int:
     if args.command == "plan":
-        campaign = load_scientific_experiment_registry(args.registry).latest(args.campaign)
+        campaign = load_scientific_experiment_registry(args.registry).latest(
+            args.campaign
+        )
         manifest = ExperimentAuthority(args.output_dir).plan(
             campaign=campaign,
             dataset_manifest=args.dataset_manifest,
@@ -2428,7 +2865,9 @@ def _run_authority_cli(args: argparse.Namespace) -> int:
             architecture_promotion_path=args.architecture_promotion,
             scaling_promotion_path=args.scaling_promotion,
         )
-        _exclusive_json(Path(args.output).expanduser().resolve(), decision.model_dump(mode="json"))
+        _exclusive_json(
+            Path(args.output).expanduser().resolve(), decision.model_dump(mode="json")
+        )
         payload = decision.model_dump(mode="json")
         code = 0 if decision.status == "authorized" else 2
     elif args.command == "admit-arm":

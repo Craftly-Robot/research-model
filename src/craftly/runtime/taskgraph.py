@@ -1,4 +1,4 @@
-﻿"""Durable MVP TaskGraph runtime."""
+"""Durable MVP TaskGraph runtime."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ from pydantic import Field
 
 from src.craftly.db import LocalStore
 from src.craftly.shared.schemas import StrictModel
-
 
 TASK_NODE_ORDER = [
     ("understand", "Understand request and repository target"),
@@ -58,7 +57,9 @@ class AgentRunCreateRequest(StrictModel):
     project_id: str
     session_id: str | None = None
     prompt: str = Field(min_length=1)
-    mode: str = Field(default="code_edit", pattern="^(code_edit|debug|explain|security_review)$")
+    mode: str = Field(
+        default="code_edit", pattern="^(code_edit|debug|explain|security_review)$"
+    )
     max_steps: int = Field(default=12, ge=1, le=50)
     apply_patch: bool = False
     model_profile: str = "mock"
@@ -95,7 +96,9 @@ class TaskGraphRuntime:
     def __init__(self, store: LocalStore | None = None) -> None:
         self.store = store or LocalStore()
 
-    def create_agent_run(self, request: AgentRunCreateRequest) -> AgentRunCreateResponse:
+    def create_agent_run(
+        self, request: AgentRunCreateRequest
+    ) -> AgentRunCreateResponse:
         run = self.store.create_run(
             project_id=request.project_id,
             session_id=request.session_id,
@@ -148,7 +151,12 @@ class TaskGraphRuntime:
             "critic_review": ["test", "security_review", "performance_review"],
             "security_review": ["edit"],
             "performance_review": ["edit"],
-            "verify": ["test", "critic_review", "security_review", "performance_review"],
+            "verify": [
+                "test",
+                "critic_review",
+                "security_review",
+                "performance_review",
+            ],
             "summarize": ["verify"],
         }
         for kind, title in TASK_NODE_ORDER:
@@ -156,9 +164,13 @@ class TaskGraphRuntime:
             node = TaskNode(
                 kind=kind,
                 title=title,
-                instructions=self.instructions_for(kind, prompt=prompt, mode=mode, apply_patch=apply_patch),
+                instructions=self.instructions_for(
+                    kind, prompt=prompt, mode=mode, apply_patch=apply_patch
+                ),
                 depends_on=dependencies,
-                inputs={"prompt": prompt, "mode": mode, "max_steps": max_steps} if kind == "understand" else {},
+                inputs={"prompt": prompt, "mode": mode, "max_steps": max_steps}
+                if kind == "understand"
+                else {},
             )
             nodes.append(node)
             node_ids[kind] = node.node_id
@@ -181,7 +193,9 @@ class TaskGraphRuntime:
             ],
         )
 
-    def instructions_for(self, kind: str, *, prompt: str, mode: str, apply_patch: bool) -> str:
+    def instructions_for(
+        self, kind: str, *, prompt: str, mode: str, apply_patch: bool
+    ) -> str:
         instructions = {
             "understand": "Classify intent, target files, risks, and expected verification evidence.",
             "planner": "Create a durable dependency-aware task plan. Do not write executable code in this stage.",
@@ -227,11 +241,15 @@ class TaskGraphRuntime:
         )
         if claimed:
             started = claimed[0]
-            return self.advance_report(task_graph_id, "running", started, self.store.list_tasks(task_graph_id))
+            return self.advance_report(
+                task_graph_id, "running", started, self.store.list_tasks(task_graph_id)
+            )
         if tasks and all(task["status"] == "completed" for task in tasks):
             self.store.update_task_graph_status(task_graph_id, "completed")
             return self.advance_report(task_graph_id, "completed", None, tasks)
-        return self.advance_report(task_graph_id, str(graph.get("status") or "queued"), None, tasks)
+        return self.advance_report(
+            task_graph_id, str(graph.get("status") or "queued"), None, tasks
+        )
 
     def complete_task(
         self,
@@ -254,7 +272,9 @@ class TaskGraphRuntime:
             return self.advance(task["task_graph_id"])
         return self.report(task["task_graph_id"])
 
-    def fail_task(self, task_id: str, request: TaskFailRequest, *, claim_next: bool = True) -> TaskAdvanceResponse:
+    def fail_task(
+        self, task_id: str, request: TaskFailRequest, *, claim_next: bool = True
+    ) -> TaskAdvanceResponse:
         task = self.store.get_task(task_id)
         if task is None:
             raise KeyError(f"unknown task: {task_id}")
@@ -275,7 +295,12 @@ class TaskGraphRuntime:
                 error=request.error,
                 finished=False,
             )
-            self.store.update_task_attempt(task_id, attempt=next_attempt, outputs=retry_outputs, error=request.error)
+            self.store.update_task_attempt(
+                task_id,
+                attempt=next_attempt,
+                outputs=retry_outputs,
+                error=request.error,
+            )
             self.store.update_task_graph_status(task["task_graph_id"], "running")
             if claim_next:
                 return self.advance(task["task_graph_id"])
@@ -287,7 +312,9 @@ class TaskGraphRuntime:
             error=request.error,
             finished=True,
         )
-        self.store.update_task_attempt(task_id, attempt=next_attempt, outputs=retry_outputs, error=request.error)
+        self.store.update_task_attempt(
+            task_id, attempt=next_attempt, outputs=retry_outputs, error=request.error
+        )
         self.store.update_task_graph_status(task["task_graph_id"], "failed")
         return self.report(task["task_graph_id"])
 
@@ -348,14 +375,17 @@ class TaskGraphRuntime:
         )
         if status != graph.get("status"):
             self.store.update_task_graph_status(task_graph_id, status)
-        return self.advance_report(task_graph_id, status, running[0] if running else None, tasks)
+        return self.advance_report(
+            task_graph_id, status, running[0] if running else None, tasks
+        )
 
     def ready_tasks(self, tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         completed = {task["id"] for task in tasks if task["status"] == "completed"}
         return [
             task
             for task in tasks
-            if task["status"] == "queued" and all(dependency in completed for dependency in task["depends_on"])
+            if task["status"] == "queued"
+            and all(dependency in completed for dependency in task["depends_on"])
         ]
 
     def advance_report(
@@ -372,7 +402,8 @@ class TaskGraphRuntime:
             active_task=active_task,
             active_tasks=[task for task in tasks if task["status"] == "running"],
             ready_task_count=len(ready),
-            completed_task_count=sum(1 for task in tasks if task["status"] == "completed"),
+            completed_task_count=sum(
+                1 for task in tasks if task["status"] == "completed"
+            ),
             failed_task_count=sum(1 for task in tasks if task["status"] == "failed"),
         )
-

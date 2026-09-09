@@ -1,4 +1,4 @@
-﻿"""MVP repository indexing engine.
+"""MVP repository indexing engine.
 
 This module gives Craftly a Cursor-style local repository intelligence baseline:
 file inventory, content hashes, language detection, chunking, symbol extraction,
@@ -9,8 +9,8 @@ system is testable on day one; vector storage can subscribe to the same chunks.
 from __future__ import annotations
 
 import argparse
-import asyncio
 import ast
+import asyncio
 import contextlib
 import hashlib
 import io
@@ -37,9 +37,12 @@ from src.craftly.db.local_store import (
     PostgresRAGStore,
     PostgresRAGStoreFactory,
 )
-from src.craftly.learning.storage import ObjectStore, ObjectStoreConfig, create_object_store
+from src.craftly.learning.storage import (
+    ObjectStore,
+    ObjectStoreConfig,
+    create_object_store,
+)
 from src.craftly.shared.schemas import StrictModel
-
 
 LANGUAGE_BY_SUFFIX = {
     ".py": "python",
@@ -91,8 +94,14 @@ SYMBOL_REGEX = re.compile(
 )
 
 IMPORT_REGEX_BY_LANGUAGE = {
-    "javascript": re.compile(r"^\s*import\s+.*?\s+from\s+['\"]([^'\"]+)['\"]|^\s*const\s+.+?=\s+require\(['\"]([^'\"]+)['\"]\)", re.MULTILINE),
-    "typescript": re.compile(r"^\s*import\s+.*?\s+from\s+['\"]([^'\"]+)['\"]|^\s*const\s+.+?=\s+require\(['\"]([^'\"]+)['\"]\)", re.MULTILINE),
+    "javascript": re.compile(
+        r"^\s*import\s+.*?\s+from\s+['\"]([^'\"]+)['\"]|^\s*const\s+.+?=\s+require\(['\"]([^'\"]+)['\"]\)",
+        re.MULTILINE,
+    ),
+    "typescript": re.compile(
+        r"^\s*import\s+.*?\s+from\s+['\"]([^'\"]+)['\"]|^\s*const\s+.+?=\s+require\(['\"]([^'\"]+)['\"]\)",
+        re.MULTILINE,
+    ),
     "go": re.compile(r"^\s*import\s+(?:\(\s*)?\"([^\"]+)\"", re.MULTILINE),
     "rust": re.compile(r"^\s*use\s+([^;]+);", re.MULTILINE),
     "java": re.compile(r"^\s*import\s+([^;]+);", re.MULTILINE),
@@ -311,9 +320,13 @@ class RepositoryIndexer:
         )
         self.object_store = object_store
         if self.production_mode and self.object_store is None:
-            uri = os.environ.get("CRAFTLY_RAG_OBJECT_STORE_URI") or os.environ.get("CRAFTLY_OBJECT_STORE_URI")
+            uri = os.environ.get("CRAFTLY_RAG_OBJECT_STORE_URI") or os.environ.get(
+                "CRAFTLY_OBJECT_STORE_URI"
+            )
             if not uri or not uri.startswith("s3://"):
-                raise RuntimeError("production repository indexing requires S3/MinIO snapshot storage")
+                raise RuntimeError(
+                    "production repository indexing requires S3/MinIO snapshot storage"
+                )
             self.object_store = create_object_store(
                 ObjectStoreConfig(
                     uri=uri,
@@ -343,13 +356,17 @@ class RepositoryIndexer:
             raise KeyError(f"unknown project: {project_id}")
         repo_path = Path(str(project["repo_path"])).resolve()
         if not repo_path.exists() or not repo_path.is_dir():
-            raise FileNotFoundError(f"project repo_path is not a directory: {repo_path}")
+            raise FileNotFoundError(
+                f"project repo_path is not a directory: {repo_path}"
+            )
 
         errors: list[str] = []
         if max_chunk_tokens < 128 or max_chunk_tokens > 4096:
             raise ValueError("max_chunk_tokens must be between 128 and 4096")
         if overlap_tokens < 0 or overlap_tokens >= max_chunk_tokens:
-            raise ValueError("overlap_tokens must be non-negative and smaller than max_chunk_tokens")
+            raise ValueError(
+                "overlap_tokens must be non-negative and smaller than max_chunk_tokens"
+            )
 
         source_files = list(
             self.iter_source_files(
@@ -359,7 +376,9 @@ class RepositoryIndexer:
             )
         )
         source_snapshot_sha256 = self.source_snapshot_sha256(source_files)
-        source_revision = self.resolve_source_revision(repo_path, source_snapshot_sha256)
+        source_revision = self.resolve_source_revision(
+            repo_path, source_snapshot_sha256
+        )
         snapshot_object = self.persist_source_snapshot(
             organization_id=str(project["organization_id"]),
             project_id=project_id,
@@ -367,9 +386,13 @@ class RepositoryIndexer:
             source_files=source_files,
         )
         previous_files = self.store.list_workspace_file_hashes(project_id)
-        current_hashes = {item.relative_path: item.content_hash for item in source_files}
+        current_hashes = {
+            item.relative_path: item.content_hash for item in source_files
+        }
         changed_file_count = sum(
-            1 for path, content_hash in current_hashes.items() if previous_files.get(path) != content_hash
+            1
+            for path, content_hash in current_hashes.items()
+            if previous_files.get(path) != content_hash
         )
         removed_file_count = len(set(previous_files) - set(current_hashes))
         manifest_base = {
@@ -398,8 +421,11 @@ class RepositoryIndexer:
                 if cancellation_check is not None and cancellation_check():
                     raise IndexCancelled("repository indexing was cancelled")
                 file_id = stable_uuid(
-                    project["organization_id"], project_id, source_file.relative_path,
-                    source_file.content_hash, CHUNKER_VERSION,
+                    project["organization_id"],
+                    project_id,
+                    source_file.relative_path,
+                    source_file.content_hash,
+                    CHUNKER_VERSION,
                 )
                 files.append(
                     {
@@ -424,22 +450,33 @@ class RepositoryIndexer:
                 all_chunks.extend(chunks)
             graph_report = self.resolve_interprocedural_graph(all_chunks)
             if cancellation_check is not None and cancellation_check():
-                raise IndexCancelled("repository indexing was cancelled before revision commit")
+                raise IndexCancelled(
+                    "repository indexing was cancelled before revision commit"
+                )
             manifest = {
                 **manifest_base,
                 "file_count": len(files),
                 "chunk_count": len(all_chunks),
-                "symbol_count": sum(1 for chunk in all_chunks if chunk.get("symbol_name")),
+                "symbol_count": sum(
+                    1 for chunk in all_chunks if chunk.get("symbol_name")
+                ),
                 "parser_counts": dict(
                     sorted(
                         {
                             parser: sum(
                                 1
                                 for chunk in all_chunks
-                                if str((chunk.get("metadata") or {}).get("parser") or "unknown") == parser
+                                if str(
+                                    (chunk.get("metadata") or {}).get("parser")
+                                    or "unknown"
+                                )
+                                == parser
                             )
                             for parser in {
-                                str((chunk.get("metadata") or {}).get("parser") or "unknown")
+                                str(
+                                    (chunk.get("metadata") or {}).get("parser")
+                                    or "unknown"
+                                )
                                 for chunk in all_chunks
                             }
                         }.items()
@@ -449,7 +486,9 @@ class RepositoryIndexer:
                 "changed_file_count": changed_file_count,
                 "removed_file_count": removed_file_count,
             }
-            manifest["manifest_sha256"] = sha256_text(json.dumps(manifest, sort_keys=True, separators=(",", ":")))
+            manifest["manifest_sha256"] = sha256_text(
+                json.dumps(manifest, sort_keys=True, separators=(",", ":"))
+            )
             self.store.commit_index_revision(
                 revision_id=revision_id,
                 files=files,
@@ -529,7 +568,9 @@ class RepositoryIndexer:
             archive = Path(directory) / "snapshot.tar"
             with tarfile.open(archive, mode="w", format=tarfile.PAX_FORMAT) as handle:
                 manifest_rows: list[dict[str, Any]] = []
-                for source_file in sorted(source_files, key=lambda item: item.relative_path):
+                for source_file in sorted(
+                    source_files, key=lambda item: item.relative_path
+                ):
                     payload = source_file.content.encode("utf-8", "surrogatepass")
                     info = tarfile.TarInfo(name=source_file.relative_path)
                     info.size = len(payload)
@@ -580,7 +621,9 @@ class RepositoryIndexer:
         for path in sorted(repo_path.rglob("*")):
             if not path.is_file():
                 continue
-            if any(part in DEFAULT_EXCLUDES for part in path.relative_to(repo_path).parts):
+            if any(
+                part in DEFAULT_EXCLUDES for part in path.relative_to(repo_path).parts
+            ):
                 continue
             suffix = path.suffix.lower()
             if suffix not in suffixes or suffix not in LANGUAGE_BY_SUFFIX:
@@ -591,7 +634,11 @@ class RepositoryIndexer:
                 continue
             if len(raw) > max_file_bytes or b"\x00" in raw[:4096]:
                 continue
-            text = raw.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
+            text = (
+                raw.decode("utf-8", errors="replace")
+                .replace("\r\n", "\n")
+                .replace("\r", "\n")
+            )
             yield SourceFile(
                 path=path,
                 relative_path=path.relative_to(repo_path).as_posix(),
@@ -616,8 +663,14 @@ class RepositoryIndexer:
             chunks = list(self.python_symbol_chunks(source_file))
             if chunks:
                 for chunk in chunks:
-                    for bounded in self.bound_chunk(chunk, max_chunk_tokens=max_chunk_tokens, overlap_tokens=overlap_tokens):
-                        yield self.chunk_payload(organization_id, project_id, file_id, source_file, **bounded)
+                    for bounded in self.bound_chunk(
+                        chunk,
+                        max_chunk_tokens=max_chunk_tokens,
+                        overlap_tokens=overlap_tokens,
+                    ):
+                        yield self.chunk_payload(
+                            organization_id, project_id, file_id, source_file, **bounded
+                        )
                 return
         if source_file.language in TREE_SITTER_LANGUAGES:
             if self.production_mode:
@@ -633,11 +686,17 @@ class RepositoryIndexer:
                         max_chunk_tokens=max_chunk_tokens,
                         overlap_tokens=overlap_tokens,
                     ):
-                        yield self.chunk_payload(organization_id, project_id, file_id, source_file, **bounded)
+                        yield self.chunk_payload(
+                            organization_id, project_id, file_id, source_file, **bounded
+                        )
                 return
         for chunk in self.line_chunks(source_file, max_chunk_lines=max_chunk_lines):
-            for bounded in self.bound_chunk(chunk, max_chunk_tokens=max_chunk_tokens, overlap_tokens=overlap_tokens):
-                yield self.chunk_payload(organization_id, project_id, file_id, source_file, **bounded)
+            for bounded in self.bound_chunk(
+                chunk, max_chunk_tokens=max_chunk_tokens, overlap_tokens=overlap_tokens
+            ):
+                yield self.chunk_payload(
+                    organization_id, project_id, file_id, source_file, **bounded
+                )
 
     def bound_chunk(
         self,
@@ -650,7 +709,6 @@ class RepositoryIndexer:
         if estimate_tokens(content) <= max_chunk_tokens:
             yield chunk
             return
-        lines = content.splitlines()
         max_chars = max_chunk_tokens * 4
         overlap_chars = overlap_tokens * 4
         start = 0
@@ -667,9 +725,15 @@ class RepositoryIndexer:
             bounded = dict(chunk)
             bounded["content"] = segment
             bounded["start_line"] = int(chunk["start_line"]) + start_line_offset
-            bounded["end_line"] = min(int(chunk["end_line"]), int(chunk["start_line"]) + end_line_offset)
+            bounded["end_line"] = min(
+                int(chunk["end_line"]), int(chunk["start_line"]) + end_line_offset
+            )
             bounded["kind"] = f"{chunk['kind']}_part"
-            bounded["metadata"] = {**dict(chunk.get("metadata") or {}), "parent_symbol": chunk.get("symbol_name"), "part": part}
+            bounded["metadata"] = {
+                **dict(chunk.get("metadata") or {}),
+                "parent_symbol": chunk.get("symbol_name"),
+                "part": part,
+            }
             yield bounded
             part += 1
             if end >= len(content):
@@ -685,7 +749,9 @@ class RepositoryIndexer:
         facts = self.python_module_facts(tree)
         chunks: list[dict[str, Any]] = []
         for node in ast.walk(tree):
-            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if not isinstance(
+                node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+            ):
                 continue
             start = max(1, getattr(node, "lineno", 1))
             end = max(start, getattr(node, "end_lineno", start))
@@ -719,7 +785,9 @@ class RepositoryIndexer:
             )
         return sorted(chunks, key=lambda item: (item["start_line"], item["end_line"]))
 
-    def tree_sitter_symbol_chunks(self, source_file: SourceFile) -> Iterable[dict[str, Any]]:
+    def tree_sitter_symbol_chunks(
+        self, source_file: SourceFile
+    ) -> Iterable[dict[str, Any]]:
         """Extract hierarchy-preserving symbols and local program facts.
 
         Tree-sitter byte offsets are used rather than decoded character offsets,
@@ -751,7 +819,9 @@ class RepositoryIndexer:
             name = self.tree_sitter_symbol_name(node, source_bytes)
             if not name:
                 continue
-            content = source_bytes[ts_byte(node, "start") : ts_byte(node, "end")].decode("utf-8", "replace")
+            content = source_bytes[
+                ts_byte(node, "start") : ts_byte(node, "end")
+            ].decode("utf-8", "replace")
             start_line = ts_row(node, "start") + 1
             end_line = max(start_line, ts_row(node, "end") + 1)
             signature = self.tree_sitter_signature(node, source_bytes)
@@ -793,7 +863,11 @@ class RepositoryIndexer:
 
     @staticmethod
     def tree_sitter_node_text(node: Any, source_bytes: bytes) -> str:
-        return source_bytes[ts_byte(node, "start") : ts_byte(node, "end")].decode("utf-8", "replace").strip()
+        return (
+            source_bytes[ts_byte(node, "start") : ts_byte(node, "end")]
+            .decode("utf-8", "replace")
+            .strip()
+        )
 
     def tree_sitter_symbol_name(self, node: Any, source_bytes: bytes) -> str:
         name_node = node.child_by_field_name("name")
@@ -806,21 +880,30 @@ class RepositoryIndexer:
             candidates = [
                 child
                 for child in self.walk_tree_sitter(declarator)
-                if ts_node_type(child) in {"identifier", "field_identifier", "type_identifier"}
+                if ts_node_type(child)
+                in {"identifier", "field_identifier", "type_identifier"}
             ]
             if candidates:
                 return self.tree_sitter_node_text(candidates[-1], source_bytes)[:512]
         for child in self.walk_tree_sitter(node):
             if child is node:
                 continue
-            if ts_node_type(child) in {"identifier", "field_identifier", "type_identifier"}:
+            if ts_node_type(child) in {
+                "identifier",
+                "field_identifier",
+                "type_identifier",
+            }:
                 return self.tree_sitter_node_text(child, source_bytes)[:512]
         return ""
 
     def tree_sitter_signature(self, node: Any, source_bytes: bytes) -> str:
         body = node.child_by_field_name("body")
         start_byte = ts_byte(node, "start")
-        end_byte = ts_byte(body, "start") if body is not None else min(ts_byte(node, "end"), start_byte + 2048)
+        end_byte = (
+            ts_byte(body, "start")
+            if body is not None
+            else min(ts_byte(node, "end"), start_byte + 2048)
+        )
         signature = source_bytes[start_byte:end_byte].decode("utf-8", "replace").strip()
         return " ".join(signature.split())[:2048]
 
@@ -829,7 +912,9 @@ class RepositoryIndexer:
         for child in self.walk_tree_sitter(node):
             if child is node or ts_node_type(child) not in TREE_SITTER_CALL_TYPES:
                 continue
-            function = child.child_by_field_name("function") or child.child_by_field_name("name")
+            function = child.child_by_field_name(
+                "function"
+            ) or child.child_by_field_name("name")
             named_children = ts_children(child, named=True)
             if function is None and named_children:
                 function = named_children[0]
@@ -846,7 +931,9 @@ class RepositoryIndexer:
         for child in self.walk_tree_sitter(node):
             if child is node or ts_node_type(child) not in TREE_SITTER_MUTATION_TYPES:
                 continue
-            target = child.child_by_field_name("left") or child.child_by_field_name("name")
+            target = child.child_by_field_name("left") or child.child_by_field_name(
+                "name"
+            )
             named_children = ts_children(child, named=True)
             if target is None and named_children:
                 target = named_children[0]
@@ -869,7 +956,9 @@ class RepositoryIndexer:
             parent = ts_parent(parent)
         return list(reversed(parents))
 
-    def resolve_interprocedural_graph(self, chunks: list[dict[str, Any]]) -> dict[str, Any]:
+    def resolve_interprocedural_graph(
+        self, chunks: list[dict[str, Any]]
+    ) -> dict[str, Any]:
         """Resolve repository-local call edges without inventing ambiguous links."""
 
         by_exact: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -890,7 +979,9 @@ class RepositoryIndexer:
             resolved: list[dict[str, str]] = []
             ambiguous: list[str] = []
             unresolved: list[str] = []
-            for call in sorted(set(str(item) for item in metadata.get("calls", []) if item)):
+            for call in sorted(
+                set(str(item) for item in metadata.get("calls", []) if item)
+            ):
                 normalized = call.replace("?.", ".").replace("->", ".")
                 leaf = normalized.split(".")[-1].split("::")[-1]
                 candidates = by_exact.get(normalized, []) or by_leaf.get(leaf, [])
@@ -919,7 +1010,9 @@ class RepositoryIndexer:
 
         for chunk in chunks:
             metadata = dict(chunk.get("metadata") or {})
-            metadata["called_by_chunk_ids"] = sorted(reverse_edges.get(str(chunk["id"]), set()))
+            metadata["called_by_chunk_ids"] = sorted(
+                reverse_edges.get(str(chunk["id"]), set())
+            )
             chunk["metadata"] = metadata
         return {
             "resolved_edges": resolved_edge_count,
@@ -928,7 +1021,9 @@ class RepositoryIndexer:
             "symbols": sum(len(values) for values in by_leaf.values()),
         }
 
-    def line_chunks(self, source_file: SourceFile, *, max_chunk_lines: int) -> Iterable[dict[str, Any]]:
+    def line_chunks(
+        self, source_file: SourceFile, *, max_chunk_lines: int
+    ) -> Iterable[dict[str, Any]]:
         lines = source_file.content.splitlines()
         if not lines:
             return
@@ -964,7 +1059,9 @@ class RepositoryIndexer:
                 imports.extend(alias.name for alias in node.names)
             elif isinstance(node, ast.ImportFrom):
                 module = "." * node.level + (node.module or "")
-                imports.extend(f"{module}.{alias.name}".strip(".") for alias in node.names)
+                imports.extend(
+                    f"{module}.{alias.name}".strip(".") for alias in node.names
+                )
             elif isinstance(node, ast.Call):
                 call = self.call_name(node.func)
                 if call:
@@ -979,12 +1076,24 @@ class RepositoryIndexer:
 
     def python_signature(self, node: ast.AST) -> str:
         if isinstance(node, ast.ClassDef):
-            bases = [self.safe_unparse(base) for base in node.bases if self.safe_unparse(base)]
-            return f"class {node.name}({', '.join(bases)})" if bases else f"class {node.name}"
+            bases = [
+                self.safe_unparse(base)
+                for base in node.bases
+                if self.safe_unparse(base)
+            ]
+            return (
+                f"class {node.name}({', '.join(bases)})"
+                if bases
+                else f"class {node.name}"
+            )
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             prefix = "async def" if isinstance(node, ast.AsyncFunctionDef) else "def"
             args = self.safe_unparse(node.args)
-            returns = f" -> {self.safe_unparse(node.returns)}" if node.returns is not None else ""
+            returns = (
+                f" -> {self.safe_unparse(node.returns)}"
+                if node.returns is not None
+                else ""
+            )
             return f"{prefix} {node.name}({args}){returns}"
         return ""
 
@@ -1012,7 +1121,9 @@ class RepositoryIndexer:
 
     def assignment_targets(self, node: ast.AST) -> list[str]:
         if isinstance(node, ast.Assign):
-            return [name for target in node.targets for name in self.target_names(target)]
+            return [
+                name for target in node.targets for name in self.target_names(target)
+            ]
         if isinstance(node, ast.AnnAssign):
             return self.target_names(node.target)
         if isinstance(node, ast.AugAssign):
@@ -1081,8 +1192,14 @@ class RepositoryIndexer:
         chunk_hash = sha256_text(content)
         return {
             "id": stable_uuid(
-                organization_id, project_id, source_file.relative_path, symbol_name or "",
-                start_line, end_line, chunk_hash, CHUNKER_VERSION,
+                organization_id,
+                project_id,
+                source_file.relative_path,
+                symbol_name or "",
+                start_line,
+                end_line,
+                chunk_hash,
+                CHUNKER_VERSION,
             ),
             "project_id": project_id,
             "file_id": file_id,
@@ -1101,14 +1218,24 @@ class RepositoryIndexer:
 
 class RAGJobStore(Protocol):
     def create_index_job(self, **kwargs: Any) -> dict[str, Any]: ...
-    def get_index_job(self, job_id: str, *, organization_id: str | None = None) -> dict[str, Any] | None: ...
-    def claim_index_job(self, *, worker_id: str, lease_seconds: int = 60) -> dict[str, Any] | None: ...
-    def heartbeat_index_job(self, job_id: str, *, worker_id: str, lease_seconds: int = 60) -> bool: ...
+    def get_index_job(
+        self, job_id: str, *, organization_id: str | None = None
+    ) -> dict[str, Any] | None: ...
+    def claim_index_job(
+        self, *, worker_id: str, lease_seconds: int = 60
+    ) -> dict[str, Any] | None: ...
+    def heartbeat_index_job(
+        self, job_id: str, *, worker_id: str, lease_seconds: int = 60
+    ) -> bool: ...
     def index_job_cancel_requested(self, job_id: str) -> bool: ...
-    def request_index_job_cancel(self, job_id: str, *, organization_id: str) -> dict[str, Any]: ...
+    def request_index_job_cancel(
+        self, job_id: str, *, organization_id: str
+    ) -> dict[str, Any]: ...
     def complete_index_job(self, job_id: str, **kwargs: Any) -> dict[str, Any]: ...
     def fail_index_job(self, job_id: str, **kwargs: Any) -> dict[str, Any]: ...
-    def claim_rag_outbox(self, *, worker_id: str, lease_seconds: int = 60) -> dict[str, Any] | None: ...
+    def claim_rag_outbox(
+        self, *, worker_id: str, lease_seconds: int = 60
+    ) -> dict[str, Any] | None: ...
     def complete_rag_outbox(self, event_id: str, *, worker_id: str) -> None: ...
     def fail_rag_outbox(self, event_id: str, **kwargs: Any) -> None: ...
 
@@ -1191,12 +1318,18 @@ class RedisRAGControl:
             count=32,
             block=int(min(max(timeout_seconds, 0.1), 60.0) * 1000),
         )
-        message_ids = [message_id for _stream, entries in messages for message_id, _payload in entries]
+        message_ids = [
+            message_id
+            for _stream, entries in messages
+            for message_id, _payload in entries
+        ]
         if message_ids:
             await client.xack(self.INDEX_STREAM, self.WORKER_GROUP, *message_ids)
         return bool(message_ids)
 
-    async def acquire_project_lock(self, project_id: str, owner: str, *, ttl_seconds: int) -> bool:
+    async def acquire_project_lock(
+        self, project_id: str, owner: str, *, ttl_seconds: int
+    ) -> bool:
         client = await self.client()
         return bool(
             await client.set(
@@ -1209,7 +1342,9 @@ class RedisRAGControl:
 
     async def release_project_lock(self, project_id: str, owner: str) -> None:
         client = await self.client()
-        await client.eval(self.RELEASE_LOCK_LUA, 1, f"craftly:rag:project-lock:{project_id}", owner)
+        await client.eval(
+            self.RELEASE_LOCK_LUA, 1, f"craftly:rag:project-lock:{project_id}", owner
+        )
 
     async def close(self) -> None:
         if self._client is not None:
@@ -1239,7 +1374,9 @@ class RAGIndexCoordinator:
         active_redis = redis_url or os.environ.get("CRAFTLY_REDIS_URL")
         if self.production_mode and not active_redis:
             raise RuntimeError("production RAG indexing requires CRAFTLY_REDIS_URL")
-        self.redis = redis_control or (RedisRAGControl(active_redis) if active_redis else None)
+        self.redis = redis_control or (
+            RedisRAGControl(active_redis) if active_redis else None
+        )
         self._owns_redis = redis_control is None
         self.worker_id = worker_id or f"rag-{os.getpid()}-{uuid.uuid4().hex[:12]}"
         self.lease_seconds = min(max(lease_seconds, 30), 900)
@@ -1254,7 +1391,13 @@ class RAGIndexCoordinator:
         max_attempts: int = 3,
     ) -> dict[str, Any]:
         payload = dict(request or {})
-        allowed = {"include_suffixes", "max_file_bytes", "max_chunk_lines", "max_chunk_tokens", "overlap_tokens"}
+        allowed = {
+            "include_suffixes",
+            "max_file_bytes",
+            "max_chunk_lines",
+            "max_chunk_tokens",
+            "overlap_tokens",
+        }
         unexpected = sorted(set(payload) - allowed)
         if unexpected:
             raise ValueError(f"unsupported index request fields: {unexpected}")
@@ -1314,14 +1457,20 @@ class RAGIndexCoordinator:
         try:
             request = dict(job.get("request") or {})
             if request.get("include_suffixes") is not None:
-                request["include_suffixes"] = set(str(item) for item in request["include_suffixes"])
+                request["include_suffixes"] = set(
+                    str(item) for item in request["include_suffixes"]
+                )
             else:
                 request.pop("include_suffixes", None)
             report = await asyncio.to_thread(
-                RepositoryIndexer(self.store, production_mode=self.production_mode).index_project,
+                RepositoryIndexer(
+                    self.store, production_mode=self.production_mode
+                ).index_project,
                 project_id=project_id,
                 organization_id=str(job["organization_id"]),
-                cancellation_check=lambda: self.store.index_job_cancel_requested(str(job["id"])),
+                cancellation_check=lambda: self.store.index_job_cancel_requested(
+                    str(job["id"])
+                ),
                 **request,
             )
             return await asyncio.to_thread(
@@ -1332,7 +1481,9 @@ class RAGIndexCoordinator:
                 result=report.model_dump(mode="json"),
             )
         except Exception as exc:
-            permanent = isinstance(exc, (ValueError, KeyError, PermissionError, FileNotFoundError))
+            permanent = isinstance(
+                exc, (ValueError, KeyError, PermissionError, FileNotFoundError)
+            )
             attempt = int(job.get("attempt") or 1)
             failed = await asyncio.to_thread(
                 self.store.fail_index_job,
@@ -1363,14 +1514,27 @@ class RAGIndexCoordinator:
         return await self.execute_claimed_outbox(event)
 
     async def execute_claimed_outbox(self, event: dict[str, Any]) -> dict[str, Any]:
-        if event.get("status") != "delivering" or event.get("lease_owner") != self.worker_id:
+        if (
+            event.get("status") != "delivering"
+            or event.get("lease_owner") != self.worker_id
+        ):
             raise ValueError("claimed RAG outbox event is not leased to this worker")
         try:
-            from src.craftly.indexing.vector_index import VectorBackendConfig, create_vector_index
+            from src.craftly.indexing.vector_index import (
+                VectorBackendConfig,
+                create_vector_index,
+            )
 
             config = VectorBackendConfig(
-                backend="qdrant" if self.production_mode else os.environ.get("CRAFTLY_VECTOR_BACKEND", "local_hashing"),
-                dims=int(os.environ.get("CRAFTLY_EMBEDDING_DIMS", "768" if self.production_mode else "384")),
+                backend="qdrant"
+                if self.production_mode
+                else os.environ.get("CRAFTLY_VECTOR_BACKEND", "local_hashing"),
+                dims=int(
+                    os.environ.get(
+                        "CRAFTLY_EMBEDDING_DIMS",
+                        "768" if self.production_mode else "384",
+                    )
+                ),
                 qdrant_url=os.environ.get("CRAFTLY_QDRANT_URL"),
                 embedding_url=os.environ.get("CRAFTLY_EMBEDDING_URL"),
                 embedding_manifest_path=os.environ.get("CRAFTLY_EMBEDDING_MANIFEST"),
@@ -1396,9 +1560,15 @@ class RAGIndexCoordinator:
                 str(event["id"]),
                 worker_id=self.worker_id,
                 error=f"{type(exc).__name__}: {exc}",
-                retry_delay_seconds=min(300.0, float(2 ** min(int(event.get("attempt") or 1), 8))),
+                retry_delay_seconds=min(
+                    300.0, float(2 ** min(int(event.get("attempt") or 1), 8))
+                ),
             )
-            return {"status": "retry_or_dead_letter", "event_id": event["id"], "error_type": type(exc).__name__}
+            return {
+                "status": "retry_or_dead_letter",
+                "event_id": event["id"],
+                "error_type": type(exc).__name__,
+            }
 
     async def _heartbeat(self, job_id: str, stopped: asyncio.Event) -> None:
         interval = max(5.0, self.lease_seconds / 3)
@@ -1445,18 +1615,29 @@ async def _run_worker(args: argparse.Namespace) -> int:
             index_result = await coordinator.run_index_once()
             vector_result = await coordinator.run_vector_sync_once()
             if args.once:
-                print(json.dumps({"index": index_result, "vector_sync": vector_result}, indent=2, sort_keys=True))
+                print(
+                    json.dumps(
+                        {"index": index_result, "vector_sync": vector_result},
+                        indent=2,
+                        sort_keys=True,
+                    )
+                )
                 return 0
             if index_result is None and vector_result is None:
                 if coordinator.redis is None:
                     await asyncio.sleep(args.poll_seconds)
                 else:
                     try:
-                        await coordinator.redis.wait_for_work(coordinator.worker_id, timeout_seconds=args.poll_seconds)
+                        await coordinator.redis.wait_for_work(
+                            coordinator.worker_id, timeout_seconds=args.poll_seconds
+                        )
                     except Exception as exc:
                         print(
                             json.dumps(
-                                {"event": "rag_redis_wake_failed", "error_type": type(exc).__name__},
+                                {
+                                    "event": "rag_redis_wake_failed",
+                                    "error_type": type(exc).__name__,
+                                },
                                 sort_keys=True,
                             ),
                             flush=True,
@@ -1473,7 +1654,9 @@ async def _run_distributed_worker(args: argparse.Namespace) -> int:
     dsn = os.environ.get("CRAFTLY_DATABASE_URL", "")
     redis_url = args.redis_url or os.environ.get("CRAFTLY_REDIS_URL", "")
     if not dsn or not redis_url:
-        raise RuntimeError("distributed RAG worker requires CRAFTLY_DATABASE_URL and CRAFTLY_REDIS_URL")
+        raise RuntimeError(
+            "distributed RAG worker requires CRAFTLY_DATABASE_URL and CRAFTLY_REDIS_URL"
+        )
     worker_id = args.worker_id or f"rag-dispatch-{os.getpid()}-{uuid.uuid4().hex[:12]}"
     dispatcher = PostgresRAGDispatcher(dsn)
     store_factory = PostgresRAGStoreFactory(dsn, min_pool_size=1, max_pool_size=8)
@@ -1489,7 +1672,9 @@ async def _run_distributed_worker(args: argparse.Namespace) -> int:
             )
             if claimed_job is not None:
                 activity = True
-                store = store_factory.for_organization(str(claimed_job["organization_id"]))
+                store = store_factory.for_organization(
+                    str(claimed_job["organization_id"])
+                )
                 coordinator = RAGIndexCoordinator(
                     store,
                     production_mode=True,
@@ -1508,7 +1693,9 @@ async def _run_distributed_worker(args: argparse.Namespace) -> int:
             )
             if claimed_event is not None:
                 activity = True
-                store = store_factory.for_organization(str(claimed_event["organization_id"]))
+                store = store_factory.for_organization(
+                    str(claimed_event["organization_id"])
+                )
                 coordinator = RAGIndexCoordinator(
                     store,
                     production_mode=True,
@@ -1523,7 +1710,11 @@ async def _run_distributed_worker(args: argparse.Namespace) -> int:
             if args.once:
                 print(
                     json.dumps(
-                        {"index": claimed_job, "vector_sync": claimed_event, "worker_id": worker_id},
+                        {
+                            "index": claimed_job,
+                            "vector_sync": claimed_event,
+                            "worker_id": worker_id,
+                        },
                         indent=2,
                         sort_keys=True,
                         default=str,
@@ -1532,11 +1723,16 @@ async def _run_distributed_worker(args: argparse.Namespace) -> int:
                 return 0
             if not activity:
                 try:
-                    await control.wait_for_work(worker_id, timeout_seconds=args.poll_seconds)
+                    await control.wait_for_work(
+                        worker_id, timeout_seconds=args.poll_seconds
+                    )
                 except Exception as exc:
                     print(
                         json.dumps(
-                            {"event": "rag_redis_wake_failed", "error_type": type(exc).__name__},
+                            {
+                                "event": "rag_redis_wake_failed",
+                                "error_type": type(exc).__name__,
+                            },
                             sort_keys=True,
                         ),
                         flush=True,
@@ -1549,7 +1745,9 @@ async def _run_distributed_worker(args: argparse.Namespace) -> int:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run the durable Craftly Hybrid RAG indexing worker")
+    parser = argparse.ArgumentParser(
+        description="Run the durable Craftly Hybrid RAG indexing worker"
+    )
     parser.add_argument("worker", nargs="?", default="worker", choices=["worker"])
     parser.add_argument("--redis-url", default=os.environ.get("CRAFTLY_REDIS_URL"))
     parser.add_argument("--worker-id")
@@ -1569,4 +1767,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

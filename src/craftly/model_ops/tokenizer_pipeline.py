@@ -1,10 +1,9 @@
-﻿"""Tokenizer training and token sharding pipeline for Craftly scratch pretraining."""
+"""Tokenizer training and token sharding pipeline for Craftly scratch pretraining."""
 
 from __future__ import annotations
 
 import argparse
 import json
-import math
 import random
 import struct
 import time
@@ -14,9 +13,8 @@ from typing import Any, Iterable, Literal
 
 from pydantic import Field
 
-from src.craftly.shared.schemas import StrictModel
 from src.craftly.shared.integrity import sha256_file
-
+from src.craftly.shared.schemas import StrictModel
 
 SPECIAL_TOKENS = [
     "<|document_end|>",
@@ -162,7 +160,9 @@ def _write_json_atomic(path: str | Path, payload: dict[str, Any]) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = target.with_name(f".{target.name}.{uuid.uuid4().hex}.tmp")
     try:
-        temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        temporary.write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
         temporary.replace(target)
     finally:
         temporary.unlink(missing_ok=True)
@@ -194,14 +194,20 @@ def iter_texts(paths: list[str | Path]) -> Iterable[str]:
                         raise ValueError(
                             f"invalid JSONL in {source} at line {line_number}: {exc.msg}; snippet={snippet!r}"
                         ) from exc
-                    text = str(row.get("text") or row.get("content") or row.get("prompt") or "")
+                    text = str(
+                        row.get("text") or row.get("content") or row.get("prompt") or ""
+                    )
                     if text:
                         yield text
         else:
             yield source.read_text(encoding="utf-8", errors="replace")
 
 
-def train_bpe_tokenizer(input_paths: list[str | Path], output_path: str | Path, config: TokenizerTrainConfig | None = None) -> Path:
+def train_bpe_tokenizer(
+    input_paths: list[str | Path],
+    output_path: str | Path,
+    config: TokenizerTrainConfig | None = None,
+) -> Path:
     from tokenizers import Tokenizer
     from tokenizers.decoders import ByteLevel as ByteLevelDecoder
     from tokenizers.models import BPE
@@ -292,14 +298,18 @@ def build_token_shards(
             val_tokens += len(buffer)
         buffer.clear()
 
-    def encode_into(paths: list[str | Path], *, forced_split: str | None = None) -> None:
+    def encode_into(
+        paths: list[str | Path], *, forced_split: str | None = None
+    ) -> None:
         nonlocal train_documents, val_documents
         for text in iter_texts(paths):
             token_ids = tokenizer.encode(text).ids
             if not token_ids:
                 continue
             token_ids.append(boundary_token_id)
-            split = forced_split or ("val" if rng.random() < active.validation_fraction else "train")
+            split = forced_split or (
+                "val" if rng.random() < active.validation_fraction else "train"
+            )
             buffer = val_buffer if split == "val" else train_buffer
             buffer.extend(token_ids)
             if split == "val":
@@ -370,7 +380,9 @@ def corpus_stats(paths: list[str | Path]) -> tuple[int, int]:
                         raise ValueError(
                             f"invalid JSONL in {source} at line {line_number}: {exc.msg}; snippet={snippet!r}"
                         ) from exc
-                    text = str(row.get("text") or row.get("content") or row.get("prompt") or "")
+                    text = str(
+                        row.get("text") or row.get("content") or row.get("prompt") or ""
+                    )
                     if text:
                         rows += 1
                         chars += len(text)
@@ -384,7 +396,10 @@ def corpus_stats(paths: list[str | Path]) -> tuple[int, int]:
 def write_tokenizer_stress_file(root: str | Path) -> Path:
     target = Path(root) / "tokenizer_stress_samples.jsonl"
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps({"text": TOKENIZER_STRESS_TEXT}, sort_keys=True) + "\n", encoding="utf-8")
+    target.write_text(
+        json.dumps({"text": TOKENIZER_STRESS_TEXT}, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     return target
 
 
@@ -393,7 +408,9 @@ def _load_production_dataset_binding(
 ) -> tuple[str, dict[str, Any]]:
     if not config.dataset_manifest_path:
         if config.production_mode:
-            raise ValueError("production tokenizer training requires dataset_manifest_path")
+            raise ValueError(
+                "production tokenizer training requires dataset_manifest_path"
+            )
         return "", {}
     manifest_path = Path(config.dataset_manifest_path).expanduser().resolve(strict=True)
     if manifest_path.stat().st_size > 8 * 1024 * 1024:
@@ -403,9 +420,13 @@ def _load_production_dataset_binding(
         raise ValueError("dataset manifest must be a JSON object")
     if config.production_mode:
         if payload.get("status") != "promoted" or payload.get("dev_smoke") is not False:
-            raise ValueError("production tokenizer requires a non-smoke promoted dataset")
+            raise ValueError(
+                "production tokenizer requires a non-smoke promoted dataset"
+            )
         if int((payload.get("metrics") or {}).get("promoted_records", 0)) < 100_000:
-            raise ValueError("production tokenizer requires at least 100,000 promoted records")
+            raise ValueError(
+                "production tokenizer requires at least 100,000 promoted records"
+            )
         artifacts = payload.get("artifacts")
         artifact_sha256 = payload.get("artifact_sha256")
         if not isinstance(artifacts, dict) or not isinstance(artifact_sha256, dict):
@@ -413,30 +434,47 @@ def _load_production_dataset_binding(
         required_artifacts = {"train", "val", "split_manifest", "promotion_decision"}
         missing = sorted(required_artifacts - artifacts.keys())
         if missing:
-            raise ValueError(f"dataset manifest is missing required artifacts: {missing}")
+            raise ValueError(
+                f"dataset manifest is missing required artifacts: {missing}"
+            )
         for name in required_artifacts:
             artifact = Path(str(artifacts[name])).expanduser().resolve(strict=True)
             expected = str(artifact_sha256.get(name) or "")
             if len(expected) != 64 or sha256_file(artifact) != expected:
                 raise ValueError(f"dataset artifact integrity failed: {name}")
-        train_paths = {str(Path(path).expanduser().resolve(strict=True)) for path in config.input_paths}
+        train_paths = {
+            str(Path(path).expanduser().resolve(strict=True))
+            for path in config.input_paths
+        }
         val_paths = {
             str(Path(path).expanduser().resolve(strict=True))
             for path in config.validation_input_paths
         }
-        if train_paths != {str(Path(str(artifacts["train"])).expanduser().resolve(strict=True))}:
-            raise ValueError("tokenizer train input is not the promoted dataset train split")
-        if val_paths != {str(Path(str(artifacts["val"])).expanduser().resolve(strict=True))}:
-            raise ValueError("tokenizer validation input is not the promoted dataset validation split")
+        if train_paths != {
+            str(Path(str(artifacts["train"])).expanduser().resolve(strict=True))
+        }:
+            raise ValueError(
+                "tokenizer train input is not the promoted dataset train split"
+            )
+        if val_paths != {
+            str(Path(str(artifacts["val"])).expanduser().resolve(strict=True))
+        }:
+            raise ValueError(
+                "tokenizer validation input is not the promoted dataset validation split"
+            )
         split = (payload.get("reports") or {}).get("split_manifest") or {}
         if int(split.get("cross_split_group_collisions", -1)) != 0:
             raise ValueError("dataset split contains cross-family collisions")
         if not payload.get("advancement_decision_sha256"):
-            raise ValueError("dataset manifest is not bound to the 5k advancement decision")
+            raise ValueError(
+                "dataset manifest is not bound to the 5k advancement decision"
+            )
     return sha256_file(manifest_path), payload
 
 
-def _token_audit_metrics(tokenizer: Any, paths: list[str | Path]) -> dict[str, float | int]:
+def _token_audit_metrics(
+    tokenizer: Any, paths: list[str | Path]
+) -> dict[str, float | int]:
     unknown_id = tokenizer.token_to_id("<unk>")
     total = unknown = single = whitespace = punctuation = 0
     sampled_chars = 0
@@ -457,7 +495,10 @@ def _token_audit_metrics(tokenizer: Any, paths: list[str | Path]) -> dict[str, f
             whitespace += int(bool(decoded) and not decoded.strip())
             punctuation += int(
                 bool(decoded)
-                and all(not character.isalnum() and not character.isspace() for character in decoded)
+                and all(
+                    not character.isalnum() and not character.isspace()
+                    for character in decoded
+                )
             )
     denominator = max(1, total)
     return {
@@ -500,16 +541,22 @@ def _language_efficiency(tokenizer: Any) -> dict[str, dict[str, float | int]]:
     return report
 
 
-def train_real_corpus_tokenizer(config: RealCorpusTokenizerConfig) -> TokenizerAuditReport:
+def train_real_corpus_tokenizer(
+    config: RealCorpusTokenizerConfig,
+) -> TokenizerAuditReport:
     root = Path(config.output_dir)
     root.mkdir(parents=True, exist_ok=True)
     if config.production_mode and config.include_stress_samples:
-        raise ValueError("production tokenizer corpus cannot include synthetic stress samples")
+        raise ValueError(
+            "production tokenizer corpus cannot include synthetic stress samples"
+        )
     dataset_manifest_sha256, _ = _load_production_dataset_binding(config)
     tokenizer_path = root / "tokenizer" / "tokenizer.json"
     shards_dir = root / "shards"
     input_paths: list[str | Path] = [Path(path) for path in config.input_paths]
-    validation_paths: list[str | Path] = [Path(path) for path in config.validation_input_paths]
+    validation_paths: list[str | Path] = [
+        Path(path) for path in config.validation_input_paths
+    ]
     if config.include_stress_samples:
         input_paths.append(write_tokenizer_stress_file(root))
 
@@ -539,12 +586,16 @@ def train_real_corpus_tokenizer(config: RealCorpusTokenizerConfig) -> TokenizerA
     vocab = tokenizer.get_vocab()
     actual_vocab_size = tokenizer.get_vocab_size()
     missing_special_tokens = [token for token in SPECIAL_TOKENS if token not in vocab]
-    audit_failures = [f"missing special token: {token}" for token in missing_special_tokens]
+    audit_failures = [
+        f"missing special token: {token}" for token in missing_special_tokens
+    ]
     if config.require_exact_vocab_size and actual_vocab_size != config.vocab_size:
         audit_failures.append(
             f"vocabulary size mismatch: requested {config.vocab_size}, trained {actual_vocab_size}"
         )
-    token_statistics = _token_audit_metrics(tokenizer, [*input_paths, *validation_paths])
+    token_statistics = _token_audit_metrics(
+        tokenizer, [*input_paths, *validation_paths]
+    )
     language_efficiency = _language_efficiency(tokenizer)
     if config.production_mode:
         thresholds = {
@@ -559,7 +610,9 @@ def train_real_corpus_tokenizer(config: RealCorpusTokenizerConfig) -> TokenizerA
                     f"{metric} exceeded threshold: {token_statistics[metric]:.6f}>{maximum:.6f}"
                 )
         if not validation_paths:
-            audit_failures.append("production tokenizer requires a family-safe validation split")
+            audit_failures.append(
+                "production tokenizer requires a family-safe validation split"
+            )
     source_rows, source_chars = corpus_stats(config.input_paths)
     shard_manifest_path = shards_dir / "manifest.json"
     efficiency_path = _write_json_atomic(
@@ -581,7 +634,9 @@ def train_real_corpus_tokenizer(config: RealCorpusTokenizerConfig) -> TokenizerA
     artifact_manifest = TokenizerArtifactManifest(
         status="passed" if not audit_failures else "failed",
         dataset_id=config.dataset_id,
-        dataset_manifest_path=str(Path(config.dataset_manifest_path).resolve()) if config.dataset_manifest_path else "",
+        dataset_manifest_path=str(Path(config.dataset_manifest_path).resolve())
+        if config.dataset_manifest_path
+        else "",
         dataset_manifest_sha256=dataset_manifest_sha256,
         tokenizer_path=str(trained.resolve()),
         tokenizer_sha256=sha256_file(trained),
@@ -604,7 +659,9 @@ def train_real_corpus_tokenizer(config: RealCorpusTokenizerConfig) -> TokenizerA
         vocab_size_actual=actual_vocab_size,
         special_tokens_missing=missing_special_tokens,
         audit_failures=audit_failures,
-        sample_token_counts={name: int(row["tokens"]) for name, row in language_efficiency.items()},
+        sample_token_counts={
+            name: int(row["tokens"]) for name, row in language_efficiency.items()
+        },
         source_rows=source_rows,
         source_chars=source_chars,
         shard_manifest=manifest.model_dump(),
@@ -612,7 +669,9 @@ def train_real_corpus_tokenizer(config: RealCorpusTokenizerConfig) -> TokenizerA
         tokenizer_manifest_path=str(tokenizer_manifest_path),
         tokenizer_manifest_sha256=sha256_file(tokenizer_manifest_path),
         shard_manifest_sha256=sha256_file(shard_manifest_path),
-        dataset_manifest_path=str(Path(config.dataset_manifest_path).resolve()) if config.dataset_manifest_path else "",
+        dataset_manifest_path=str(Path(config.dataset_manifest_path).resolve())
+        if config.dataset_manifest_path
+        else "",
         dataset_manifest_sha256=dataset_manifest_sha256,
         source_sha256=manifest.source_sha256,
         split_strategy=manifest.split_strategy,
@@ -622,16 +681,23 @@ def train_real_corpus_tokenizer(config: RealCorpusTokenizerConfig) -> TokenizerA
         efficiency_report_path=str(efficiency_path),
         efficiency_report_sha256=sha256_file(efficiency_path),
     )
-    _write_json_atomic(root / "tokenizer_audit_report.json", report.model_dump(mode="json"))
+    _write_json_atomic(
+        root / "tokenizer_audit_report.json", report.model_dump(mode="json")
+    )
     return report
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train Craftly tokenizer and build token shards.")
+    parser = argparse.ArgumentParser(
+        description="Train Craftly tokenizer and build token shards."
+    )
     parser.add_argument("--input", nargs="+", required=True)
     parser.add_argument("--tokenizer-out")
     parser.add_argument("--shards-out")
-    parser.add_argument("--output-dir", help="Use with --real-corpus-audit to write tokenizer, shards, and audit report.")
+    parser.add_argument(
+        "--output-dir",
+        help="Use with --real-corpus-audit to write tokenizer, shards, and audit report.",
+    )
     parser.add_argument("--dataset-id", default="craftly-corpus")
     parser.add_argument("--vocab-size", type=int, default=128_000)
     parser.add_argument("--min-frequency", type=int, default=2)
@@ -672,11 +738,15 @@ def main() -> None:
             raise SystemExit(2)
         return
     if not args.tokenizer_out or not args.shards_out:
-        raise SystemExit("--tokenizer-out and --shards-out are required unless --real-corpus-audit is used")
+        raise SystemExit(
+            "--tokenizer-out and --shards-out are required unless --real-corpus-audit is used"
+        )
     tokenizer_path = train_bpe_tokenizer(
         args.input,
         args.tokenizer_out,
-        TokenizerTrainConfig(vocab_size=args.vocab_size, min_frequency=args.min_frequency),
+        TokenizerTrainConfig(
+            vocab_size=args.vocab_size, min_frequency=args.min_frequency
+        ),
     )
     manifest = build_token_shards(
         input_paths=args.input,
@@ -694,4 +764,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

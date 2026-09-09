@@ -19,7 +19,6 @@ from pydantic import Field, model_validator
 
 from src.craftly.shared.schemas import StrictModel
 
-
 MIX_BUCKETS = {"general", "code", "cybersecurity", "agentic"}
 SCRATCH_INSTRUCTION_BUCKETS = {
     "instruction_security_coding",
@@ -27,7 +26,13 @@ SCRATCH_INSTRUCTION_BUCKETS = {
     "high_quality_docs_code",
     "debugging_error_logs",
 }
-BENCHMARK_KINDS = {"built_in_security", "generation_suite", "jsonl_generation", "mcq_jsonl", "static_jsonl"}
+BENCHMARK_KINDS = {
+    "built_in_security",
+    "generation_suite",
+    "jsonl_generation",
+    "mcq_jsonl",
+    "static_jsonl",
+}
 
 
 def _load_json(path: str | Path) -> dict[str, Any]:
@@ -59,7 +64,9 @@ def _validate_ratio_map(
         raise ValueError(f"{name} has unknown buckets: {sorted(unknown)}")
     if missing:
         raise ValueError(f"{name} is missing buckets: {sorted(missing)}")
-    if any(not math.isfinite(float(value)) or float(value) < 0 for value in ratios.values()):
+    if any(
+        not math.isfinite(float(value)) or float(value) < 0 for value in ratios.values()
+    ):
         raise ValueError(f"{name} ratios must be finite non-negative numbers")
     actual = _ratio_sum(ratios)
     if abs(actual - total) > 0.001:
@@ -74,12 +81,21 @@ class MixExperimentContract(StrictModel):
 
     @model_validator(mode="after")
     def validate_contract(self) -> "MixExperimentContract":
-        _validate_ratio_map(self.ratios, allowed=MIX_BUCKETS, required=MIX_BUCKETS, name=f"experiment {self.name}")
+        _validate_ratio_map(
+            self.ratios,
+            allowed=MIX_BUCKETS,
+            required=MIX_BUCKETS,
+            name=f"experiment {self.name}",
+        )
         for bucket, value in self.minimum_bucket_rows.items():
             if bucket not in MIX_BUCKETS:
-                raise ValueError(f"experiment {self.name} minimum_bucket_rows has unknown bucket: {bucket}")
+                raise ValueError(
+                    f"experiment {self.name} minimum_bucket_rows has unknown bucket: {bucket}"
+                )
             if value < 0:
-                raise ValueError(f"experiment {self.name} minimum_bucket_rows cannot be negative")
+                raise ValueError(
+                    f"experiment {self.name} minimum_bucket_rows cannot be negative"
+                )
         return self
 
 
@@ -115,9 +131,13 @@ class ScratchInstructionMixContract(StrictModel):
         )
         unknown = set(self.minimum_bucket_rows) - SCRATCH_INSTRUCTION_BUCKETS
         if unknown:
-            raise ValueError(f"scratch_instruction_mix minimum rows has unknown buckets: {sorted(unknown)}")
+            raise ValueError(
+                f"scratch_instruction_mix minimum rows has unknown buckets: {sorted(unknown)}"
+            )
         if any(value < 0 for value in self.minimum_bucket_rows.values()):
-            raise ValueError("scratch_instruction_mix minimum bucket rows cannot be negative")
+            raise ValueError(
+                "scratch_instruction_mix minimum bucket rows cannot be negative"
+            )
         return self
 
 
@@ -128,7 +148,12 @@ class CurriculumStageContract(StrictModel):
 
     @model_validator(mode="after")
     def validate_contract(self) -> "CurriculumStageContract":
-        _validate_ratio_map(self.ratios, allowed=MIX_BUCKETS, required=MIX_BUCKETS, name=f"curriculum {self.name}")
+        _validate_ratio_map(
+            self.ratios,
+            allowed=MIX_BUCKETS,
+            required=MIX_BUCKETS,
+            name=f"curriculum {self.name}",
+        )
         return self
 
 
@@ -140,9 +165,13 @@ class MixRatiosContract(StrictModel):
     min_quality_score: float = Field(default=0.58, ge=0.0, le=1.0)
     source_budget_policy: dict[str, Any] = Field(default_factory=dict)
     experiments: list[MixExperimentContract]
-    scratch_instruction_mix: ScratchInstructionMixContract = Field(default_factory=ScratchInstructionMixContract)
+    scratch_instruction_mix: ScratchInstructionMixContract = Field(
+        default_factory=ScratchInstructionMixContract
+    )
     progressive_curriculum: list[CurriculumStageContract] = Field(default_factory=list)
-    holdout_policies: list[str] = Field(default_factory=lambda: ["eval_holdout", "benchmark_holdout"])
+    holdout_policies: list[str] = Field(
+        default_factory=lambda: ["eval_holdout", "benchmark_holdout"]
+    )
 
     @model_validator(mode="after")
     def validate_contract(self) -> "MixRatiosContract":
@@ -151,12 +180,19 @@ class MixRatiosContract(StrictModel):
             raise ValueError("mix experiment names must be unique")
         if not self.experiments:
             raise ValueError("at least one mix experiment is required")
-        if "eval_holdout" not in self.holdout_policies or "benchmark_holdout" not in self.holdout_policies:
-            raise ValueError("mix config must protect eval_holdout and benchmark_holdout policies")
+        if (
+            "eval_holdout" not in self.holdout_policies
+            or "benchmark_holdout" not in self.holdout_policies
+        ):
+            raise ValueError(
+                "mix config must protect eval_holdout and benchmark_holdout policies"
+            )
         previous = 0.0
         for stage in self.progressive_curriculum:
             if stage.step_fraction_end <= previous:
-                raise ValueError("progressive curriculum stages must be strictly increasing")
+                raise ValueError(
+                    "progressive curriculum stages must be strictly increasing"
+                )
             previous = stage.step_fraction_end
         if self.progressive_curriculum and abs(previous - 1.0) > 0.001:
             raise ValueError("progressive curriculum must end at step_fraction_end=1.0")
@@ -169,11 +205,14 @@ class MixRatiosContract(StrictModel):
             "max_rows": self.max_rows,
             "min_quality_score": self.min_quality_score,
             "experiments": [
-                {"name": item.name, "ratios": item.ratios}
-                for item in self.experiments
+                {"name": item.name, "ratios": item.ratios} for item in self.experiments
             ],
             "progressive_curriculum": [
-                {"name": item.name, "step_fraction_end": item.step_fraction_end, "ratios": item.ratios}
+                {
+                    "name": item.name,
+                    "step_fraction_end": item.step_fraction_end,
+                    "ratios": item.ratios,
+                }
                 for item in self.progressive_curriculum
             ],
             "holdout_policies": self.holdout_policies,
@@ -194,10 +233,15 @@ class EvalBenchmarkContract(StrictModel):
     def validate_contract(self) -> "EvalBenchmarkContract":
         if self.kind not in BENCHMARK_KINDS:
             raise ValueError(f"unsupported benchmark kind: {self.kind}")
-        if self.kind in {"jsonl_generation", "mcq_jsonl", "static_jsonl"} and not self.path:
+        if (
+            self.kind in {"jsonl_generation", "mcq_jsonl", "static_jsonl"}
+            and not self.path
+        ):
             raise ValueError(f"benchmark {self.name} requires a local path")
         if self.required and self.path and not self.protected_holdout:
-            raise ValueError(f"required benchmark {self.name} must be marked protected_holdout")
+            raise ValueError(
+                f"required benchmark {self.name} must be marked protected_holdout"
+            )
         return self
 
 
@@ -216,7 +260,9 @@ class EvalSafetyContract(StrictModel):
     @model_validator(mode="after")
     def validate_contract(self) -> "EvalSafetyContract":
         if self.harmful_refusal_target < 0.90:
-            raise ValueError("harmful_refusal_target must be >= 0.90 for production safety")
+            raise ValueError(
+                "harmful_refusal_target must be >= 0.90 for production safety"
+            )
         if self.defensive_false_refusal_max > 0.10:
             raise ValueError("defensive_false_refusal_max must be <= 0.10")
         return self
@@ -232,20 +278,26 @@ class EvalScheduleContract(StrictModel):
     regression_threshold_fail: float = Field(default=0.05, ge=0.0, le=1.0)
     plateau_patience: int = Field(default=3, ge=1)
     safety: EvalSafetyContract = Field(default_factory=EvalSafetyContract)
-    promotion_policy: EvalPromotionPolicyContract = Field(default_factory=EvalPromotionPolicyContract)
+    promotion_policy: EvalPromotionPolicyContract = Field(
+        default_factory=EvalPromotionPolicyContract
+    )
     benchmarks: list[EvalBenchmarkContract]
 
     @model_validator(mode="after")
     def validate_contract(self) -> "EvalScheduleContract":
         if self.regression_threshold_warn > self.regression_threshold_fail:
-            raise ValueError("regression_threshold_warn cannot exceed regression_threshold_fail")
+            raise ValueError(
+                "regression_threshold_warn cannot exceed regression_threshold_fail"
+            )
         if not self.benchmarks:
             raise ValueError("at least one benchmark is required")
         names = [item.name for item in self.benchmarks]
         if len(names) != len(set(names)):
             raise ValueError("benchmark names must be unique")
         if self.strict and not any(item.required for item in self.benchmarks):
-            raise ValueError("strict eval schedule requires at least one required benchmark")
+            raise ValueError(
+                "strict eval schedule requires at least one required benchmark"
+            )
         return self
 
     def runner_payload(self) -> dict[str, Any]:
@@ -295,7 +347,9 @@ class ActiveModelProfileContract(StrictModel):
             raise ValueError("mock backend must be dev_only")
         if not self.dev_only and self.backend != "mock":
             if not self.endpoint and not self.checkpoint_manifest:
-                raise ValueError("production model profile requires endpoint or checkpoint_manifest")
+                raise ValueError(
+                    "production model profile requires endpoint or checkpoint_manifest"
+                )
             if self.checkpoint_manifest and not self.tokenizer_path:
                 raise ValueError("checkpoint profile requires tokenizer_path")
             if self.checkpoint_manifest:
@@ -307,11 +361,14 @@ class ActiveModelProfileContract(StrictModel):
                 missing = sorted(required - set(self.evidence))
                 if missing:
                     raise ValueError(
-                        "checkpoint profile is missing activation evidence: " + ", ".join(missing)
+                        "checkpoint profile is missing activation evidence: "
+                        + ", ".join(missing)
                     )
                 for key in required:
                     if not re.fullmatch(r"[0-9a-f]{64}", self.evidence[key]):
-                        raise ValueError(f"checkpoint profile evidence {key} is not a SHA-256 digest")
+                        raise ValueError(
+                            f"checkpoint profile evidence {key} is not a SHA-256 digest"
+                        )
         return self
 
 
@@ -341,10 +398,16 @@ class AuditExcludeContract(StrictModel):
     @model_validator(mode="after")
     def validate_contract(self) -> "AuditExcludeContract":
         normalized = self.path.replace("\\", "/")
-        if normalized.startswith("/") or normalized.startswith("../") or "/../" in f"/{normalized}/":
+        if (
+            normalized.startswith("/")
+            or normalized.startswith("../")
+            or "/../" in f"/{normalized}/"
+        ):
             raise ValueError(f"invalid audit exclude path: {self.path}")
         if self.allow_executable_sinks and not self.approved_executable_sinks:
-            raise ValueError(f"audit exclude {self.path} allows executable sinks but lists no approved sink classes")
+            raise ValueError(
+                f"audit exclude {self.path} allows executable sinks but lists no approved sink classes"
+            )
         return self
 
 
@@ -374,7 +437,17 @@ class VerifierProfileContract(StrictModel):
     codeql_language: str = "python"
     codeql_suite: str = "codeql/python-queries"
     sandbox_command: str = "python3 -m pytest -q"
-    allowed_command_roots: list[str] = Field(default_factory=lambda: ["python", "python3", "pytest", "npm", "node", "go", "cargo"])
+    allowed_command_roots: list[str] = Field(
+        default_factory=lambda: [
+            "python",
+            "python3",
+            "pytest",
+            "npm",
+            "node",
+            "go",
+            "cargo",
+        ]
+    )
     timeout_ms: int = Field(default=60_000, ge=1_000, le=300_000)
     fail_on_medium: bool = True
     fail_on_tool_unavailable: bool = False
@@ -386,11 +459,19 @@ class VerifierProfileContract(StrictModel):
     def validate_contract(self) -> "VerifierProfileContract":
         if self.production_ready:
             if not self.run_secret_scan or not self.run_rule_security:
-                raise ValueError(f"production verifier profile {self.name} must run secret and rule scans")
+                raise ValueError(
+                    f"production verifier profile {self.name} must run secret and rule scans"
+                )
             if self.run_sandbox and not self.fail_on_tool_unavailable:
-                raise ValueError(f"production verifier profile {self.name} must fail on unavailable sandbox tools")
-        if any(token in self.sandbox_command for token in ["&&", "||", ";", "|", "`", "$("]):
-            raise ValueError(f"verifier profile {self.name} sandbox_command must be a single command shape")
+                raise ValueError(
+                    f"production verifier profile {self.name} must fail on unavailable sandbox tools"
+                )
+        if any(
+            token in self.sandbox_command for token in ["&&", "||", ";", "|", "`", "$("]
+        ):
+            raise ValueError(
+                f"verifier profile {self.name} sandbox_command must be a single command shape"
+            )
         return self
 
 
@@ -408,7 +489,9 @@ class VerifierPolicyContract(StrictModel):
             raise ValueError("production_profile missing from verifier profiles")
         for name, profile in self.profiles.items():
             if profile.name != name:
-                raise ValueError(f"verifier profile key/name mismatch: {name} != {profile.name}")
+                raise ValueError(
+                    f"verifier profile key/name mismatch: {name} != {profile.name}"
+                )
         return self
 
 
@@ -441,22 +524,32 @@ class DatasetPromotionThresholdsContract(StrictModel):
     minimum_records: int = Field(default=100_000, ge=1)
     minimum_average_quality: float = Field(default=0.80, ge=0.0, le=1.0)
     minimum_p10_quality: float = Field(default=0.70, ge=0.0, le=1.0)
-    maximum_residual_near_duplicate_fraction: float = Field(default=0.005, ge=0.0, le=0.05)
+    maximum_residual_near_duplicate_fraction: float = Field(
+        default=0.005, ge=0.0, le=0.05
+    )
     maximum_benchmark_contamination: int = Field(default=0, ge=0)
     maximum_secret_or_pii_hits: int = Field(default=0, ge=0)
     required_license_coverage: float = Field(default=1.0, ge=0.0, le=1.0)
     required_provenance_coverage: float = Field(default=1.0, ge=0.0, le=1.0)
     required_high_value_review_coverage: float = Field(default=1.0, ge=0.0, le=1.0)
-    required_verified_patch_evidence_coverage: float = Field(default=1.0, ge=0.0, le=1.0)
+    required_verified_patch_evidence_coverage: float = Field(
+        default=1.0, ge=0.0, le=1.0
+    )
 
 
 class DatasetTrustPolicyContract(StrictModel):
     schema_version: int = 1
     policy_id: str = Field(min_length=3, pattern=r"^[a-z0-9][a-z0-9._-]{2,100}$")
     scratch_only: bool = True
-    source_limits: DatasetSourceLimitsContract = Field(default_factory=DatasetSourceLimitsContract)
-    review: DatasetReviewPolicyContract = Field(default_factory=DatasetReviewPolicyContract)
-    promotion: DatasetPromotionThresholdsContract = Field(default_factory=DatasetPromotionThresholdsContract)
+    source_limits: DatasetSourceLimitsContract = Field(
+        default_factory=DatasetSourceLimitsContract
+    )
+    review: DatasetReviewPolicyContract = Field(
+        default_factory=DatasetReviewPolicyContract
+    )
+    promotion: DatasetPromotionThresholdsContract = Field(
+        default_factory=DatasetPromotionThresholdsContract
+    )
     protected_holdout_names: list[str] = Field(min_length=1)
     high_value_data_types: list[str] = Field(min_length=1)
     split_group_keys: list[str] = Field(min_length=1)
@@ -472,7 +565,12 @@ class DatasetTrustPolicyContract(StrictModel):
             raise ValueError("high-value data types must be unique")
         if len(self.split_group_keys) != len(set(self.split_group_keys)):
             raise ValueError("split group keys must be unique")
-        required_groups = {"repository", "source_family", "patch_lineage", "task_signature"}
+        required_groups = {
+            "repository",
+            "source_family",
+            "patch_lineage",
+            "task_signature",
+        }
         if not required_groups.issubset(set(self.split_group_keys)):
             raise ValueError(f"split_group_keys must include {sorted(required_groups)}")
         return self
@@ -496,7 +594,9 @@ class ScientificExperimentGateContract(StrictModel):
 class ScientificExperimentCampaignContract(StrictModel):
     """Immutable intent for one tokenizer, architecture, or scaling experiment."""
 
-    campaign_id: str = Field(min_length=3, max_length=128, pattern=r"^[a-z0-9][a-z0-9._-]+$")
+    campaign_id: str = Field(
+        min_length=3, max_length=128, pattern=r"^[a-z0-9][a-z0-9._-]+$"
+    )
     version: int = Field(default=1, ge=1)
     experiment_type: Literal["tokenizer_selection", "architecture_ab", "scaling_law"]
     description: str = Field(min_length=20, max_length=2_000)
@@ -509,25 +609,41 @@ class ScientificExperimentCampaignContract(StrictModel):
     token_budget: int = Field(gt=0)
     profile_token_budgets: dict[str, list[int]] = Field(default_factory=dict)
     required_evaluation_suites: list[str] = Field(min_length=1)
-    gate: ScientificExperimentGateContract = Field(default_factory=ScientificExperimentGateContract)
+    gate: ScientificExperimentGateContract = Field(
+        default_factory=ScientificExperimentGateContract
+    )
 
     @model_validator(mode="after")
     def validate_scientific_campaign(self) -> "ScientificExperimentCampaignContract":
         if self.experiment_type == "tokenizer_selection":
             if self.candidate_vocab_sizes != [32_000, 64_000, 128_000]:
-                raise ValueError("tokenizer selection must compare exactly 32K, 64K, and 128K")
-            if len(self.tokenizer_seeds) < 3 or len(set(self.tokenizer_seeds)) != len(self.tokenizer_seeds):
-                raise ValueError("tokenizer selection requires at least three unique fixed seeds")
+                raise ValueError(
+                    "tokenizer selection must compare exactly 32K, 64K, and 128K"
+                )
+            if len(self.tokenizer_seeds) < 3 or len(set(self.tokenizer_seeds)) != len(
+                self.tokenizer_seeds
+            ):
+                raise ValueError(
+                    "tokenizer selection requires at least three unique fixed seeds"
+                )
             if self.profile_seeds:
-                raise ValueError("tokenizer selection cannot define model profile seeds")
+                raise ValueError(
+                    "tokenizer selection cannot define model profile seeds"
+                )
             if self.profile_token_budgets:
-                raise ValueError("tokenizer selection cannot define per-profile token budgets")
+                raise ValueError(
+                    "tokenizer selection cannot define per-profile token budgets"
+                )
         else:
             if self.candidate_vocab_sizes or self.tokenizer_seeds:
-                raise ValueError(f"{self.experiment_type} cannot define tokenizer candidates")
+                raise ValueError(
+                    f"{self.experiment_type} cannot define tokenizer candidates"
+                )
             if not self.profile_seeds:
                 raise ValueError(f"{self.experiment_type} requires model profile seeds")
-            unknown_budget_profiles = set(self.profile_token_budgets) - set(self.profile_seeds)
+            unknown_budget_profiles = set(self.profile_token_budgets) - set(
+                self.profile_seeds
+            )
             if unknown_budget_profiles:
                 raise ValueError(
                     "profile token budgets reference unknown profiles: "
@@ -539,28 +655,44 @@ class ScientificExperimentCampaignContract(StrictModel):
                 or len(values) != len(set(values))
                 for values in self.profile_token_budgets.values()
             ):
-                raise ValueError("profile token budgets must be non-empty, positive, and unique")
+                raise ValueError(
+                    "profile token budgets must be non-empty, positive, and unique"
+                )
             for profile, seeds in self.profile_seeds.items():
                 if not profile or not seeds or len(set(seeds)) != len(seeds):
                     raise ValueError(f"profile {profile!r} requires unique fixed seeds")
             if self.experiment_type == "architecture_ab":
                 required = {"100m", "100m_moe", "300m", "300m_moe", "1b", "1b_moe"}
                 if set(self.profile_seeds) != required:
-                    raise ValueError(f"architecture A/B profiles must equal {sorted(required)}")
+                    raise ValueError(
+                        f"architecture A/B profiles must equal {sorted(required)}"
+                    )
                 for profile in ("100m", "100m_moe", "300m", "300m_moe"):
                     if len(self.profile_seeds[profile]) < 3:
-                        raise ValueError(f"architecture A/B profile {profile} requires at least three seeds")
+                        raise ValueError(
+                            f"architecture A/B profile {profile} requires at least three seeds"
+                        )
                 for profile in ("1b", "1b_moe"):
                     if len(self.profile_seeds[profile]) != 1:
-                        raise ValueError(f"confirmatory profile {profile} requires exactly one preregistered seed")
+                        raise ValueError(
+                            f"confirmatory profile {profile} requires exactly one preregistered seed"
+                        )
             if self.experiment_type == "scaling_law":
                 required = {"50m", "100m", "300m", "1b"}
                 if not required.issubset(set(self.profile_seeds)):
-                    raise ValueError(f"scaling-law campaign requires profiles {sorted(required)}")
+                    raise ValueError(
+                        f"scaling-law campaign requires profiles {sorted(required)}"
+                    )
                 if set(self.profile_token_budgets) != set(self.profile_seeds):
-                    raise ValueError("scaling-law campaign requires a token budget for every profile")
-                if any(len(values) < 2 for values in self.profile_token_budgets.values()):
-                    raise ValueError("scaling-law campaign requires at least two budgets per profile")
+                    raise ValueError(
+                        "scaling-law campaign requires a token budget for every profile"
+                    )
+                if any(
+                    len(values) < 2 for values in self.profile_token_budgets.values()
+                ):
+                    raise ValueError(
+                        "scaling-law campaign requires at least two budgets per profile"
+                    )
                 shared = set.intersection(
                     *(set(values) for values in self.profile_token_budgets.values())
                 )
@@ -568,24 +700,36 @@ class ScientificExperimentCampaignContract(StrictModel):
                     raise ValueError(
                         "scaling-law campaign requires at least two crossed token budgets across profiles"
                     )
-        if len(set(self.required_evaluation_suites)) != len(self.required_evaluation_suites):
+        if len(set(self.required_evaluation_suites)) != len(
+            self.required_evaluation_suites
+        ):
             raise ValueError("required evaluation suites must be unique")
         return self
 
 
 class ScientificExperimentRegistryContract(StrictModel):
     schema_version: int = Field(ge=1)
-    scientific_experiments: list[ScientificExperimentCampaignContract] = Field(min_length=1)
+    scientific_experiments: list[ScientificExperimentCampaignContract] = Field(
+        min_length=1
+    )
 
     @model_validator(mode="after")
     def validate_registry(self) -> "ScientificExperimentRegistryContract":
-        identities = [(item.campaign_id, item.version) for item in self.scientific_experiments]
+        identities = [
+            (item.campaign_id, item.version) for item in self.scientific_experiments
+        ]
         if len(identities) != len(set(identities)):
-            raise ValueError("scientific experiment campaign identifiers and versions must be unique")
+            raise ValueError(
+                "scientific experiment campaign identifiers and versions must be unique"
+            )
         return self
 
     def latest(self, campaign_id: str) -> ScientificExperimentCampaignContract:
-        matches = [item for item in self.scientific_experiments if item.campaign_id == campaign_id]
+        matches = [
+            item
+            for item in self.scientific_experiments
+            if item.campaign_id == campaign_id
+        ]
         if not matches:
             raise KeyError(f"scientific experiment campaign not found: {campaign_id}")
         return max(matches, key=lambda item: item.version)
@@ -615,7 +759,9 @@ def load_dataset_trust_policy(path: str | Path) -> DatasetTrustPolicyContract:
     return DatasetTrustPolicyContract.model_validate(_load_json(path))
 
 
-def load_scientific_experiment_registry(path: str | Path) -> ScientificExperimentRegistryContract:
+def load_scientific_experiment_registry(
+    path: str | Path,
+) -> ScientificExperimentRegistryContract:
     payload = _load_json(path)
     return ScientificExperimentRegistryContract.model_validate(
         {

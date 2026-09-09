@@ -1,4 +1,4 @@
-﻿"""Source balancing for training corpora.
+"""Source balancing for training corpora.
 
 The crawler intentionally keeps provenance. This module uses that provenance to
 prevent a single source from dominating tokenizer/shard training.
@@ -52,10 +52,18 @@ def _row_sort_key(row: dict[str, Any]) -> tuple[float, str, str]:
     )
 
 
-def _cap_for_source(*, source_count: int, other_count: int, max_source_fraction: float, min_source_rows: int) -> int:
+def _cap_for_source(
+    *,
+    source_count: int,
+    other_count: int,
+    max_source_fraction: float,
+    min_source_rows: int,
+) -> int:
     if other_count <= 0:
         return source_count
-    cap = math.floor((max_source_fraction / max(1e-9, 1.0 - max_source_fraction)) * other_count)
+    cap = math.floor(
+        (max_source_fraction / max(1e-9, 1.0 - max_source_fraction)) * other_count
+    )
     return min(source_count, max(min_source_rows, cap))
 
 
@@ -83,11 +91,15 @@ def balance_clean_jsonl(
     caps: dict[str, int] = {}
     for source, source_count in sorted(source_counts.items()):
         other_count = all_rows - source_count
-        cap = source_count if max_source_fraction >= 1.0 else _cap_for_source(
-            source_count=source_count,
-            other_count=other_count,
-            max_source_fraction=max_source_fraction,
-            min_source_rows=min_source_rows,
+        cap = (
+            source_count
+            if max_source_fraction >= 1.0
+            else _cap_for_source(
+                source_count=source_count,
+                other_count=other_count,
+                max_source_fraction=max_source_fraction,
+                min_source_rows=min_source_rows,
+            )
         )
         caps[source] = cap
         avg_quality = quality_totals[source] / max(1, source_count)
@@ -122,4 +134,3 @@ def balance_clean_jsonl(
         max_source_fraction=max_source_fraction,
         sources=items,
     )
-

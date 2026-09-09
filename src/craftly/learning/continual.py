@@ -10,7 +10,6 @@ Provides full-parameter anti-forgetting techniques for scratch-origin models:
 from __future__ import annotations
 
 import copy
-import json
 import math
 import random
 import time
@@ -19,14 +18,10 @@ from typing import Any, Literal
 
 from pydantic import Field
 
-from src.craftly.model_ops.foundation import ScratchDecoderConfig
-from src.craftly.model_ops.tokenizer_pipeline import load_tokenizer
 from src.craftly.model_ops.torch_decoder import (
-    CraftlyDecoderLM,
     load_trusted_checkpoint,
     require_torch,
     save_trusted_checkpoint,
-    select_torch_device,
 )
 from src.craftly.shared.schemas import StrictModel
 
@@ -108,7 +103,7 @@ CANONICAL_PRETRAINING_REPLAY_SAMPLES: list[dict[str, str]] = [
             "        self.send_response(200)\n"
             "        self.send_header('Content-type', 'application/json')\n"
             "        self.end_headers()\n"
-            "        self.wfile.write(b'{\"status\": \"healthy\"}')\n"
+            '        self.wfile.write(b\'{"status": "healthy"}\')\n'
         ),
     },
     {
@@ -142,7 +137,9 @@ class ExperienceReplayBuffer:
         if replay_samples is not None and len(replay_samples) > 0:
             self.samples = list(replay_samples)
         else:
-            self.samples = [item["text"] for item in CANONICAL_PRETRAINING_REPLAY_SAMPLES]
+            self.samples = [
+                item["text"] for item in CANONICAL_PRETRAINING_REPLAY_SAMPLES
+            ]
 
     def add_sample(self, text: str) -> None:
         clean = text.strip()
@@ -189,6 +186,7 @@ class ExperienceReplayBuffer:
 # 2. KL Divergence Penalty: Reference Policy Constraint
 # ---------------------------------------------------------------------------
 
+
 class ReferenceModelKLLoss:
     """Computes token-level KL divergence penalty between active model and frozen base model."""
 
@@ -209,6 +207,8 @@ class ReferenceModelKLLoss:
             mask: (batch_size, seq_len) boolean or int mask where 1 = compute KL
         """
         require_torch()
+        assert torch is not None
+        assert F is not None
         t = self.temperature
         # P = active distribution, Q = reference base distribution
         log_p = F.log_softmax(active_logits / t, dim=-1)
@@ -216,7 +216,7 @@ class ReferenceModelKLLoss:
         log_q = F.log_softmax(ref_logits / t, dim=-1)
 
         # KL(P || Q) = sum P * (log P - log Q)
-        kl_per_token = torch.sum(p * (log_p - log_q), dim=-1) * (t ** 2)
+        kl_per_token = torch.sum(p * (log_p - log_q), dim=-1) * (t**2)
 
         if mask is not None:
             active_mask = (mask != -100).float()
@@ -229,6 +229,7 @@ class ReferenceModelKLLoss:
 # ---------------------------------------------------------------------------
 # 3. Weight Space Merging: SLERP & Task Vector Arithmetic
 # ---------------------------------------------------------------------------
+
 
 class WeightMerger:
     """Merges foundation base weights and specialized SFT weights without external checkpoints."""
@@ -303,16 +304,22 @@ class WeightMerger:
                 continue
 
             sft_val = sft_state[key]
-            if not isinstance(base_val, torch.Tensor) or not isinstance(sft_val, torch.Tensor):
+            if not isinstance(base_val, torch.Tensor) or not isinstance(
+                sft_val, torch.Tensor
+            ):
                 merged[key] = copy.deepcopy(sft_val)
                 continue
 
             if base_val.shape != sft_val.shape:
-                raise ValueError(f"Shape mismatch for parameter '{key}': {base_val.shape} vs {sft_val.shape}")
+                raise ValueError(
+                    f"Shape mismatch for parameter '{key}': {base_val.shape} vs {sft_val.shape}"
+                )
 
             # 1D biases and layer norms are typically linearly averaged
             if base_val.dim() <= 1 or method == "linear":
-                merged[key] = ((1.0 - t) * base_val.float() + t * sft_val.float()).to(base_val.dtype)
+                merged[key] = ((1.0 - t) * base_val.float() + t * sft_val.float()).to(
+                    base_val.dtype
+                )
             else:
                 merged[key] = cls.slerp(base_val, sft_val, t=t)
 
@@ -366,8 +373,9 @@ class WeightMerger:
     @staticmethod
     def _extract_or_load(path: Path) -> dict[str, Any]:
         if path.suffix == ".zip":
-            import zipfile
             import tempfile
+            import zipfile
+
             with tempfile.TemporaryDirectory(prefix="craftly_merge_") as td:
                 with zipfile.ZipFile(path, "r") as zf:
                     zf.extractall(td)
@@ -381,6 +389,7 @@ class WeightMerger:
 # ---------------------------------------------------------------------------
 # 4. Scientific Catastrophic Forgetting Benchmark Suite
 # ---------------------------------------------------------------------------
+
 
 class ForgettingTask(StrictModel):
     task_id: str
@@ -437,7 +446,9 @@ class ForgettingReport(StrictModel):
     perplexity_defensive: float
     general_retention_score: float
     evaluated_tasks_count: int
-    created_at_utc: str = Field(default_factory=lambda: time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()))
+    created_at_utc: str = Field(
+        default_factory=lambda: time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+    )
 
 
 def evaluate_continual_perplexity(
@@ -487,3 +498,193 @@ def evaluate_continual_perplexity(
         general_retention_score=round(retention_score, 2),
         evaluated_tasks_count=len(tasks_to_eval),
     )
+
+
+# ---------------------------------------------------------------------------
+# 5. Elastic Weight Consolidation (EWC): Anti-Forgetting via Fisher Information
+# ---------------------------------------------------------------------------
+
+
+class ElasticWeightConsolidation:
+    """Prevents catastrophic forgetting by penalizing changes to important weights.
+
+    How EWC works (simplified):
+    1. Before training on new data, we compute the Fisher Information Matrix (FIM)
+       for each parameter. The FIM measures how sensitive the model's output is
+       to changes in each parameter. High sensitivity = high importance.
+    2. We save the current "optimal" weights as a reference point.
+    3. During training, we add a penalty term to the loss:
+           total_loss = task_loss + lambda * sum(F_i * (theta_i - theta_optimal_i)^2)
+       where F_i is the Fisher information for parameter i, and lambda controls
+       the strength of the penalty.
+
+    This discourages the model from changing weights that were important for
+    previous tasks, while still allowing less important weights to adapt freely.
+
+    Reference: Kirkpatrick et al., "Overcoming catastrophic forgetting in neural
+    networks", PNAS 2017.
+    """
+
+    def __init__(self, model: Any, lambda_: float = 1.0) -> None:
+        """Initialize EWC with a reference model.
+
+        Args:
+            model: The PyTorch model to protect from forgetting.
+            lambda_: Strength of the EWC penalty. Higher values mean stronger
+                     protection against forgetting. Typical range: 0.1 - 10.0.
+        """
+        require_torch()
+        self.model = model
+        self.lambda_ = max(0.0, lambda_)
+
+        # Fisher Information Matrix: diagonal approximation
+        # Each entry represents how important that parameter is for the previous task
+        self.fisher: dict[str, Any] = {}
+
+        # Reference weights: the "optimal" weights we want to stay close to
+        self.optimal_weights: dict[str, Any] = {}
+
+    def compute_fisher(
+        self,
+        dataloader: Any,
+        *,
+        loss_fn: Any | None = None,
+        max_samples: int = 256,
+        device: str = "cpu",
+    ) -> dict[str, float]:
+        """Compute the Fisher Information Matrix diagonal for the current model.
+
+        The Fisher diagonal approximates how sensitive the model's output is to
+        each parameter. We compute it by:
+        1. For each batch, compute the loss and its gradient w.r.t. parameters
+        2. Square the gradients (this measures sensitivity)
+        3. Average across batches
+
+        Args:
+            dataloader: Iterator yielding (input_ids, labels) tuples.
+            loss_fn: Loss function. Defaults to cross-entropy.
+            max_samples: Maximum number of samples to use for Fisher computation.
+                        More samples = better estimate but slower.
+            device: Device to run computation on.
+
+        Returns:
+            Dictionary of parameter_name -> fisher_value.
+        """
+        require_torch()
+        assert torch is not None
+
+        # Set model to train mode to enable gradients
+        self.model.train()
+
+        # Initialize Fisher accumulators for each parameter
+        fisher_accum: dict[str, Any] = {}
+        for name, param in self.model.named_parameters():
+            if param.requires_grad:
+                fisher_accum[name] = torch.zeros_like(param, device=device)
+
+        sample_count = 0
+        batch_count = 0
+
+        for batch in dataloader:
+            if sample_count >= max_samples:
+                break
+
+            # Unpack batch - expect (input_ids, labels) or just input_ids
+            if isinstance(batch, (list, tuple)) and len(batch) >= 2:
+                input_ids, labels = batch[0], batch[1]
+            else:
+                input_ids = batch
+                labels = input_ids
+
+            # Move to device
+            input_ids = input_ids.to(device)
+            labels = labels.to(device)
+
+            # Forward pass with gradient tracking
+            self.model.zero_grad()
+            with torch.enable_grad():
+                output = self.model(input_ids, labels=labels)
+
+                # Use provided loss function or default cross-entropy
+                if loss_fn is not None:
+                    loss = loss_fn(output, labels)
+                else:
+                    loss = output.loss
+
+                # Backward pass to get gradients
+                loss.backward()
+
+            # Accumulate squared gradients (Fisher diagonal approximation)
+            for name, param in self.model.named_parameters():
+                if param.requires_grad and param.grad is not None:
+                    fisher_accum[name] += param.grad.data.pow(2)
+
+            sample_count += input_ids.size(0)
+            batch_count += 1
+
+        # Average over batches
+        if batch_count > 0:
+            for name in fisher_accum:
+                fisher_accum[name] /= batch_count
+
+        # Store Fisher information and optimal weights
+        self.fisher = fisher_accum
+        self._save_optimal_weights()
+
+        return {name: float(fisher.mean()) for name, fisher in self.fisher.items()}
+
+    def _save_optimal_weights(self) -> None:
+        """Save a snapshot of the current weights as the reference point."""
+        require_torch()
+        assert torch is not None
+        self.optimal_weights = {}
+        with torch.no_grad():
+            for name, param in self.model.named_parameters():
+                if param.requires_grad:
+                    self.optimal_weights[name] = param.data.clone()
+
+    def penalty(self) -> Any:
+        """Compute the EWC penalty term.
+
+        The penalty measures how far the current weights have drifted from the
+        optimal weights, weighted by the Fisher information.
+
+        Formula: lambda * sum_i( F_i * (theta_i - theta_optimal_i)^2 )
+
+        Returns:
+            Scalar tensor representing the total EWC penalty.
+        """
+        require_torch()
+        assert torch is not None
+        penalty = torch.tensor(0.0, device=next(self.model.parameters()).device)
+
+        for name, param in self.model.named_parameters():
+            if name in self.fisher and name in self.optimal_weights:
+                # Fisher information for this parameter
+                fisher = self.fisher[name]
+
+                # Reference weights (detached, no gradient needed)
+                optimal = self.optimal_weights[name]
+
+                # Penalty: how much have we drifted from optimal, weighted by importance
+                penalty += (fisher * (param - optimal).pow(2)).sum()
+
+        return self.lambda_ * penalty
+
+    def state_dict(self) -> dict[str, Any]:
+        """Export EWC state for checkpointing."""
+        return {
+            "lambda_": self.lambda_,
+            "fisher": {k: v.cpu() for k, v in self.fisher.items()},
+            "optimal_weights": {k: v.cpu() for k, v in self.optimal_weights.items()},
+        }
+
+    def load_state_dict(self, state: dict[str, Any]) -> None:
+        """Load EWC state from checkpoint."""
+        require_torch()
+        self.lambda_ = state["lambda_"]
+        device = next(self.model.parameters()).device
+        self.fisher = {k: v.to(device) for k, v in state["fisher"].items()}
+        self.optimal_weights = {
+            k: v.to(device) for k, v in state["optimal_weights"].items()
+        }

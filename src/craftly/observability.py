@@ -1,4 +1,4 @@
-﻿"""Production observability primitives for Craftly."""
+"""Production observability primitives for Craftly."""
 
 from __future__ import annotations
 
@@ -26,7 +26,14 @@ class JsonFormatter(logging.Formatter):
             "logger": record.name,
             "message": record.getMessage(),
         }
-        for key in ["method", "path", "status_code", "duration_ms", "user_id", "request_id"]:
+        for key in [
+            "method",
+            "path",
+            "status_code",
+            "duration_ms",
+            "user_id",
+            "request_id",
+        ]:
             if hasattr(record, key):
                 payload[key] = getattr(record, key)
         if record.exc_info:
@@ -59,7 +66,9 @@ class HistogramAggregate:
 class MetricsRegistry:
     counters: dict[str, float] = field(default_factory=lambda: defaultdict(float))
     gauges: dict[str, float] = field(default_factory=dict)
-    histograms: dict[str, HistogramAggregate] = field(default_factory=lambda: defaultdict(HistogramAggregate))
+    histograms: dict[str, HistogramAggregate] = field(
+        default_factory=lambda: defaultdict(HistogramAggregate)
+    )
     lock: RLock = field(default_factory=RLock)
 
     def inc(self, name: str, value: float = 1.0, **labels: str) -> None:
@@ -109,8 +118,12 @@ class MetricsRegistry:
             for key, aggregate in sorted(self.histograms.items()):
                 if not aggregate.count:
                     continue
-                lines.append(f'{self._with_labels(key, {"quantile": "avg"})} {aggregate.total / aggregate.count:.6f}')
-                lines.append(f'{self._with_labels(key, {"quantile": "max"})} {aggregate.maximum:.6f}')
+                lines.append(
+                    f"{self._with_labels(key, {'quantile': 'avg'})} {aggregate.total / aggregate.count:.6f}"
+                )
+                lines.append(
+                    f"{self._with_labels(key, {'quantile': 'max'})} {aggregate.maximum:.6f}"
+                )
                 lines.append(f"{self._count_key(key)} {aggregate.count}")
         return "\n".join(lines) + "\n"
 
@@ -120,7 +133,10 @@ class MetricsRegistry:
                 "counters": dict(self.counters),
                 "gauges": dict(self.gauges),
                 "histograms": {
-                    key: {"count": value.count, "max": value.maximum if value.count else 0.0}
+                    key: {
+                        "count": value.count,
+                        "max": value.maximum if value.count else 0.0,
+                    }
                     for key, value in self.histograms.items()
                 },
             }
@@ -158,7 +174,9 @@ LOGGER = logging.getLogger("craftly.gateway")
 
 
 class ObservabilityMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
         started = time.perf_counter()
         status_code = 500
         supplied_request_id = request.headers.get("x-request-id", "")
@@ -224,7 +242,9 @@ def install_tracing(app: FastAPI) -> None:
         return
     try:
         from opentelemetry import trace
-        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+            OTLPSpanExporter,
+        )
         from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
         from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
@@ -232,8 +252,11 @@ def install_tracing(app: FastAPI) -> None:
     except ImportError:
         logging.getLogger("craftly.gateway").warning("opentelemetry_not_installed")
         return
-    provider = TracerProvider(resource=Resource.create({"service.name": os.environ.get("CRAFTLY_SERVICE_NAME", "craftly-api")}))
+    provider = TracerProvider(
+        resource=Resource.create(
+            {"service.name": os.environ.get("CRAFTLY_SERVICE_NAME", "craftly-api")}
+        )
+    )
     provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint)))
     trace.set_tracer_provider(provider)
     FastAPIInstrumentor.instrument_app(app)
-

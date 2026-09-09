@@ -1,4 +1,4 @@
-﻿"""Strict license filtering for Craftly training corpora."""
+"""Strict license filtering for Craftly training corpora."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ from pydantic import Field
 
 from src.craftly.learning.quality import iter_jsonl
 from src.craftly.shared.schemas import StrictModel
-
 
 DEFAULT_ALLOWED_LICENSES = {
     "apache-2.0",
@@ -61,10 +60,16 @@ def decide_license(
     allowed = allowed_licenses or DEFAULT_ALLOWED_LICENSES
     normalized = normalize_license(license_name)
     if normalized in allowed:
-        return LicenseDecision(accepted=True, license=normalized, reason="approved_license")
+        return LicenseDecision(
+            accepted=True, license=normalized, reason="approved_license"
+        )
     if normalized in {"unknown", "unknown-ok"} and not strict_unknown:
-        return LicenseDecision(accepted=True, license=normalized, reason="unknown_allowed_by_policy")
-    return LicenseDecision(accepted=False, license=normalized, reason="license_not_approved")
+        return LicenseDecision(
+            accepted=True, license=normalized, reason="unknown_allowed_by_policy"
+        )
+    return LicenseDecision(
+        accepted=False, license=normalized, reason="license_not_approved"
+    )
 
 
 def filter_jsonl_by_license(
@@ -83,10 +88,16 @@ def filter_jsonl_by_license(
     with target.open("w", encoding="utf-8") as handle:
         for path in input_paths:
             for row in iter_jsonl(path):
-                decision = decide_license(row.get("license"), allowed_licenses=allowed, strict_unknown=strict_unknown)
+                decision = decide_license(
+                    row.get("license"),
+                    allowed_licenses=allowed,
+                    strict_unknown=strict_unknown,
+                )
                 if not decision.accepted:
                     rejected += 1
-                    rejected_by_license[decision.license] = rejected_by_license.get(decision.license, 0) + 1
+                    rejected_by_license[decision.license] = (
+                        rejected_by_license.get(decision.license, 0) + 1
+                    )
                     continue
                 row["license"] = decision.license
                 handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
@@ -103,15 +114,18 @@ def filter_jsonl_by_license(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Filter Craftly JSONL rows by approved training-data license.")
+    parser = argparse.ArgumentParser(
+        description="Filter Craftly JSONL rows by approved training-data license."
+    )
     parser.add_argument("--input", nargs="+", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--allow-unknown-license", action="store_true")
     args = parser.parse_args()
-    report = filter_jsonl_by_license(args.input, args.output, strict_unknown=not args.allow_unknown_license)
+    report = filter_jsonl_by_license(
+        args.input, args.output, strict_unknown=not args.allow_unknown_license
+    )
     print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":
     main()
-

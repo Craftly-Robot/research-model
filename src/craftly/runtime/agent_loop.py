@@ -6,10 +6,7 @@ application, and test verification in an ephemeral scratch workspace.
 
 from __future__ import annotations
 
-import asyncio
-import difflib
 import json
-import os
 import re
 import shutil
 import subprocess  # nosec B404 - execution bounded by strict argv and timeout policy
@@ -24,13 +21,8 @@ from pydantic import Field
 from src.craftly.learning.agentic_dataset import (
     PATCH_END,
     PATCH_START,
-    THOUGHT_END,
-    THOUGHT_START,
     TOOL_CALL_END,
     TOOL_CALL_START,
-    TOOL_RESULT_END,
-    TOOL_RESULT_START,
-    ParsedAgentStep,
     ToolCall,
     ToolResult,
     format_tool_result,
@@ -38,7 +30,7 @@ from src.craftly.learning.agentic_dataset import (
 )
 from src.craftly.model_ops.backends import ModelBackend
 from src.craftly.shared.schemas import StrictModel
-from src.craftly.tools.policy import ALLOWED_TOOL_COMMANDS, HardenedToolExecutor
+from src.craftly.tools.policy import ALLOWED_TOOL_COMMANDS
 
 
 class AgenticTask(StrictModel):
@@ -66,7 +58,9 @@ class AgenticExecutionReport(StrictModel):
     """Final outcome and provenance of an agent run."""
 
     task_id: str
-    status: str = Field(pattern=r"^(verified_pass|regression_detected|max_turns_exceeded|patch_application_failed|error)$")
+    status: str = Field(
+        pattern=r"^(verified_pass|regression_detected|max_turns_exceeded|patch_application_failed|error)$"
+    )
     turns_taken: int
     patch: str | None = None
     verification_stdout: str = ""
@@ -76,10 +70,14 @@ class AgenticExecutionReport(StrictModel):
     duration_ms: float = 0.0
 
 
-def apply_patch_hunks(original_lines: list[str], hunks: list[tuple[int, list[str], list[str]]]) -> list[str]:
+def apply_patch_hunks(
+    original_lines: list[str], hunks: list[tuple[int, list[str], list[str]]]
+) -> list[str]:
     """Apply unified diff hunks (old_start, old_lines, new_lines) deterministically."""
     result = list(original_lines)
-    for old_start, old_block, new_block in sorted(hunks, key=lambda h: h[0], reverse=True):
+    for old_start, old_block, new_block in sorted(
+        hunks, key=lambda h: h[0], reverse=True
+    ):
         # 1-indexed to 0-indexed
         idx = max(0, old_start - 1)
         # Verify match or find closest match in neighborhood
@@ -115,7 +113,11 @@ def apply_unified_diff(workspace_dir: Path, diff_text: str) -> bool:
         if not chunk.startswith("--- "):
             continue
 
-        match = re.search(r"^--- [a-zA-Z0-9_./\\]+[\t ]*(?:[a-zA-Z0-9_./\\-]+)?\r?\n\+\+\+ ([a-zA-Z0-9_./\\]+)", chunk, re.MULTILINE)
+        match = re.search(
+            r"^--- [a-zA-Z0-9_./\\]+[\t ]*(?:[a-zA-Z0-9_./\\-]+)?\r?\n\+\+\+ ([a-zA-Z0-9_./\\]+)",
+            chunk,
+            re.MULTILINE,
+        )
         if not match:
             continue
 
@@ -155,7 +157,9 @@ def apply_unified_diff(workspace_dir: Path, diff_text: str) -> bool:
             hunks.append((old_start, old_lines, new_lines))
 
         if hunks and target_file.exists():
-            original_content = target_file.read_text(encoding="utf-8").splitlines(keepends=True)
+            original_content = target_file.read_text(encoding="utf-8").splitlines(
+                keepends=True
+            )
             modified_content = apply_patch_hunks(original_content, hunks)
             target_file.write_text("".join(modified_content), encoding="utf-8")
             applied_any = True
@@ -191,13 +195,23 @@ def apply_patch_to_workspace(workspace_dir: Path, patch_text: str) -> bool:
             return True
 
     # 2. File header pattern: e.g. "### File: `db.py`" or "# File: db.py"
-    file_match = re.search(r"(?:###?\s*File:?\s*[`'\"]?|#\s*file:?\s*[`'\"]?)([a-zA-Z0-9_./\\]+\.py)[`'\"]?", cleaned, re.IGNORECASE)
+    file_match = re.search(
+        r"(?:###?\s*File:?\s*[`'\"]?|#\s*file:?\s*[`'\"]?)([a-zA-Z0-9_./\\]+\.py)[`'\"]?",
+        cleaned,
+        re.IGNORECASE,
+    )
     if file_match:
         target_name = file_match.group(1).replace("\\", "/").split("/")[-1]
         target_file = workspace_dir / target_name
         if target_file.exists():
-            code_lines = [l for l in cleaned.splitlines() if not re.search(r"(?:###?\s*File|#\s*file)", l, re.IGNORECASE)]
-            target_file.write_text("\n".join(code_lines).strip() + "\n", encoding="utf-8")
+            code_lines = [
+                l
+                for l in cleaned.splitlines()
+                if not re.search(r"(?:###?\s*File|#\s*file)", l, re.IGNORECASE)
+            ]
+            target_file.write_text(
+                "\n".join(code_lines).strip() + "\n", encoding="utf-8"
+            )
             return True
 
     # 3. Match function definition inside workspace Python files
@@ -211,24 +225,34 @@ def apply_patch_to_workspace(workspace_dir: Path, patch_text: str) -> bool:
                 new_code = original_code
                 replaced_any = False
                 for fn in func_names:
-                    fn_pattern = rf"(def\s+{fn}\s*\([^)]*\).*?)(?=\n(?:def|class)\s+|\Z)"
+                    fn_pattern = (
+                        rf"(def\s+{fn}\s*\([^)]*\).*?)(?=\n(?:def|class)\s+|\Z)"
+                    )
                     patch_fn_m = re.search(fn_pattern, cleaned, re.DOTALL)
                     orig_fn_m = re.search(fn_pattern, new_code, re.DOTALL)
                     if patch_fn_m and orig_fn_m:
-                        new_code = new_code.replace(orig_fn_m.group(0), patch_fn_m.group(0), 1)
+                        new_code = new_code.replace(
+                            orig_fn_m.group(0), patch_fn_m.group(0), 1
+                        )
                         replaced_any = True
 
                 if replaced_any:
                     for line in cleaned.splitlines():
                         line_s = line.strip()
-                        if (line_s.startswith("import ") or line_s.startswith("from ")) and line_s not in new_code:
+                        if (
+                            line_s.startswith("import ") or line_s.startswith("from ")
+                        ) and line_s not in new_code:
                             new_code = line_s + "\n" + new_code
                     p.write_text(new_code, encoding="utf-8")
                     return True
 
     # 4. If exactly one non-test .py file in workspace and patch contains python code
-    source_files = [p for p in workspace_dir.glob("*.py") if not p.name.startswith("test_")]
-    if len(source_files) == 1 and ("def " in cleaned or "import " in cleaned or "from " in cleaned):
+    source_files = [
+        p for p in workspace_dir.glob("*.py") if not p.name.startswith("test_")
+    ]
+    if len(source_files) == 1 and (
+        "def " in cleaned or "import " in cleaned or "from " in cleaned
+    ):
         source_files[0].write_text(cleaned + "\n", encoding="utf-8")
         return True
 
@@ -260,15 +284,21 @@ class AgenticRuntime:
                 if not p.name.startswith("test_") and not p.name.startswith("."):
                     rel = p.relative_to(sandbox_root).as_posix()
                     content = p.read_text(encoding="utf-8", errors="replace")
-                    workspace_files.append(f"File `{rel}`:\n```python\n{content.strip()}\n```")
+                    workspace_files.append(
+                        f"File `{rel}`:\n```python\n{content.strip()}\n```"
+                    )
 
-            files_context = ("\n\nExisting Workspace Code:\n" + "\n\n".join(workspace_files)) if workspace_files else ""
+            files_context = (
+                ("\n\nExisting Workspace Code:\n" + "\n\n".join(workspace_files))
+                if workspace_files
+                else ""
+            )
 
             history_dialogue: list[str] = [
                 f"Task: {task.instruction}\n"
                 f"{files_context}\n\n"
                 f"Available Tools: test, git_diff, shell\n"
-                "Format tool calls as: <|tool_call|>{\"tool\": \"...\", \"command\": [...] }<|tool_end|>\n"
+                'Format tool calls as: <|tool_call|>{"tool": "...", "command": [...] }<|tool_end|>\n'
                 "Format patches as: <|patch_start|>\n--- a/filename\n+++ b/filename\n...<|patch_end|>\n"
                 "Or provide the complete corrected file/function code inside <|patch_start|> and <|patch_end|>.\n"
             ]
@@ -282,7 +312,9 @@ class AgenticRuntime:
             for turn in range(1, task.max_turns + 1):
                 prompt = (
                     "System:\nYou are Craftly, an autonomous defensive cybersecurity and coding AI agent.\n\n"
-                    "User:\n" + "\n".join(history_dialogue) + "\n\nAssistant:\n<|thought_start|>\n"
+                    "User:\n"
+                    + "\n".join(history_dialogue)
+                    + "\n\nAssistant:\n<|thought_start|>\n"
                 )
 
                 raw_generation = await self.backend.generate(
@@ -293,7 +325,10 @@ class AgenticRuntime:
                 )
 
                 # Ensure delimiter completion if truncated at stop
-                if TOOL_CALL_START in raw_generation and TOOL_CALL_END not in raw_generation:
+                if (
+                    TOOL_CALL_START in raw_generation
+                    and TOOL_CALL_END not in raw_generation
+                ):
                     raw_generation += TOOL_CALL_END
                 if PATCH_START in raw_generation and PATCH_END not in raw_generation:
                     raw_generation += PATCH_END
@@ -302,7 +337,9 @@ class AgenticRuntime:
                 step_record = AgenticStep(
                     turn=turn,
                     thought=parsed.thought,
-                    tool_call=parsed.tool_call.model_dump() if parsed.tool_call else None,
+                    tool_call=parsed.tool_call.model_dump()
+                    if parsed.tool_call
+                    else None,
                     patch=parsed.patch,
                     explanation=parsed.explanation,
                 )
@@ -324,13 +361,15 @@ class AgenticRuntime:
                     applied = apply_patch_to_workspace(sandbox_root, parsed.patch)
                     if not applied:
                         history_dialogue.append(
-                            f"Observation: Patch could not be applied cleanly. Check format."
+                            "Observation: Patch could not be applied cleanly. Check format."
                         )
                         steps.append(step_record)
                         continue
 
                     # Execute Verification Command in Sandbox
-                    v_res = self._execute_safe_command(task.verification_command, sandbox_root)
+                    v_res = self._execute_safe_command(
+                        task.verification_command, sandbox_root
+                    )
                     last_stdout = v_res.stdout
                     last_stderr = v_res.stderr
                     last_exit_code = v_res.exit_code
@@ -349,7 +388,9 @@ class AgenticRuntime:
 
                 else:
                     # Explanatory turn without tool call: check if verification passes as-is
-                    v_res = self._execute_safe_command(task.verification_command, sandbox_root)
+                    v_res = self._execute_safe_command(
+                        task.verification_command, sandbox_root
+                    )
                     last_stdout = v_res.stdout
                     last_stderr = v_res.stderr
                     last_exit_code = v_res.exit_code
@@ -375,7 +416,6 @@ class AgenticRuntime:
 
     def _execute_safe_tool(self, call: ToolCall, cwd: Path) -> ToolResult:
         """Execute allowlisted tool with root containment."""
-        start = time.perf_counter()
         executable = call.command[0].lower()
         allowed = ALLOWED_TOOL_COMMANDS.get(call.tool, set())
         if executable not in allowed:
@@ -388,7 +428,9 @@ class AgenticRuntime:
 
         return self._execute_safe_command(call.command, cwd, timeout_ms=call.timeout_ms)
 
-    def _execute_safe_command(self, command: list[str], cwd: Path, timeout_ms: int = 30_000) -> ToolResult:
+    def _execute_safe_command(
+        self, command: list[str], cwd: Path, timeout_ms: int = 30_000
+    ) -> ToolResult:
         """Run an allowlisted subprocess inside the sandboxed workspace."""
         start = time.perf_counter()
         # Resolve python executable to current python if requested

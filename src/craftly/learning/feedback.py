@@ -1,4 +1,4 @@
-﻿"""Benchmark feedback loop for dataset quality and task promotion."""
+"""Benchmark feedback loop for dataset quality and task promotion."""
 
 from __future__ import annotations
 
@@ -49,7 +49,9 @@ def build_feedback_report(
     automated_pass = int(review.get("automated_pass", 0))
     task_automated_pass_rate = automated_pass / max(1, review_total)
     automated_pass_by_type = dict(review.get("automated_pass_by_type") or {})
-    task_type_count = len([value for value in automated_pass_by_type.values() if int(value) > 0])
+    task_type_count = len(
+        [value for value in automated_pass_by_type.values() if int(value) > 0]
+    )
     components = dict(quality.get("avg_component_scores") or {})
 
     recommendations: list[FeedbackRecommendation] = []
@@ -80,7 +82,14 @@ def build_feedback_report(
                 metadata={"automated_pass_by_type": automated_pass_by_type},
             )
         )
-    if components and max(float(components.get("security_signal", 0.0)), float(components.get("agentic_signal", 0.0))) < 0.2:
+    if (
+        components
+        and max(
+            float(components.get("security_signal", 0.0)),
+            float(components.get("agentic_signal", 0.0)),
+        )
+        < 0.2
+    ):
         recommendations.append(
             FeedbackRecommendation(
                 kind="signal_quality",
@@ -95,7 +104,10 @@ def build_feedback_report(
                 kind="benchmark",
                 severity="critical",
                 message="Benchmark score is below promotion threshold; do not promote this dataset version to training.",
-                metadata={"benchmark_score": benchmark_score, "benchmark_total": benchmark_total},
+                metadata={
+                    "benchmark_score": benchmark_score,
+                    "benchmark_total": benchmark_total,
+                },
             )
         )
     if benchmark_total == 0:
@@ -150,12 +162,16 @@ def write_feedback_report(
     )
     target = Path(output_path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+    target.write_text(
+        json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8"
+    )
     return report
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build Craftly benchmark/data feedback report.")
+    parser = argparse.ArgumentParser(
+        description="Build Craftly benchmark/data feedback report."
+    )
     parser.add_argument("--output", required=True)
     parser.add_argument("--benchmark-report")
     parser.add_argument("--quality-report")
@@ -172,4 +188,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

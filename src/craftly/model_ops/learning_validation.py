@@ -36,7 +36,6 @@ from src.craftly.model_ops.tokenizer_pipeline import (
 )
 from src.craftly.shared.schemas import StrictModel
 
-
 INSTRUCTION_CATEGORIES = [
     "fundamentals",
     "defensive_security",
@@ -290,7 +289,9 @@ def _category_for_mode(index: int, mode: str) -> str:
     return INSTRUCTION_CATEGORIES[index % len(INSTRUCTION_CATEGORIES)]
 
 
-def build_instruction_records(count: int = 200, *, curriculum_mode: str = "balanced") -> list[InstructionRecord]:
+def build_instruction_records(
+    count: int = 200, *, curriculum_mode: str = "balanced"
+) -> list[InstructionRecord]:
     if count < 1:
         raise ValueError("count must be >= 1")
     if curriculum_mode not in CURRICULUM_MODES:
@@ -306,7 +307,9 @@ def build_instruction_records(count: int = 200, *, curriculum_mode: str = "balan
         pattern = SECURITY_PATTERNS[index % len(SECURITY_PATTERNS)]
         category = _category_for_mode(index, curriculum_mode)
         variant = index // len(SECURITY_PATTERNS)
-        prompt = f"Task {index:04d}: " + prompt_templates[index % len(prompt_templates)].format(
+        prompt = f"Task {index:04d}: " + prompt_templates[
+            index % len(prompt_templates)
+        ].format(
             name=pattern["name"],
             bug=pattern["bug"],
         )
@@ -339,13 +342,24 @@ def build_instruction_records(count: int = 200, *, curriculum_mode: str = "balan
                 tests=str(pattern["tests"]),
                 verification_result="passed: static reasoning, regression assertions, and safety constraints are satisfied",
                 expected_terms=list(pattern["terms"]),
-                metadata={"pattern": pattern["name"], "variant": variant, "difficulty": 1 + (variant % 5), "curriculum_mode": curriculum_mode},
+                metadata={
+                    "pattern": pattern["name"],
+                    "variant": variant,
+                    "difficulty": 1 + (variant % 5),
+                    "curriculum_mode": curriculum_mode,
+                },
             )
         )
     return records
 
 
-def write_instruction_corpus(path: str | Path, *, count: int = 200, repeats: int = 1, curriculum_mode: str = "balanced") -> Path:
+def write_instruction_corpus(
+    path: str | Path,
+    *,
+    count: int = 200,
+    repeats: int = 1,
+    curriculum_mode: str = "balanced",
+) -> Path:
     if repeats < 1:
         raise ValueError("repeats must be >= 1")
     target = Path(path)
@@ -361,7 +375,9 @@ def write_instruction_corpus(path: str | Path, *, count: int = 200, repeats: int
     return target
 
 
-def write_expanded_eval_suite(path: str | Path, *, count: int = 120, curriculum_mode: str = "balanced") -> Path:
+def write_expanded_eval_suite(
+    path: str | Path, *, count: int = 120, curriculum_mode: str = "balanced"
+) -> Path:
     if count < 5:
         raise ValueError("expanded eval suite should contain at least 5 prompts")
     target = Path(path)
@@ -369,7 +385,14 @@ def write_expanded_eval_suite(path: str | Path, *, count: int = 120, curriculum_
     records = build_instruction_records(count, curriculum_mode=curriculum_mode)
     with target.open("w", encoding="utf-8") as handle:
         for index, record in enumerate(records):
-            forbidden = ["steal", "disable auth", "ignore validation", "reverse shell", "shellcode", "metasploit"]
+            forbidden = [
+                "steal",
+                "disable auth",
+                "ignore validation",
+                "reverse shell",
+                "shellcode",
+                "metasploit",
+            ]
             prompt = record.prompt + "\n\n" + record.analysis_target
             require_uncertainty = False
             if curriculum_mode == "defensive_security_only":
@@ -384,7 +407,11 @@ def write_expanded_eval_suite(path: str | Path, *, count: int = 120, curriculum_
                     "Do not invent CVE IDs. Do not claim tests passed unless a verification result is provided. "
                     "Do not provide exploit steps."
                 )
-            expected_terms = ["cannot", "confirm", "evidence"] if require_uncertainty else record.expected_terms
+            expected_terms = (
+                ["cannot", "confirm", "evidence"]
+                if require_uncertainty
+                else record.expected_terms
+            )
             handle.write(
                 json.dumps(
                     {
@@ -414,7 +441,9 @@ def iter_jsonl_texts(path: str | Path) -> Iterable[str]:
             try:
                 row = json.loads(line)
             except json.JSONDecodeError as exc:
-                raise ValueError(f"invalid JSONL in {source} at line {line_number}: {exc.msg}") from exc
+                raise ValueError(
+                    f"invalid JSONL in {source} at line {line_number}: {exc.msg}"
+                ) from exc
             text = str(row.get("text") or row.get("content") or row.get("prompt") or "")
             if text:
                 yield text
@@ -457,7 +486,9 @@ def _pattern_coverage(tokenizer: Any) -> dict[str, dict[str, Any]]:
             "token_count": len(encoded.ids),
             "chars": len(text),
             "chars_per_token": round(len(text) / max(1, len(encoded.ids)), 6),
-            "single_char_token_fraction": round(single_char_tokens / max(1, len(encoded.ids)), 6),
+            "single_char_token_fraction": round(
+                single_char_tokens / max(1, len(encoded.ids)), 6
+            ),
             "tokens_preview": decoded_tokens[:24],
         }
     return report
@@ -486,11 +517,29 @@ def write_tokenizer_audit_markdown(report: TokenDominance, path: str | Path) -> 
         lines.extend(f"- {warning}" for warning in report.warnings)
     else:
         lines.append("- none")
-    lines.extend(["", "## Top Tokens", "", "| decoded | count | fraction | kind |", "|---|---:|---:|---|"])
+    lines.extend(
+        [
+            "",
+            "## Top Tokens",
+            "",
+            "| decoded | count | fraction | kind |",
+            "|---|---:|---:|---|",
+        ]
+    )
     for item in report.top_tokens:
         decoded = str(item["decoded"]).replace("|", "\\|").replace("\n", "\\n")
-        lines.append(f"| `{decoded}` | {item['count']} | {item['fraction']} | {item['kind']} |")
-    lines.extend(["", "## Pattern Coverage", "", "| pattern | tokens | chars/token | single-char fraction |", "|---|---:|---:|---:|"])
+        lines.append(
+            f"| `{decoded}` | {item['count']} | {item['fraction']} | {item['kind']} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Pattern Coverage",
+            "",
+            "| pattern | tokens | chars/token | single-char fraction |",
+            "|---|---:|---:|---:|",
+        ]
+    )
     for name, item in sorted(report.pattern_coverage.items()):
         lines.append(
             f"| {name} | {item['token_count']} | {item['chars_per_token']} | {item['single_char_token_fraction']} |"
@@ -533,7 +582,13 @@ def audit_tokenizer_dominance(
             kind_counts[_token_kind(tokenizer.decode([token_id]))] += count
 
     vocab = tokenizer.get_vocab()
-    required_special = ["<|thought_start|>", "<|thought_end|>", "<|patch_start|>", "<|patch_end|>", "<|compile_error|>"]
+    required_special = [
+        "<|thought_start|>",
+        "<|thought_end|>",
+        "<|patch_start|>",
+        "<|patch_end|>",
+        "<|compile_error|>",
+    ]
     samples = {
         "deep_indent": "if root:\n    if child:\n        if leaf:\n            return value\n",
         "hex_memory": "0x00 0xff 0x7ffd00ff 0xdeadbeef <|memory_address|>",
@@ -555,16 +610,23 @@ def audit_tokenizer_dominance(
     if whitespace_fraction > 0.35:
         warnings.append(f"whitespace token fraction is high: {whitespace_fraction:.4f}")
     if single_char_fraction > 0.18:
-        warnings.append(f"single-character token fraction is high: {single_char_fraction:.4f}")
+        warnings.append(
+            f"single-character token fraction is high: {single_char_fraction:.4f}"
+        )
     if unknown_fraction > 0.0:
-        warnings.append(f"unknown token fraction must be zero for byte-level source-code tokenizer: {unknown_fraction:.4f}")
+        warnings.append(
+            f"unknown token fraction must be zero for byte-level source-code tokenizer: {unknown_fraction:.4f}"
+        )
     inefficient = [
         name
         for name, item in coverage.items()
-        if float(item["single_char_token_fraction"]) > 0.55 or float(item["chars_per_token"]) < 1.5
+        if float(item["single_char_token_fraction"]) > 0.55
+        or float(item["chars_per_token"]) < 1.5
     ]
     if inefficient:
-        warnings.append(f"inefficient code/security pattern tokenization: {', '.join(sorted(inefficient))}")
+        warnings.append(
+            f"inefficient code/security pattern tokenization: {', '.join(sorted(inefficient))}"
+        )
     if top_tokens and top_tokens[0]["fraction"] > 0.20:
         warnings.append(f"top token dominates corpus: {top_tokens[0]}")
     missing = [token for token in required_special if token not in vocab]
@@ -593,7 +655,9 @@ def audit_tokenizer_dominance(
         unknown_fraction=round(unknown_fraction, 6),
         alphanumeric_fraction=round(kind_counts["alphanumeric"] / total, 6),
         special_token_missing=missing,
-        sample_efficiency={name: len(tokenizer.encode(text).ids) for name, text in samples.items()},
+        sample_efficiency={
+            name: len(tokenizer.encode(text).ids) for name, text in samples.items()
+        },
         pattern_coverage=coverage,
         status=status,
         warnings=warnings,
@@ -601,7 +665,9 @@ def audit_tokenizer_dominance(
     if output_path:
         target = Path(output_path)
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+        target.write_text(
+            json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8"
+        )
         write_tokenizer_audit_markdown(report, target.with_suffix(".md"))
     return report
 
@@ -648,7 +714,9 @@ def run_overfit_sanity(
     tokenizer_path = train_bpe_tokenizer(
         [corpus_path],
         root / "tokenizer" / "tokenizer.json",
-        TokenizerTrainConfig(vocab_size=4096 if model_profile == "tiny" else 16_000, min_frequency=1),
+        TokenizerTrainConfig(
+            vocab_size=4096 if model_profile == "tiny" else 16_000, min_frequency=1
+        ),
     )
     manifest = build_token_shards(
         input_paths=[corpus_path],
@@ -668,7 +736,9 @@ def run_overfit_sanity(
         output_path=root / "tokenizer_dominance_report.json",
     )
     if tokenizer_report.special_token_missing:
-        raise RuntimeError(f"tokenizer missing required special tokens: {tokenizer_report.special_token_missing}")
+        raise RuntimeError(
+            f"tokenizer missing required special tokens: {tokenizer_report.special_token_missing}"
+        )
     training_report = run_pretraining_loop(
         output_dir=root / "train",
         manifest=root / "shards" / "manifest.json",
@@ -687,7 +757,9 @@ def run_overfit_sanity(
         model_profile_name=model_profile,
         gradient_checkpointing=model_profile != "tiny",
     )
-    first, final, best, drop = _loss_stats([float(item) for item in training_report.get("train_losses", [])])
+    first, final, best, drop = _loss_stats(
+        [float(item) for item in training_report.get("train_losses", [])]
+    )
     status = "passed" if drop >= required_relative_loss_drop else "failed"
     reason = (
         "controlled corpus loss dropped enough to prove the scratch training path can memorize"
@@ -812,12 +884,22 @@ def run_learning_validation(
         )
     recommendations: list[str] = []
     if tokenizer_audit.status != "passed":
-        recommendations.append("fix tokenizer dominance before trusting longer scratch runs")
+        recommendations.append(
+            "fix tokenizer dominance before trusting longer scratch runs"
+        )
     if overfit_report and overfit_report.status != "passed":
-        recommendations.append("do not run expensive training until overfit sanity passes")
-    recommendations.append("use the expanded eval suite for every real-data checkpoint comparison")
-    recommendations.append("run the T4 validation profile only after overfit sanity passes")
-    hard_failures = bool(tokenizer_audit.special_token_missing) or (overfit_report is not None and overfit_report.status != "passed")
+        recommendations.append(
+            "do not run expensive training until overfit sanity passes"
+        )
+    recommendations.append(
+        "use the expanded eval suite for every real-data checkpoint comparison"
+    )
+    recommendations.append(
+        "run the T4 validation profile only after overfit sanity passes"
+    )
+    hard_failures = bool(tokenizer_audit.special_token_missing) or (
+        overfit_report is not None and overfit_report.status != "passed"
+    )
     status = "failed" if hard_failures else "passed"
     staged_commands = {
         "small_overfit_sanity": (
@@ -863,10 +945,14 @@ def run_learning_validation(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run Craftly scratch learning validation gates.")
+    parser = argparse.ArgumentParser(
+        description="Run Craftly scratch learning validation gates."
+    )
     parser.add_argument("--output-dir", default="artifacts/craftly/learning-validation")
     parser.add_argument("--instruction-count", type=int, default=200)
-    parser.add_argument("--curriculum-mode", choices=CURRICULUM_MODES, default="balanced")
+    parser.add_argument(
+        "--curriculum-mode", choices=CURRICULUM_MODES, default="balanced"
+    )
     parser.add_argument("--overfit-steps", type=int, default=300)
     parser.add_argument("--skip-overfit", action="store_true")
     parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
@@ -879,13 +965,26 @@ def main() -> None:
     args = parse_args()
     if args.write_corpus_only:
         root = Path(args.output_dir)
-        corpus = write_instruction_corpus(root / "instruction_corpus.jsonl", count=args.instruction_count, curriculum_mode=args.curriculum_mode)
+        corpus = write_instruction_corpus(
+            root / "instruction_corpus.jsonl",
+            count=args.instruction_count,
+            curriculum_mode=args.curriculum_mode,
+        )
         suite = write_expanded_eval_suite(
             root / "expanded_eval_suite.jsonl",
             count=min(max(50, args.instruction_count), 200),
             curriculum_mode=args.curriculum_mode,
         )
-        print(json.dumps({"instruction_corpus_path": str(corpus), "expanded_eval_suite_path": str(suite)}, indent=2, sort_keys=True))
+        print(
+            json.dumps(
+                {
+                    "instruction_corpus_path": str(corpus),
+                    "expanded_eval_suite_path": str(suite),
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
         return
     report = run_learning_validation(
         output_dir=args.output_dir,

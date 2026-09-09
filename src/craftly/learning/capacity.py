@@ -1,4 +1,4 @@
-﻿"""Capacity planning for billion-scale Craftly data collection."""
+"""Capacity planning for billion-scale Craftly data collection."""
 
 from __future__ import annotations
 
@@ -37,17 +37,34 @@ class CapacityPlan(StrictModel):
 def build_capacity_plan(config: CapacityPlanConfig) -> CapacityPlan:
     raw_bytes = config.target_documents * config.avg_document_bytes
     compressed_bytes = raw_bytes * config.compression_ratio
-    docs_per_minute = config.worker_replicas * config.async_workers_per_replica * config.docs_per_async_worker_per_minute
+    docs_per_minute = (
+        config.worker_replicas
+        * config.async_workers_per_replica
+        * config.docs_per_async_worker_per_minute
+    )
     estimated_days = config.target_documents / docs_per_minute / 60 / 24
-    required_docs_per_second = config.target_documents / (config.target_days * 24 * 60 * 60)
-    required_bandwidth_mbps = (required_docs_per_second * config.avg_document_bytes * 8) / 1_000_000
-    docs_per_replica_per_day = config.async_workers_per_replica * config.docs_per_async_worker_per_minute * 60 * 24
-    recommended_replicas = math.ceil(config.target_documents / (config.target_days * docs_per_replica_per_day))
+    required_docs_per_second = config.target_documents / (
+        config.target_days * 24 * 60 * 60
+    )
+    required_bandwidth_mbps = (
+        required_docs_per_second * config.avg_document_bytes * 8
+    ) / 1_000_000
+    docs_per_replica_per_day = (
+        config.async_workers_per_replica
+        * config.docs_per_async_worker_per_minute
+        * 60
+        * 24
+    )
+    recommended_replicas = math.ceil(
+        config.target_documents / (config.target_days * docs_per_replica_per_day)
+    )
     return CapacityPlan(
         target_documents=config.target_documents,
         raw_storage_tb=round(raw_bytes / 1_000_000_000_000, 3),
         compressed_storage_tb=round(compressed_bytes / 1_000_000_000_000, 3),
-        expected_clean_documents=int(config.target_documents * config.avg_clean_acceptance_rate),
+        expected_clean_documents=int(
+            config.target_documents * config.avg_clean_acceptance_rate
+        ),
         docs_per_minute_capacity=round(docs_per_minute, 3),
         estimated_days=round(estimated_days, 3),
         required_docs_per_second_for_target_days=round(required_docs_per_second, 3),
@@ -57,7 +74,9 @@ def build_capacity_plan(config: CapacityPlanConfig) -> CapacityPlan:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Plan Craftly data-platform cluster capacity.")
+    parser = argparse.ArgumentParser(
+        description="Plan Craftly data-platform cluster capacity."
+    )
     parser.add_argument("--target-documents", type=int, default=1_000_000_000)
     parser.add_argument("--avg-document-bytes", type=int, default=64_000)
     parser.add_argument("--acceptance-rate", type=float, default=0.35)
@@ -88,4 +107,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -1,4 +1,4 @@
-﻿"""Repository-aware patch verification loop.
+"""Repository-aware patch verification loop.
 
 This is the production-facing glue between repository indexing, context
 packing, patch preview/apply, verifier execution, and post-patch reindexing.
@@ -51,7 +51,9 @@ class RepositoryPatchLoopReport(StrictModel):
     created_at_unix: float = Field(default_factory=time.time)
 
 
-def run_repository_patch_loop(request: RepositoryPatchLoopRequest) -> RepositoryPatchLoopReport:
+def run_repository_patch_loop(
+    request: RepositoryPatchLoopRequest,
+) -> RepositoryPatchLoopReport:
     started = time.perf_counter()
     repo = Path(request.repo_path).resolve()
     if not repo.exists() or not repo.is_dir():
@@ -122,7 +124,9 @@ def _parse_command(raw: str) -> list[str]:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run repository-aware patch verification loop.")
+    parser = argparse.ArgumentParser(
+        description="Run repository-aware patch verification loop."
+    )
     parser.add_argument("--repo", required=True)
     parser.add_argument("--goal", required=True)
     parser.add_argument("--edits-json", required=True)
@@ -153,7 +157,9 @@ def main() -> None:
     )
     target = Path(args.output)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+    target.write_text(
+        json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8"
+    )
     print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
     if report.status != "passed":
         raise SystemExit(2)
@@ -161,4 +167,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

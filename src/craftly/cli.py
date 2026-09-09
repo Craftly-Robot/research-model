@@ -1,4 +1,4 @@
-﻿"""Consolidated Craftly command line entrypoint."""
+"""Consolidated Craftly command line entrypoint."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ import asyncio
 import json
 import subprocess
 import sys
-import urllib.request
 import urllib.error
+import urllib.request
 from pathlib import Path
 
 from src.craftly.runtime.engine import CraftlyRuntime
@@ -108,7 +108,9 @@ examples:
 
     # --- status ---
     p_status = sub.add_parser("status", help="Check if the gateway is running")
-    p_status.add_argument("--url", default=None, help=f"Gateway URL (default: {GATEWAY_URL})")
+    p_status.add_argument(
+        "--url", default=None, help=f"Gateway URL (default: {GATEWAY_URL})"
+    )
 
     # --- setup ---
     sub.add_parser("setup", help="Set up the development environment")

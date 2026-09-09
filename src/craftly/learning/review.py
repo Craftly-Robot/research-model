@@ -18,7 +18,6 @@ from pydantic import Field
 from src.craftly.learning.quality import iter_jsonl, stable_hash
 from src.craftly.shared.schemas import StrictModel
 
-
 HIGH_RISK_ACTION_TERMS = {
     "deploy malware",
     "steal",
@@ -130,12 +129,19 @@ def review_tasks(
             by_type[task_type] = by_type.get(task_type, 0) + 1
             decision = review_task(task)
             scores.append(decision.score)
-            decisions_handle.write(json.dumps(decision.model_dump(), ensure_ascii=False, sort_keys=True) + "\n")
+            decisions_handle.write(
+                json.dumps(decision.model_dump(), ensure_ascii=False, sort_keys=True)
+                + "\n"
+            )
             if decision.status == "automated_pass":
                 automated_pass += 1
-                automated_pass_by_type[task_type] = automated_pass_by_type.get(task_type, 0) + 1
+                automated_pass_by_type[task_type] = (
+                    automated_pass_by_type.get(task_type, 0) + 1
+                )
                 task["automated_policy_review"] = decision.model_dump()
-                automated_pass_handle.write(json.dumps(task, ensure_ascii=False, sort_keys=True) + "\n")
+                automated_pass_handle.write(
+                    json.dumps(task, ensure_ascii=False, sort_keys=True) + "\n"
+                )
             elif decision.status == "needs_human_review":
                 human += 1
             else:
@@ -155,7 +161,9 @@ def review_tasks(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Apply automated policy screening to extracted Craftly task candidates.")
+    parser = argparse.ArgumentParser(
+        description="Apply automated policy screening to extracted Craftly task candidates."
+    )
     parser.add_argument("--input", required=True)
     parser.add_argument("--decisions-out", required=True)
     parser.add_argument("--automated-pass-out", required=True)
@@ -165,10 +173,11 @@ def main() -> None:
     if args.report_out:
         report_target = Path(args.report_out)
         report_target.parent.mkdir(parents=True, exist_ok=True)
-        report_target.write_text(json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+        report_target.write_text(
+            json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8"
+        )
     print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":
     main()
-

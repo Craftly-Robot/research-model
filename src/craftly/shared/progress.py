@@ -7,8 +7,8 @@ import json
 import os
 import queue
 import random
-import sys
 import socket
+import sys
 import time
 from pathlib import Path
 from threading import Event, RLock, Thread
@@ -33,7 +33,9 @@ class ProgressReporter:
         if self.path:
             self.path.parent.mkdir(parents=True, exist_ok=True)
 
-    def emit(self, stage: str, status: str = "running", **metrics: Any) -> dict[str, Any]:
+    def emit(
+        self, stage: str, status: str = "running", **metrics: Any
+    ) -> dict[str, Any]:
         payload = {
             "ts_unix": time.time(),
             "stage": stage,
@@ -58,7 +60,9 @@ class NullProgressReporter(ProgressReporter):
     def __init__(self) -> None:
         super().__init__(path=None, to_stdout=False)
 
-    def emit(self, stage: str, status: str = "running", **metrics: Any) -> dict[str, Any]:
+    def emit(
+        self, stage: str, status: str = "running", **metrics: Any
+    ) -> dict[str, Any]:
         return {
             "ts_unix": time.time(),
             "stage": stage,
@@ -89,14 +93,22 @@ class WorkspaceProgressReporter(ProgressReporter):
         local = parsed.hostname in {"localhost", "127.0.0.1", "::1"}
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise ValueError("CRAFTLY_WORKSPACE_URL must be an absolute HTTP(S) URL")
-        if parsed.scheme != "https" and not local and os.environ.get("CRAFTLY_ALLOW_INSECURE_WORKSPACE") != "1":
+        if (
+            parsed.scheme != "https"
+            and not local
+            and os.environ.get("CRAFTLY_ALLOW_INSECURE_WORKSPACE") != "1"
+        ):
             raise ValueError("remote workspace progress endpoint must use HTTPS")
         super().__init__(path=path, to_stdout=to_stdout)
         self.workspace_url = workspace_url.rstrip("/")
         self.job_id = job_id
         self.attempt_id = attempt_id
         self.access_token = access_token
-        self.wal_path = Path(wal_path) if wal_path else Path(path or "progress.jsonl").with_name("progress-wal.jsonl")
+        self.wal_path = (
+            Path(wal_path)
+            if wal_path
+            else Path(path or "progress.jsonl").with_name("progress-wal.jsonl")
+        )
         self.wal_path.parent.mkdir(parents=True, exist_ok=True)
         self.batch_size = min(max(batch_size, 1), 100)
         self.flush_interval_seconds = max(flush_interval_seconds, 0.1)
@@ -112,9 +124,13 @@ class WorkspaceProgressReporter(ProgressReporter):
         self.dropped_metrics = 0
         self.coalesced_metrics: dict[tuple[str, int, str], dict[str, Any]] = {}
         self.rank = int(os.environ.get("RANK", os.environ.get("SLURM_PROCID", "0")))
-        self.world_size = int(os.environ.get("WORLD_SIZE", os.environ.get("SLURM_NTASKS", "1")))
+        self.world_size = int(
+            os.environ.get("WORLD_SIZE", os.environ.get("SLURM_NTASKS", "1"))
+        )
         self.node = socket.gethostname()
-        self.worker = Thread(target=self._delivery_loop, name="craftly-progress-delivery", daemon=True)
+        self.worker = Thread(
+            target=self._delivery_loop, name="craftly-progress-delivery", daemon=True
+        )
         self.worker.start()
         atexit.register(self.close)
 
@@ -134,11 +150,22 @@ class WorkspaceProgressReporter(ProgressReporter):
             return "evaluation"
         if lowered == "heartbeat":
             return "heartbeat"
-        if any(key in metrics for key in ["step", "loss", "validation_loss", "tokens_per_second", "gpu_memory_bytes"]):
+        if any(
+            key in metrics
+            for key in [
+                "step",
+                "loss",
+                "validation_loss",
+                "tokens_per_second",
+                "gpu_memory_bytes",
+            ]
+        ):
             return "metric"
         return "status"
 
-    def emit(self, stage: str, status: str = "running", **metrics: Any) -> dict[str, Any]:
+    def emit(
+        self, stage: str, status: str = "running", **metrics: Any
+    ) -> dict[str, Any]:
         payload = super().emit(stage, status, **metrics)
         kind = self._kind(stage, status, metrics)
         if self.rank != 0 and kind not in {"heartbeat", "error", "checkpoint"}:
@@ -168,7 +195,11 @@ class WorkspaceProgressReporter(ProgressReporter):
             "tokens_per_second": metrics.get("tokens_per_second"),
             "gpu_memory_bytes": metrics.get("gpu_memory_bytes"),
             "message": metrics.get("message") or metrics.get("error"),
-            "payload": {key: value for key, value in metrics.items() if key not in known and value is not None},
+            "payload": {
+                key: value
+                for key, value in metrics.items()
+                if key not in known and value is not None
+            },
         }
         self._enqueue(event, durable=kind in {"error", "checkpoint", "evaluation"})
         return payload
@@ -181,7 +212,13 @@ class WorkspaceProgressReporter(ProgressReporter):
                 self._write_wal([event])
             else:
                 with self.coalesced_lock:
-                    self.coalesced_metrics[(str(event.get("stage")), int(event.get("rank", 0)), str(event.get("kind")))] = event
+                    self.coalesced_metrics[
+                        (
+                            str(event.get("stage")),
+                            int(event.get("rank", 0)),
+                            str(event.get("kind")),
+                        )
+                    ] = event
                 self.dropped_metrics += 1
 
     def _write_wal(self, events: list[dict[str, Any]]) -> None:
@@ -217,18 +254,24 @@ class WorkspaceProgressReporter(ProgressReporter):
         if not self.wal_path.exists() or self.wal_path.stat().st_size == 0:
             return
         with self.wal_lock:
-            lines = self.wal_path.read_text(encoding="utf-8", errors="replace").splitlines()
+            lines = self.wal_path.read_text(
+                encoding="utf-8", errors="replace"
+            ).splitlines()
             retained = []
             for line in lines:
                 try:
                     row = json.loads(line)
-                    delivered = row.get("attempt_id") == self.attempt_id and self._send(list(row.get("events") or []))
+                    delivered = row.get("attempt_id") == self.attempt_id and self._send(
+                        list(row.get("events") or [])
+                    )
                 except (json.JSONDecodeError, TypeError, ValueError):
                     delivered = False
                 if not delivered:
                     retained.append(line)
             temporary = self.wal_path.with_suffix(".tmp")
-            temporary.write_text("\n".join(retained) + ("\n" if retained else ""), encoding="utf-8")
+            temporary.write_text(
+                "\n".join(retained) + ("\n" if retained else ""), encoding="utf-8"
+            )
             os.replace(temporary, self.wal_path)
 
     def _heartbeat(self) -> dict[str, Any]:
@@ -250,8 +293,15 @@ class WorkspaceProgressReporter(ProgressReporter):
         last_flush = time.monotonic()
         last_heartbeat = time.monotonic()
         failure_streak = 0
-        while not self.stop_event.is_set() or not self.pending.empty() or batch or self.coalesced_metrics:
-            timeout = max(0.05, min(self.flush_interval_seconds, self.heartbeat_seconds) / 2)
+        while (
+            not self.stop_event.is_set()
+            or not self.pending.empty()
+            or batch
+            or self.coalesced_metrics
+        ):
+            timeout = max(
+                0.05, min(self.flush_interval_seconds, self.heartbeat_seconds) / 2
+            )
             try:
                 batch.append(self.pending.get(timeout=timeout))
             except queue.Empty:
@@ -264,13 +314,20 @@ class WorkspaceProgressReporter(ProgressReporter):
             if now - last_heartbeat >= self.heartbeat_seconds:
                 batch.append(self._heartbeat())
                 last_heartbeat = now
-            if batch and (len(batch) >= self.batch_size or now - last_flush >= self.flush_interval_seconds or self.stop_event.is_set()):
+            if batch and (
+                len(batch) >= self.batch_size
+                or now - last_flush >= self.flush_interval_seconds
+                or self.stop_event.is_set()
+            ):
                 sending = batch[:100]
                 del batch[: len(sending)]
                 if not self._send(sending):
                     self._write_wal(sending)
                     failure_streak += 1
-                    backoff = min(30.0, self.flush_interval_seconds * (2 ** min(failure_streak, 6)))
+                    backoff = min(
+                        30.0,
+                        self.flush_interval_seconds * (2 ** min(failure_streak, 6)),
+                    )
                     time.sleep(backoff * random.uniform(0.75, 1.25))  # nosec B311 - retry jitter is non-cryptographic
                 else:
                     failure_streak = 0
@@ -285,7 +342,9 @@ class WorkspaceProgressReporter(ProgressReporter):
         self.worker.join(timeout=10)
 
 
-def progress_from_options(*, path: str | Path | None, to_stdout: bool) -> ProgressReporter:
+def progress_from_options(
+    *, path: str | Path | None, to_stdout: bool
+) -> ProgressReporter:
     workspace_url = os.environ.get("CRAFTLY_WORKSPACE_URL")
     job_id = os.environ.get("CRAFTLY_TRAINING_JOB_ID")
     attempt_id = os.environ.get("CRAFTLY_TRAINING_ATTEMPT_ID")

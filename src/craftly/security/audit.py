@@ -1,4 +1,4 @@
-﻿"""Production security audit for Craftly source and deployment assets."""
+"""Production security audit for Craftly source and deployment assets."""
 
 from __future__ import annotations
 
@@ -21,12 +21,21 @@ from src.craftly.deployment.k8s_validate import validate_manifests
 from src.craftly.shared.config_contracts import load_security_audit_contract
 from src.craftly.shared.schemas import StrictModel
 
-
-SECRET_PATTERN = re.compile(r"(?i)(api[_-]?key|secret|password|token)\s*=\s*['\"][^'\"]{12,}['\"]")
-SSRF_PATTERN = re.compile(r"(?i)(requests\.(get|post|put|delete)|httpx\.(get|post|put|delete)|urlopen)\s*\(")
-PATH_TRAVERSAL_PATTERN = re.compile(r"(?i)(open|Path)\s*\([^)]*(request|args|params|user_input|filename)")
-DANGEROUS_SUBPROCESS_PATTERN = re.compile(r"(?i)(shell\s*=\s*True|os\.system|subprocess\.(call|run|Popen)\([^)]*\+)")
-EXECUTABLE_SINK_PATTERN = re.compile(r"(?i)\b(subprocess\.(run|call|Popen)|os\.system|eval\s*\(|exec\s*\(|child_process\.exec)")
+SECRET_PATTERN = re.compile(
+    r"(?i)(api[_-]?key|secret|password|token)\s*=\s*['\"][^'\"]{12,}['\"]"
+)
+SSRF_PATTERN = re.compile(
+    r"(?i)(requests\.(get|post|put|delete)|httpx\.(get|post|put|delete)|urlopen)\s*\("
+)
+PATH_TRAVERSAL_PATTERN = re.compile(
+    r"(?i)(open|Path)\s*\([^)]*(request|args|params|user_input|filename)"
+)
+DANGEROUS_SUBPROCESS_PATTERN = re.compile(
+    r"(?i)(shell\s*=\s*True|os\.system|subprocess\.(call|run|Popen)\([^)]*\+)"
+)
+EXECUTABLE_SINK_PATTERN = re.compile(
+    r"(?i)\b(subprocess\.(run|call|Popen)|os\.system|eval\s*\(|exec\s*\(|child_process\.exec)"
+)
 
 
 class SecurityFinding(StrictModel):
@@ -53,7 +62,9 @@ class SecurityAuditReport(StrictModel):
         root = Path(output_dir)
         root.mkdir(parents=True, exist_ok=True)
         target = root / "security_audit_report.json"
-        target.write_text(json.dumps(self.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+        target.write_text(
+            json.dumps(self.model_dump(), indent=2, sort_keys=True), encoding="utf-8"
+        )
         write_markdown(self, root / "security_audit_report.md")
         return target
 
@@ -76,7 +87,9 @@ def _load_audit_excludes(root: Path) -> dict[str, dict[str, Any]]:
     return excludes
 
 
-def _validate_audit_excludes(root: Path, excludes: dict[str, dict[str, Any]]) -> list[SecurityFinding]:
+def _validate_audit_excludes(
+    root: Path, excludes: dict[str, dict[str, Any]]
+) -> list[SecurityFinding]:
     findings: list[SecurityFinding] = []
     for relative, item in excludes.items():
         target = (root / relative).resolve()
@@ -92,7 +105,9 @@ def _validate_audit_excludes(root: Path, excludes: dict[str, dict[str, Any]]) ->
             continue
         if bool(item.get("allow_executable_sinks")):
             continue
-        for line_number, line in enumerate(target.read_text(encoding="utf-8", errors="replace").splitlines(), start=1):
+        for line_number, line in enumerate(
+            target.read_text(encoding="utf-8", errors="replace").splitlines(), start=1
+        ):
             if EXECUTABLE_SINK_PATTERN.search(line):
                 findings.append(
                     SecurityFinding(
@@ -107,8 +122,23 @@ def _validate_audit_excludes(root: Path, excludes: dict[str, dict[str, Any]]) ->
     return findings
 
 
-def _iter_source_files(root: Path, excluded_paths: set[str] | None = None) -> list[Path]:
-    suffixes = {".py", ".js", ".ts", ".tsx", ".go", ".rs", ".java", ".yaml", ".yml", ".toml", ".env", ".txt"}
+def _iter_source_files(
+    root: Path, excluded_paths: set[str] | None = None
+) -> list[Path]:
+    suffixes = {
+        ".py",
+        ".js",
+        ".ts",
+        ".tsx",
+        ".go",
+        ".rs",
+        ".java",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".env",
+        ".txt",
+    }
     excluded = {".git", "__pycache__", "artifacts", ".venv", "node_modules", "tests"}
     excluded_paths = excluded_paths or set()
     paths = []
@@ -127,7 +157,9 @@ def _iter_source_files(root: Path, excluded_paths: set[str] | None = None) -> li
     return paths
 
 
-def _scan_patterns(root: Path, excluded_paths: set[str] | None = None) -> list[SecurityFinding]:
+def _scan_patterns(
+    root: Path, excluded_paths: set[str] | None = None
+) -> list[SecurityFinding]:
     findings: list[SecurityFinding] = []
     for path in _iter_source_files(root, excluded_paths=excluded_paths):
         try:
@@ -136,13 +168,32 @@ def _scan_patterns(root: Path, excluded_paths: set[str] | None = None) -> list[S
             continue
         for line_number, line in enumerate(lines, start=1):
             stripped = line.strip()
-            if "replace-with" in stripped or "nosec" in stripped or "pragma: allowlist secret" in stripped:
+            if (
+                "replace-with" in stripped
+                or "nosec" in stripped
+                or "pragma: allowlist secret" in stripped
+            ):
                 continue
             checks = [
                 ("secret_pattern", SECRET_PATTERN, "fail", "possible hardcoded secret"),
-                ("ssrf_sink", SSRF_PATTERN, "warn", "network request sink requires allowlist validation"),
-                ("path_traversal_sink", PATH_TRAVERSAL_PATTERN, "warn", "file path sink may need canonical path validation"),
-                ("dangerous_process", DANGEROUS_SUBPROCESS_PATTERN, "warn", "process execution sink requires strict argument handling"),
+                (
+                    "ssrf_sink",
+                    SSRF_PATTERN,
+                    "warn",
+                    "network request sink requires allowlist validation",
+                ),
+                (
+                    "path_traversal_sink",
+                    PATH_TRAVERSAL_PATTERN,
+                    "warn",
+                    "file path sink may need canonical path validation",
+                ),
+                (
+                    "dangerous_process",
+                    DANGEROUS_SUBPROCESS_PATTERN,
+                    "warn",
+                    "process execution sink requires strict argument handling",
+                ),
             ]
             for check, pattern, severity, message in checks:
                 if pattern.search(stripped):
@@ -161,7 +212,11 @@ def _scan_patterns(root: Path, excluded_paths: set[str] | None = None) -> list[S
 
 def _dependency_warnings(root: Path) -> list[str]:
     warnings: list[str] = []
-    for filename in ["requirements.txt", "requirements-local-dev.txt", "requirements-linux-gpu.txt"]:
+    for filename in [
+        "requirements.txt",
+        "requirements-local-dev.txt",
+        "requirements-linux-gpu.txt",
+    ]:
         path = root / filename
         if not path.exists():
             continue
@@ -170,15 +225,21 @@ def _dependency_warnings(root: Path) -> list[str]:
             if not stripped or stripped.startswith("#"):
                 continue
             if all(operator not in stripped for operator in ["==", ">=", "~=", "<="]):
-                warnings.append(f"{filename}: dependency is not version bounded: {stripped}")
+                warnings.append(
+                    f"{filename}: dependency is not version bounded: {stripped}"
+                )
     return warnings
 
 
-def _resolve_python_scanner(executable: str, module: str) -> tuple[list[str] | None, str | None]:
+def _resolve_python_scanner(
+    executable: str, module: str
+) -> tuple[list[str] | None, str | None]:
     resolved = shutil.which(executable)
     if resolved:
         return [resolved], None
-    scripts_candidate = Path(sys.executable).resolve().parent / "Scripts" / f"{executable}.exe"
+    scripts_candidate = (
+        Path(sys.executable).resolve().parent / "Scripts" / f"{executable}.exe"
+    )
     if scripts_candidate.exists():
         return [str(scripts_candidate)], None
     if importlib.util.find_spec(module) is not None:
@@ -202,7 +263,10 @@ def _resolve_codeql() -> tuple[list[str] | None, str | None]:
     for candidate in local_candidates:
         if candidate.exists():
             return [str(candidate)], None
-    return None, f"codeql executable is not installed; checked PATH, CRAFTLY_CODEQL_BIN={env_path}, and {local_candidates[0]}"
+    return (
+        None,
+        f"codeql executable is not installed; checked PATH, CRAFTLY_CODEQL_BIN={env_path}, and {local_candidates[0]}",
+    )
 
 
 def _scanner_timeout_seconds(scanner: str, default: int) -> int:
@@ -217,7 +281,9 @@ def _scanner_timeout_seconds(scanner: str, default: int) -> int:
     return timeout
 
 
-def _scanner_positive_int(scanner: str, setting: str, default: int, *, minimum: int, maximum: int) -> int:
+def _scanner_positive_int(
+    scanner: str, setting: str, default: int, *, minimum: int, maximum: int
+) -> int:
     variable = f"CRAFTLY_{scanner.upper().replace('-', '_')}_{setting.upper()}"
     raw = os.environ.get(variable, str(default)).strip()
     try:
@@ -249,13 +315,22 @@ def _run_bandit(root: Path) -> dict[str, Any] | None:
     except subprocess.TimeoutExpired:
         return {"status": "failed", "reason": f"Bandit exceeded {timeout} seconds"}
     if completed.returncode not in {0, 1}:
-        return {"status": "skipped", "reason": completed.stderr[-1000:] or completed.stdout[-1000:]}
+        return {
+            "status": "skipped",
+            "reason": completed.stderr[-1000:] or completed.stdout[-1000:],
+        }
     try:
         payload = json.loads(completed.stdout or "{}")
     except json.JSONDecodeError:
-        return {"status": "failed", "reason": "bandit returned invalid JSON", "stderr": completed.stderr[-1000:]}
+        return {
+            "status": "failed",
+            "reason": "bandit returned invalid JSON",
+            "stderr": completed.stderr[-1000:],
+        }
     results = payload.get("results", [])
-    blocking = [item for item in results if item.get("issue_severity") in {"MEDIUM", "HIGH"}]
+    blocking = [
+        item for item in results if item.get("issue_severity") in {"MEDIUM", "HIGH"}
+    ]
     return {
         "status": "passed" if not blocking else "failed",
         "issue_count": len(results),
@@ -293,7 +368,11 @@ def _run_semgrep(root: Path) -> dict[str, Any]:
                 check=False,
             )
         except subprocess.TimeoutExpired:
-            return {"status": "failed", "backend": backend, "reason": f"Semgrep exceeded {timeout} seconds"}
+            return {
+                "status": "failed",
+                "backend": backend,
+                "reason": f"Semgrep exceeded {timeout} seconds",
+            }
     if completed is None or completed.returncode not in {0, 1}:
         docker = shutil.which("docker")
         image = os.environ.get(
@@ -364,10 +443,18 @@ def _run_semgrep(root: Path) -> dict[str, Any]:
     try:
         payload = json.loads(completed.stdout or "{}")
     except json.JSONDecodeError:
-        return {"status": "failed", "reason": "semgrep returned invalid JSON", "stderr": completed.stderr[-1000:]}
+        return {
+            "status": "failed",
+            "reason": "semgrep returned invalid JSON",
+            "stderr": completed.stderr[-1000:],
+        }
     findings = payload.get("results", [])
-    error_count = sum(1 for item in findings if item.get("extra", {}).get("severity") == "ERROR")
-    warning_count = sum(1 for item in findings if item.get("extra", {}).get("severity") == "WARNING")
+    error_count = sum(
+        1 for item in findings if item.get("extra", {}).get("severity") == "ERROR"
+    )
+    warning_count = sum(
+        1 for item in findings if item.get("extra", {}).get("severity") == "WARNING"
+    )
     return {
         "status": "passed" if error_count == 0 else "failed",
         "backend": backend,
@@ -393,7 +480,11 @@ def _run_codeql(root: Path) -> dict[str, Any]:
         return {"status": "skipped", "reason": missing}
     source_root = root / "src"
     if not source_root.is_dir():
-        return {"status": "failed", "phase": "source_validation", "reason": f"missing source directory: {source_root}"}
+        return {
+            "status": "failed",
+            "phase": "source_validation",
+            "reason": f"missing source directory: {source_root}",
+        }
     output = root / "artifacts" / "craftly" / "codeql-results.sarif"
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary_root = Path(tempfile.mkdtemp(prefix="craftly-codeql-")).resolve()
@@ -406,7 +497,9 @@ def _run_codeql(root: Path) -> dict[str, Any]:
     # Keep the local default viable on an 8 GiB developer/CI worker. Larger
     # runners should raise CRAFTLY_CODEQL_RAM_MB explicitly; CodeQL fails
     # closed if the bounded process cannot complete.
-    ram_mb = _scanner_positive_int("codeql", "ram_mb", 2048, minimum=1024, maximum=524_288)
+    ram_mb = _scanner_positive_int(
+        "codeql", "ram_mb", 2048, minimum=1024, maximum=524_288
+    )
     timeout = _scanner_timeout_seconds("codeql", 3600)
     try:
         create_command = [
@@ -484,15 +577,28 @@ def _run_codeql(root: Path) -> dict[str, Any]:
         if completed.returncode == 0 and output.is_file():
             try:
                 sarif = json.loads(output.read_text(encoding="utf-8-sig"))
-                blocking = [result for run in sarif.get("runs", []) for result in run.get("results", [])]
+                blocking = [
+                    result
+                    for run in sarif.get("runs", [])
+                    for result in run.get("results", [])
+                ]
             except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-                return {"status": "failed", "phase": "sarif_parse", "reason": str(exc), "output": str(output)}
+                return {
+                    "status": "failed",
+                    "phase": "sarif_parse",
+                    "reason": str(exc),
+                    "output": str(output),
+                }
         return {
-            "status": "passed" if completed.returncode == 0 and not blocking else "failed",
+            "status": "passed"
+            if completed.returncode == 0 and not blocking
+            else "failed",
             "phase": "database_analyze",
             "returncode": completed.returncode,
             "blocking_issue_count": len(blocking),
-            "blocking_rules": sorted({str(item.get("ruleId") or "unknown") for item in blocking}),
+            "blocking_rules": sorted(
+                {str(item.get("ruleId") or "unknown") for item in blocking}
+            ),
             "source_root": str(source_root),
             "query_suite": "python-security-extended.qls",
             "ephemeral_database": True,
@@ -531,19 +637,38 @@ def _run_pip_audit(root: Path) -> dict[str, Any]:
     except subprocess.TimeoutExpired:
         return {"status": "failed", "reason": f"pip-audit exceeded {timeout} seconds"}
     if completed.returncode not in {0, 1}:
-        return {"status": "failed", "reason": completed.stderr[-2000:] or completed.stdout[-2000:]}
+        return {
+            "status": "failed",
+            "reason": completed.stderr[-2000:] or completed.stdout[-2000:],
+        }
     try:
         payload = json.loads(completed.stdout or "{}")
     except json.JSONDecodeError:
-        return {"status": "failed", "reason": "pip-audit returned invalid JSON", "stderr": completed.stderr[-1000:]}
+        return {
+            "status": "failed",
+            "reason": "pip-audit returned invalid JSON",
+            "stderr": completed.stderr[-1000:],
+        }
     vulnerabilities = payload.get("vulnerabilities", [])
-    return {"status": "passed" if not vulnerabilities else "failed", "vulnerability_count": len(vulnerabilities)}
+    return {
+        "status": "passed" if not vulnerabilities else "failed",
+        "vulnerability_count": len(vulnerabilities),
+    }
 
 
 def scanner_install_plan() -> dict[str, Any]:
     return {
         "python_tools": {
-            "command": ["python", "-m", "pip", "install", "--upgrade", "bandit", "semgrep", "pip-audit"],
+            "command": [
+                "python",
+                "-m",
+                "pip",
+                "install",
+                "--upgrade",
+                "bandit",
+                "semgrep",
+                "pip-audit",
+            ],
             "tools": ["bandit", "semgrep", "pip-audit"],
         },
         "codeql": {
@@ -552,7 +677,9 @@ def scanner_install_plan() -> dict[str, Any]:
             "local_install_dir": str(Path.home() / ".craftly" / "tools" / "codeql"),
             "env_override": "CRAFTLY_CODEQL_BIN",
             "linux_note": "Install the official CodeQL CLI bundle from GitHub and add the codeql executable to PATH.",
-            "required_after_install": ["codeql database create artifacts/craftly/codeql-db --language=python --source-root=."],
+            "required_after_install": [
+                "codeql database create artifacts/craftly/codeql-db --language=python --source-root=."
+            ],
         },
         "strict_audit_command": [
             "python",
@@ -597,10 +724,16 @@ def run_security_audit(
     failed = any(item.severity == "fail" for item in findings)
     failed = failed or bool(dependency_warnings)
     failed = failed or bool(bandit_report and bandit_report.get("status") == "failed")
-    failed = failed or any(report.get("status") == "failed" for report in external_scanners.values())
+    failed = failed or any(
+        report.get("status") == "failed" for report in external_scanners.values()
+    )
     if strict_external_tools:
-        failed = failed or bool(bandit_report and bandit_report.get("status") == "skipped")
-        failed = failed or any(report.get("status") == "skipped" for report in external_scanners.values())
+        failed = failed or bool(
+            bandit_report and bandit_report.get("status") == "skipped"
+        )
+        failed = failed or any(
+            report.get("status") == "skipped" for report in external_scanners.values()
+        )
     failed = failed or bool(k8s_report and k8s_report.get("status") == "failed")
     report = SecurityAuditReport(
         status="failed" if failed else "passed",
@@ -630,15 +763,30 @@ def write_markdown(report: SecurityAuditReport, path: str | Path) -> Path:
         "|---|---|---|---:|---|",
     ]
     for finding in report.findings:
-        lines.append(f"| {finding.severity} | {finding.check} | {finding.file} | {finding.line} | {finding.message} |")
+        lines.append(
+            f"| {finding.severity} | {finding.check} | {finding.file} | {finding.line} | {finding.message} |"
+        )
     if report.dependency_warnings:
         lines.extend(["", "## Dependency Warnings", ""])
         for warning in report.dependency_warnings:
             lines.append(f"- {warning}")
     if report.external_scanners:
-        lines.extend(["", "## External Scanners", "", "| scanner | status | detail |", "|---|---|---|"])
+        lines.extend(
+            [
+                "",
+                "## External Scanners",
+                "",
+                "| scanner | status | detail |",
+                "|---|---|---|",
+            ]
+        )
         for name, payload in report.external_scanners.items():
-            detail = payload.get("reason") or payload.get("issue_count") or payload.get("vulnerability_count") or ""
+            detail = (
+                payload.get("reason")
+                or payload.get("issue_count")
+                or payload.get("vulnerability_count")
+                or ""
+            )
             lines.append(f"| {name} | {payload.get('status')} | {detail} |")
     lines.extend(["", "## Scanner Install Plan", ""])
     lines.append("```powershell")
@@ -651,7 +799,9 @@ def write_markdown(report: SecurityAuditReport, path: str | Path) -> Path:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run Craftly production security audit.")
+    parser = argparse.ArgumentParser(
+        description="Run Craftly production security audit."
+    )
     parser.add_argument("--root", default=".")
     parser.add_argument("--output-dir", default="artifacts/craftly/security-audit")
     parser.add_argument("--no-bandit", action="store_true")
@@ -682,4 +832,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

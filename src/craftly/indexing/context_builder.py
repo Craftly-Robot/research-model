@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
 import argparse
+import asyncio
 import hashlib
 import json
 import math
@@ -23,14 +23,20 @@ from pydantic import Field
 
 from src.craftly.db.local_store import LocalStore, PostgresRAGStore
 from src.craftly.indexing.repository_indexer import RepositoryIndexer, estimate_tokens
-from src.craftly.indexing.vector_index import VectorBackendConfig, VectorIndexBackend, create_vector_index
+from src.craftly.indexing.vector_index import (
+    VectorBackendConfig,
+    VectorIndexBackend,
+    create_vector_index,
+)
 from src.craftly.shared.schemas import StrictModel
 
 if TYPE_CHECKING:
     from src.craftly.memory.system import UnifiedMemoryManager
 
 
-TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]{1,}|[A-Za-z]:\\[^\\s]+|[./\\w-]+\\.[A-Za-z0-9]+")
+TOKEN_RE = re.compile(
+    r"[A-Za-z_][A-Za-z0-9_]{1,}|[A-Za-z]:\\[^\\s]+|[./\\w-]+\\.[A-Za-z0-9]+"
+)
 
 
 class ContextChunk(StrictModel):
@@ -89,7 +95,9 @@ class ContextBuildReport(StrictModel):
     prompt_context: str
     index_revision: str | None = None
     embedding_model_version: str = "unavailable"
-    retrieval_mode: Literal["hybrid", "degraded_lexical_graph"] = "degraded_lexical_graph"
+    retrieval_mode: Literal["hybrid", "degraded_lexical_graph"] = (
+        "degraded_lexical_graph"
+    )
     degraded: bool = True
     degraded_reason: str | None = "semantic backend not configured"
     candidate_counts: dict[str, int] = Field(default_factory=dict)
@@ -122,7 +130,9 @@ class RAGEvaluationGovernance(StrictModel):
 
     def model_post_init(self, __context: Any) -> None:
         if len(set(self.reviewer_ids)) != len(self.reviewer_ids):
-            raise ValueError("RAG evaluation governance requires distinct reviewer identities")
+            raise ValueError(
+                "RAG evaluation governance requires distinct reviewer identities"
+            )
         if not self.approved:
             raise ValueError("RAG evaluation pack is not approved")
         if not self.protected_holdout:
@@ -198,7 +208,15 @@ def query_terms(query: str) -> Counter[str]:
 def chunk_terms(chunk: dict[str, Any]) -> Counter[str]:
     metadata = chunk.get("metadata") or {}
     metadata_terms: list[str] = []
-    for key in ["signature", "imports", "calls", "dependencies", "state_mutations", "decorators", "docstring"]:
+    for key in [
+        "signature",
+        "imports",
+        "calls",
+        "dependencies",
+        "state_mutations",
+        "decorators",
+        "docstring",
+    ]:
         value = metadata.get(key)
         if isinstance(value, list):
             metadata_terms.extend(str(item) for item in value)
@@ -236,9 +254,13 @@ def load_governed_rag_evaluation(
     tasks_file = Path(tasks_path).resolve(strict=True)
     governance_file = Path(governance_path).resolve(strict=True)
     digest = hashlib.sha256(tasks_file.read_bytes()).hexdigest()
-    governance = RAGEvaluationGovernance.model_validate_json(governance_file.read_text(encoding="utf-8"))
+    governance = RAGEvaluationGovernance.model_validate_json(
+        governance_file.read_text(encoding="utf-8")
+    )
     if digest != governance.tasks_sha256:
-        raise ValueError("RAG evaluation task pack hash does not match its governance record")
+        raise ValueError(
+            "RAG evaluation task pack hash does not match its governance record"
+        )
     tasks: list[RAGEvaluationTask] = []
     seen: set[str] = set()
     with tasks_file.open(encoding="utf-8-sig") as handle:
@@ -248,15 +270,21 @@ def load_governed_rag_evaluation(
             try:
                 task = RAGEvaluationTask.model_validate_json(line)
             except Exception as exc:
-                raise ValueError(f"invalid RAG evaluation task at line {line_number}") from exc
+                raise ValueError(
+                    f"invalid RAG evaluation task at line {line_number}"
+                ) from exc
             if task.task_id in seen:
                 raise ValueError(f"duplicate RAG evaluation task ID: {task.task_id}")
             seen.add(task.task_id)
             tasks.append(task)
     if len(tasks) != governance.task_count:
-        raise ValueError("RAG evaluation task count does not match its governance record")
+        raise ValueError(
+            "RAG evaluation task count does not match its governance record"
+        )
     if len(tasks) < 500:
-        raise ValueError("production RAG evaluation requires at least 500 governed tasks")
+        raise ValueError(
+            "production RAG evaluation requires at least 500 governed tasks"
+        )
     governance_sha256 = hashlib.sha256(governance_file.read_bytes()).hexdigest()
     return tasks, governance, governance_sha256
 
@@ -272,28 +300,66 @@ def build_rag_evaluation_candidates(
     """Create review candidates from immutable index evidence, never approvals."""
 
     if target_tasks < 500 or target_tasks > 10_000:
-        raise ValueError("governed RAG evaluation candidate target must be between 500 and 10,000")
+        raise ValueError(
+            "governed RAG evaluation candidate target must be between 500 and 10,000"
+        )
     project = store.require_project_access(project_id, organization_id)
     revision = str(project.get("active_index_revision") or "")
     if not revision:
-        raise RuntimeError("RAG evaluation candidates require a committed index revision")
+        raise RuntimeError(
+            "RAG evaluation candidates require a committed index revision"
+        )
     chunks = store.list_chunks(project_id)
     templates = (
-        ("symbol_localization", "Locate the exact repository evidence that defines {symbol} in {path}."),
-        ("dependency_tracing", "Which implementation in {path} establishes the dependencies used by {symbol}?"),
-        ("debugging", "Find the code evidence in {path} that must be inspected when {symbol} fails."),
-        ("defensive_security", "Locate the security-relevant implementation boundary for {symbol} in {path}."),
-        ("patch_localization", "Which exact chunk in {path} should be changed to correct {symbol}?"),
-        ("long_context", "Retrieve the authoritative cross-file evidence for {symbol}, starting from {path}."),
+        (
+            "symbol_localization",
+            "Locate the exact repository evidence that defines {symbol} in {path}.",
+        ),
+        (
+            "dependency_tracing",
+            "Which implementation in {path} establishes the dependencies used by {symbol}?",
+        ),
+        (
+            "debugging",
+            "Find the code evidence in {path} that must be inspected when {symbol} fails.",
+        ),
+        (
+            "defensive_security",
+            "Locate the security-relevant implementation boundary for {symbol} in {path}.",
+        ),
+        (
+            "patch_localization",
+            "Which exact chunk in {path} should be changed to correct {symbol}?",
+        ),
+        (
+            "long_context",
+            "Retrieve the authoritative cross-file evidence for {symbol}, starting from {path}.",
+        ),
     )
     tasks: list[RAGEvaluationTask] = []
     seen: set[str] = set()
-    for chunk in sorted(chunks, key=lambda item: (str(item["path"]), int(item["start_line"]), str(item["id"]))):
-        symbol = str(chunk.get("symbol_name") or chunk.get("kind") or f"lines {chunk['start_line']}-{chunk['end_line']}")
+    for chunk in sorted(
+        chunks,
+        key=lambda item: (str(item["path"]), int(item["start_line"]), str(item["id"])),
+    ):
+        symbol = str(
+            chunk.get("symbol_name")
+            or chunk.get("kind")
+            or f"lines {chunk['start_line']}-{chunk['end_line']}"
+        )
         for category, template in templates:
             query = template.format(symbol=symbol, path=str(chunk["path"]))
             identity = hashlib.sha256(
-                "\x1f".join([organization_id, project_id, revision, str(chunk["id"]), category, query]).encode("utf-8")
+                "\x1f".join(
+                    [
+                        organization_id,
+                        project_id,
+                        revision,
+                        str(chunk["id"]),
+                        category,
+                        query,
+                    ]
+                ).encode("utf-8")
             ).hexdigest()
             if identity in seen:
                 continue
@@ -318,13 +384,22 @@ def build_rag_evaluation_candidates(
     digest = hashlib.sha256()
     with temporary.open("wb") as handle:
         for task in tasks:
-            row = (json.dumps(task.model_dump(mode="json"), sort_keys=True, ensure_ascii=True) + "\n").encode("utf-8")
+            row = (
+                json.dumps(
+                    task.model_dump(mode="json"), sort_keys=True, ensure_ascii=True
+                )
+                + "\n"
+            ).encode("utf-8")
             handle.write(row)
             digest.update(row)
         handle.flush()
         os.fsync(handle.fileno())
     os.replace(temporary, target)
-    blockers = [] if len(tasks) == target_tasks else [f"index produced only {len(tasks)} of {target_tasks} task candidates"]
+    blockers = (
+        []
+        if len(tasks) == target_tasks
+        else [f"index produced only {len(tasks)} of {target_tasks} task candidates"]
+    )
     return RAGEvaluationCandidateReport(
         status="blocked" if blockers else "ready_for_review",
         task_count=len(tasks),
@@ -357,7 +432,9 @@ def build_rag_scale_plan(
         vector_dimensions=vector_dimensions,
         raw_vector_storage_gib=round(raw_gib, 3),
         replicated_vector_storage_gib=round(raw_gib * replication_factor, 3),
-        recommended_index_workers=max(4, min(256, math.ceil(target_chunks / 2_000_000))),
+        recommended_index_workers=max(
+            4, min(256, math.ceil(target_chunks / 2_000_000))
+        ),
         production_scale_target_met=target_chunks >= 100_000_000,
     )
 
@@ -392,14 +469,18 @@ class HybridRAGEngine:
     def _configured_vector_index(self) -> VectorIndexBackend:
         if self.vector_index is not None:
             if self.production_mode and self.vector_index.config.backend != "qdrant":
-                raise RuntimeError("production HybridRAGEngine requires the Qdrant vector backend")
+                raise RuntimeError(
+                    "production HybridRAGEngine requires the Qdrant vector backend"
+                )
             return self.vector_index
         config = VectorBackendConfig(
             backend="qdrant",
             dims=int(os.environ.get("CRAFTLY_EMBEDDING_DIMS", "768")),
             qdrant_url=os.environ.get("CRAFTLY_QDRANT_URL"),
             embedding_url=os.environ.get("CRAFTLY_EMBEDDING_URL"),
-            embedding_model=os.environ.get("CRAFTLY_EMBEDDING_MODEL", "Craftly-Code-Embed-v1"),
+            embedding_model=os.environ.get(
+                "CRAFTLY_EMBEDDING_MODEL", "Craftly-Code-Embed-v1"
+            ),
             production_mode=self.production_mode,
         )
         return create_vector_index(self.store, config)
@@ -452,7 +533,9 @@ class HybridRAGEngine:
             embedding_model_version = vector_index.config.embedding_model
             for rank, result in enumerate(vector_report.results, start=1):
                 chunk = self.store.get_chunk(result.chunk_id, project_id=project_id)
-                if chunk is None or chunk.get("index_revision") != project.get("active_index_revision"):
+                if chunk is None or chunk.get("index_revision") != project.get(
+                    "active_index_revision"
+                ):
                     continue
                 item = dict(chunk)
                 item["score"] = float(result.score)
@@ -464,7 +547,9 @@ class HybridRAGEngine:
         semantic_ms = (time.perf_counter() - semantic_started) * 1000
 
         graph_started = time.perf_counter()
-        graph_ranked = self.graph_candidates(chunks, lexical_ranked, semantic_ranked, terms)
+        graph_ranked = self.graph_candidates(
+            chunks, lexical_ranked, semantic_ranked, terms
+        )
         graph_ms = (time.perf_counter() - graph_started) * 1000
 
         memory_started = time.perf_counter()
@@ -493,7 +578,9 @@ class HybridRAGEngine:
                 break
         files = self.file_summary(selected)
         prompt_context = self.render_prompt_context(project, query, selected)
-        indexed_tokens = sum(estimate_tokens(str(chunk.get("content") or "")) for chunk in chunks)
+        indexed_tokens = sum(
+            estimate_tokens(str(chunk.get("content") or "")) for chunk in chunks
+        )
         stable_evidence = all(bool(item.get("id")) for item in selected)
         report = ContextBuildReport(
             project_id=project_id,
@@ -513,8 +600,14 @@ class HybridRAGEngine:
                     reason=item["reason"],
                     content=item["content"],
                     evidence_id=self.evidence_id(item, project),
-                    content_hash=str(item.get("chunk_hash") or hashlib.sha256(str(item["content"]).encode("utf-8")).hexdigest()),
-                    index_revision=item.get("index_revision") or project.get("active_index_revision"),
+                    content_hash=str(
+                        item.get("chunk_hash")
+                        or hashlib.sha256(
+                            str(item["content"]).encode("utf-8")
+                        ).hexdigest()
+                    ),
+                    index_revision=item.get("index_revision")
+                    or project.get("active_index_revision"),
                     source_kind=item.get("source_kind", "repository"),
                     component_scores=dict(item.get("component_scores") or {}),
                 )
@@ -572,7 +665,11 @@ class HybridRAGEngine:
     ) -> list[dict[str, Any]]:
         seeds = lexical[:20] + semantic[:20]
         seed_ids = {str(item.get("id") or "") for item in seeds}
-        seed_symbols = {str(item.get("symbol_name") or "").lower() for item in seeds if item.get("symbol_name")}
+        seed_symbols = {
+            str(item.get("symbol_name") or "").lower()
+            for item in seeds
+            if item.get("symbol_name")
+        }
         seed_paths = {str(item.get("path") or "").lower() for item in seeds}
         results: list[dict[str, Any]] = []
         for chunk in chunks:
@@ -580,7 +677,11 @@ class HybridRAGEngine:
             dependencies = {
                 str(value).lower()
                 for key in ("imports", "calls", "dependencies")
-                for value in (metadata.get(key) if isinstance(metadata.get(key), list) else [metadata.get(key)])
+                for value in (
+                    metadata.get(key)
+                    if isinstance(metadata.get(key), list)
+                    else [metadata.get(key)]
+                )
                 if value
             }
             resolved_targets = {
@@ -589,33 +690,51 @@ class HybridRAGEngine:
                 if isinstance(edge, dict) and edge.get("target_chunk_id")
             }
             called_by = {
-                str(value)
-                for value in metadata.get("called_by_chunk_ids", [])
-                if value
+                str(value) for value in metadata.get("called_by_chunk_ids", []) if value
             }
             path = str(chunk.get("path") or "").lower()
-            symbol = str(chunk.get("symbol_name") or "").lower()
-            links = sum(1 for value in dependencies if value in seed_symbols or any(value in seed for seed in seed_paths))
+            links = sum(
+                1
+                for value in dependencies
+                if value in seed_symbols or any(value in seed for seed in seed_paths)
+            )
             resolved_links = len((resolved_targets | called_by).intersection(seed_ids))
-            query_links = sum(1 for term in terms if any(term in value for value in dependencies))
-            if not links and not resolved_links and not query_links and path not in seed_paths:
+            query_links = sum(
+                1 for term in terms if any(term in value for value in dependencies)
+            )
+            if (
+                not links
+                and not resolved_links
+                and not query_links
+                and path not in seed_paths
+            ):
                 continue
             item = dict(chunk)
             item["score"] = min(
                 1.0,
-                0.30 * resolved_links + 0.20 * links + 0.15 * query_links + (0.2 if path in seed_paths else 0.0),
+                0.30 * resolved_links
+                + 0.20 * links
+                + 0.15 * query_links
+                + (0.2 if path in seed_paths else 0.0),
             )
-            item["reason"] = "resolved_call_graph" if resolved_links else "dependency_graph"
+            item["reason"] = (
+                "resolved_call_graph" if resolved_links else "dependency_graph"
+            )
             results.append(item)
-        return sorted(results, key=lambda item: (-float(item["score"]), str(item["id"])))[: self.context_policy.candidate_limit_per_source]
+        return sorted(
+            results, key=lambda item: (-float(item["score"]), str(item["id"]))
+        )[: self.context_policy.candidate_limit_per_source]
 
     def memory_candidates(self, project_id: str, query: str) -> list[dict[str, Any]]:
         if self.memory_manager is not None:
             manager = self.memory_manager
         else:
             from src.craftly.memory.system import UnifiedMemoryManager
+
             manager = UnifiedMemoryManager(project_id=project_id, store=self.store)
-        report = manager.retrieve_report(query, limit=min(20, self.context_policy.candidate_limit_per_source))
+        report = manager.retrieve_report(
+            query, limit=min(20, self.context_policy.candidate_limit_per_source)
+        )
         candidates: list[dict[str, Any]] = []
         for hit in report.hits:
             content = json.dumps(hit.entry.content, sort_keys=True, ensure_ascii=True)
@@ -639,7 +758,9 @@ class HybridRAGEngine:
             )
         return candidates
 
-    def fuse_candidates(self, **rank_lists: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def fuse_candidates(
+        self, **rank_lists: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         fused: dict[str, dict[str, Any]] = {}
         component_scores: dict[str, dict[str, float]] = {}
         for component, items in rank_lists.items():
@@ -650,12 +771,18 @@ class HybridRAGEngine:
                 component_scores.setdefault(chunk_id, {})[component] = score
         for chunk_id, item in fused.items():
             scores = component_scores[chunk_id]
-            item["component_scores"] = {key: round(value, 8) for key, value in sorted(scores.items())}
+            item["component_scores"] = {
+                key: round(value, 8) for key, value in sorted(scores.items())
+            }
             item["score"] = sum(scores.values())
             item["reason"] = "rrf:" + ",".join(sorted(scores))
-        return sorted(fused.values(), key=lambda item: (-float(item["score"]), str(item["id"])))
+        return sorted(
+            fused.values(), key=lambda item: (-float(item["score"]), str(item["id"]))
+        )
 
-    def mmr_rank(self, candidates: list[dict[str, Any]], *, lambda_weight: float) -> list[dict[str, Any]]:
+    def mmr_rank(
+        self, candidates: list[dict[str, Any]], *, lambda_weight: float
+    ) -> list[dict[str, Any]]:
         remaining = list(candidates)
         selected: list[dict[str, Any]] = []
         term_cache = {str(item["id"]): chunk_terms(item) for item in remaining}
@@ -665,11 +792,19 @@ class HybridRAGEngine:
             for item in remaining:
                 relevance = float(item["score"])
                 redundancy = max(
-                    (cosine_sparse(term_cache[str(item["id"])], term_cache[str(chosen["id"])]) for chosen in selected),
+                    (
+                        cosine_sparse(
+                            term_cache[str(item["id"])], term_cache[str(chosen["id"])]
+                        )
+                        for chosen in selected
+                    ),
                     default=0.0,
                 )
                 mmr = (lambda_weight * relevance) - ((1.0 - lambda_weight) * redundancy)
-                if mmr > best_score or (mmr == best_score and str(item["id"]) < str((best or {}).get("id", "~"))):
+                if mmr > best_score or (
+                    mmr == best_score
+                    and str(item["id"]) < str((best or {}).get("id", "~"))
+                ):
                     best = item
                     best_score = mmr
             assert best is not None
@@ -685,8 +820,10 @@ class HybridRAGEngine:
         return hashlib.sha256(
             "\x1f".join(
                 [
-                    str(project["organization_id"]), str(project["id"]),
-                    str(project.get("active_index_revision") or ""), str(item["id"]),
+                    str(project["organization_id"]),
+                    str(project["id"]),
+                    str(project.get("active_index_revision") or ""),
+                    str(item["id"]),
                     str(item.get("chunk_hash") or ""),
                 ]
             ).encode("utf-8")
@@ -694,8 +831,12 @@ class HybridRAGEngine:
 
     @staticmethod
     def report_hash(report: ContextBuildReport) -> str:
-        payload = report.model_dump(mode="json", exclude={"report_sha256", "created_at_unix", "timings_ms"})
-        return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+        payload = report.model_dump(
+            mode="json", exclude={"report_sha256", "created_at_unix", "timings_ms"}
+        )
+        return hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
 
     def evaluate(
         self,
@@ -713,7 +854,9 @@ class HybridRAGEngine:
                 degraded=0,
                 stale=0,
                 leakage=0,
-                blockers=["strict production RAG evaluation requires at least 500 governed tasks"],
+                blockers=[
+                    "strict production RAG evaluation requires at least 500 governed tasks"
+                ],
             )
         if strict and governance is None:
             return self._evaluation_report(
@@ -723,7 +866,9 @@ class HybridRAGEngine:
                 degraded=0,
                 stale=0,
                 leakage=0,
-                blockers=["strict production RAG evaluation requires hash-bound governance evidence"],
+                blockers=[
+                    "strict production RAG evaluation requires hash-bound governance evidence"
+                ],
             )
         if governance is not None and governance.task_count != len(tasks):
             return self._evaluation_report(
@@ -771,30 +916,48 @@ class HybridRAGEngine:
             lexical_recalls.append(lexical_recall)
             gains = [1.0 if chunk_id in relevant else 0.0 for chunk_id in top10]
             dcg = sum(gain / math.log2(index + 2) for index, gain in enumerate(gains))
-            ideal = sum(1.0 / math.log2(index + 2) for index in range(min(len(relevant), 10)))
+            ideal = sum(
+                1.0 / math.log2(index + 2) for index in range(min(len(relevant), 10))
+            )
             ndcg = dcg / ideal if ideal else 0.0
             ndcgs.append(ndcg)
-            first = next((index for index, chunk_id in enumerate(top10, start=1) if chunk_id in relevant), None)
+            first = next(
+                (
+                    index
+                    for index, chunk_id in enumerate(top10, start=1)
+                    if chunk_id in relevant
+                ),
+                None,
+            )
             reciprocal_rank = 1.0 / first if first else 0.0
             reciprocal_ranks.append(reciprocal_rank)
             precision = len(relevant.intersection(top20)) / max(1, len(top20))
             precisions.append(precision)
             category = category_values.setdefault(
                 task.category,
-                {"recall_at_20": [], "ndcg_at_10": [], "mrr_at_10": [], "context_precision": []},
+                {
+                    "recall_at_20": [],
+                    "ndcg_at_10": [],
+                    "mrr_at_10": [],
+                    "context_precision": [],
+                },
             )
             category["recall_at_20"].append(recall)
             category["ndcg_at_10"].append(ndcg)
             category["mrr_at_10"].append(reciprocal_rank)
             category["context_precision"].append(precision)
-            project = self.store.require_project_access(task.project_id, task.organization_id)
+            project = self.store.require_project_access(
+                task.project_id, task.organization_id
+            )
             for item in retrieved:
                 chunk = self.store.get_chunk(item.chunk_id, project_id=task.project_id)
                 if item.source_kind == "verified_memory":
                     continue
                 if chunk is None:
                     stale += 1
-                elif str(chunk.get("index_revision") or "") != str(project.get("active_index_revision") or ""):
+                elif str(chunk.get("index_revision") or "") != str(
+                    project.get("active_index_revision") or ""
+                ):
                     stale += 1
                 elif str(project["organization_id"]) != task.organization_id:
                     leakage += 1
@@ -818,7 +981,9 @@ class HybridRAGEngine:
                 f"hybrid Recall@20 gain {hybrid_gain * 100:.2f} percentage points is below 5.00"
             )
         if strict and degraded:
-            blockers.append(f"semantic retrieval degraded for {degraded} governed queries")
+            blockers.append(
+                f"semantic retrieval degraded for {degraded} governed queries"
+            )
         if stale:
             blockers.append(f"stale revision results: {stale}")
         if leakage:
@@ -874,10 +1039,14 @@ class HybridRAGEngine:
             "category_metrics": category_metrics or {},
             "governance_sha256": governance_sha256,
         }
-        digest = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+        digest = hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
         return RAGEvaluationReport(**payload, report_sha256=digest)
 
-    def score_chunk(self, chunk: dict[str, Any], terms: Counter[str], pinned: set[str]) -> dict[str, Any]:
+    def score_chunk(
+        self, chunk: dict[str, Any], terms: Counter[str], pinned: set[str]
+    ) -> dict[str, Any]:
         semantic = cosine_sparse(terms, chunk_terms(chunk))
         path = str(chunk.get("path") or "")
         symbol = str(chunk.get("symbol_name") or "").lower()
@@ -885,8 +1054,18 @@ class HybridRAGEngine:
         metadata = chunk.get("metadata") or {}
         dependency_blob = " ".join(
             str(item).lower()
-            for key in ["imports", "calls", "dependencies", "state_mutations", "signature"]
-            for item in (metadata.get(key) if isinstance(metadata.get(key), list) else [metadata.get(key)])
+            for key in [
+                "imports",
+                "calls",
+                "dependencies",
+                "state_mutations",
+                "signature",
+            ]
+            for item in (
+                metadata.get(key)
+                if isinstance(metadata.get(key), list)
+                else [metadata.get(key)]
+            )
             if item
         )
         keyword_hits = sum(1 for term in terms if term in path_lower or term == symbol)
@@ -895,8 +1074,19 @@ class HybridRAGEngine:
         dependency = min(1.0, dependency_hits / max(1, len(terms)))
         pinned_score = 1.0 if path in pinned else 0.0
         test_boost = 0.08 if "test" in path_lower or "spec" in path_lower else 0.0
-        symbol_boost = 0.08 if symbol and any(term == symbol or term in symbol for term in terms) else 0.0
-        score = (0.48 * semantic) + (0.22 * keyword) + (0.15 * dependency) + (0.12 * pinned_score) + test_boost + symbol_boost
+        symbol_boost = (
+            0.08
+            if symbol and any(term == symbol or term in symbol for term in terms)
+            else 0.0
+        )
+        score = (
+            (0.48 * semantic)
+            + (0.22 * keyword)
+            + (0.15 * dependency)
+            + (0.12 * pinned_score)
+            + test_boost
+            + symbol_boost
+        )
         reason_bits = []
         if semantic > 0:
             reason_bits.append("semantic")
@@ -929,7 +1119,9 @@ class HybridRAGEngine:
                 }
         return sorted(best.values(), key=lambda item: item["score"], reverse=True)
 
-    def render_prompt_context(self, project: dict[str, Any], query: str, chunks: list[dict[str, Any]]) -> str:
+    def render_prompt_context(
+        self, project: dict[str, Any], query: str, chunks: list[dict[str, Any]]
+    ) -> str:
         parts = [
             "<repo_summary>",
             f"project={escape(str(project['name']))}",
@@ -947,14 +1139,27 @@ class HybridRAGEngine:
             "<files>",
         ]
         for chunk in chunks:
-            chunk_id = str(chunk.get("id") or chunk.get("chunk_id") or uuid.uuid5(uuid.NAMESPACE_URL, str(chunk.get("path", ""))))
-            symbol = f' symbol="{escape(str(chunk.get("symbol_name")))}"' if chunk.get("symbol_name") else ""
-            content_hash = str(chunk.get("chunk_hash") or hashlib.sha256(str(chunk["content"]).encode("utf-8")).hexdigest())
+            chunk_id = str(
+                chunk.get("id")
+                or chunk.get("chunk_id")
+                or uuid.uuid5(uuid.NAMESPACE_URL, str(chunk.get("path", "")))
+            )
+            symbol = (
+                f' symbol="{escape(str(chunk.get("symbol_name")))}"'
+                if chunk.get("symbol_name")
+                else ""
+            )
+            content_hash = str(
+                chunk.get("chunk_hash")
+                or hashlib.sha256(str(chunk["content"]).encode("utf-8")).hexdigest()
+            )
             evidence_id = self.evidence_id(chunk, project)
             parts.append(
                 f'<file path="{escape(str(chunk["path"]))}" lines="{chunk["start_line"]}-{chunk["end_line"]}" chunk_id="{escape(chunk_id)}" evidence_id="{evidence_id}" content_hash="{content_hash}"{symbol}>'
             )
-            parts.append(f'<file_content encoding="xml-escaped" delimiter="craftly-file-{escape(chunk_id)}">')
+            parts.append(
+                f'<file_content encoding="xml-escaped" delimiter="craftly-file-{escape(chunk_id)}">'
+            )
             parts.append(escape(str(chunk["content"])))
             parts.append("</file_content>")
             parts.append("</file>")
@@ -974,9 +1179,13 @@ class WorkspaceContextBuilder:
 
     def pack(self, query: str, *, budget: int = 8000) -> dict[str, Any]:
         store = LocalStore()
-        project = store.create_project(name=f"context-{self.workspace.name}", repo_path=str(self.workspace))
+        project = store.create_project(
+            name=f"context-{self.workspace.name}", repo_path=str(self.workspace)
+        )
         RepositoryIndexer(store).index_project(project_id=project["id"])
-        report = ContextBuilder(store).build(project_id=project["id"], query=query, token_budget=budget)
+        report = ContextBuilder(store).build(
+            project_id=project["id"], query=query, token_budget=budget
+        )
         return report.model_dump()
 
 
@@ -988,7 +1197,12 @@ async def run_rag_load_test(
     project_id: str,
     queries: list[str],
     target_chunks: int,
-    stages: tuple[tuple[int, int], ...] = ((10, 100), (100, 500), (500, 1000), (1000, 2000)),
+    stages: tuple[tuple[int, int], ...] = (
+        (10, 100),
+        (100, 500),
+        (500, 1000),
+        (1000, 2000),
+    ),
     timeout_seconds: float = 30.0,
     strict: bool = True,
 ) -> RAGLoadReport:
@@ -999,12 +1213,20 @@ async def run_rag_load_test(
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise ValueError("RAG load endpoint must be an absolute HTTP(S) URL")
     if parsed.username or parsed.password or parsed.query or parsed.fragment:
-        raise ValueError("RAG load endpoint cannot contain credentials, query parameters, or fragments")
-    if parsed.scheme != "https" and parsed.hostname not in {"localhost", "127.0.0.1", "::1"}:
+        raise ValueError(
+            "RAG load endpoint cannot contain credentials, query parameters, or fragments"
+        )
+    if parsed.scheme != "https" and parsed.hostname not in {
+        "localhost",
+        "127.0.0.1",
+        "::1",
+    }:
         raise ValueError("remote RAG load endpoints require HTTPS")
     if not api_token or len(api_token) > 16_384:
         raise ValueError("a bounded API token is required")
-    if not queries or any(not query.strip() or len(query) > 32_000 for query in queries):
+    if not queries or any(
+        not query.strip() or len(query) > 32_000 for query in queries
+    ):
         raise ValueError("load test requires valid bounded queries")
     if target_chunks < 0:
         raise ValueError("target_chunks cannot be negative")
@@ -1016,7 +1238,9 @@ async def run_rag_load_test(
     }
     results: list[RAGLoadStageResult] = []
     blockers: list[str] = []
-    limits = httpx.Limits(max_connections=max(item[0] for item in stages), max_keepalive_connections=256)
+    limits = httpx.Limits(
+        max_connections=max(item[0] for item in stages), max_keepalive_connections=256
+    )
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(timeout_seconds, connect=min(10.0, timeout_seconds)),
         follow_redirects=False,
@@ -1052,22 +1276,30 @@ async def run_rag_load_test(
                         payload = response.json()
                         if payload.get("project_id") != project_id:
                             raise RuntimeError("cross-project response detected")
-                        if not payload.get("context_id") or not payload.get("report_sha256"):
-                            raise RuntimeError("RAG response is missing immutable evidence")
+                        if not payload.get("context_id") or not payload.get(
+                            "report_sha256"
+                        ):
+                            raise RuntimeError(
+                                "RAG response is missing immutable evidence"
+                            )
                         return True
                     except (httpx.HTTPError, ValueError, RuntimeError):
                         return False
                     finally:
                         latencies.append((time.perf_counter() - request_started) * 1000)
 
-            outcomes = await asyncio.gather(*(one(index) for index in range(request_count)))
+            outcomes = await asyncio.gather(
+                *(one(index) for index in range(request_count))
+            )
             passed = sum(outcomes)
             failed = request_count - passed
             duration = max(1e-9, time.perf_counter() - started)
             ordered = sorted(latencies)
 
             def percentile(fraction: float) -> float:
-                position = min(len(ordered) - 1, max(0, math.ceil(len(ordered) * fraction) - 1))
+                position = min(
+                    len(ordered) - 1, max(0, math.ceil(len(ordered) * fraction) - 1)
+                )
                 return ordered[position]
 
             stage = RAGLoadStageResult(
@@ -1083,13 +1315,21 @@ async def run_rag_load_test(
             )
             results.append(stage)
             if stage.error_rate >= 0.005:
-                blockers.append(f"concurrency {concurrency} error rate {stage.error_rate:.4f} is not below 0.005")
+                blockers.append(
+                    f"concurrency {concurrency} error rate {stage.error_rate:.4f} is not below 0.005"
+                )
             if stage.latency_ms_p95 > 750.0:
-                blockers.append(f"concurrency {concurrency} p95 {stage.latency_ms_p95:.2f}ms exceeds 750ms")
+                blockers.append(
+                    f"concurrency {concurrency} p95 {stage.latency_ms_p95:.2f}ms exceeds 750ms"
+                )
             if stage.latency_ms_p99 > 1500.0:
-                blockers.append(f"concurrency {concurrency} p99 {stage.latency_ms_p99:.2f}ms exceeds 1500ms")
+                blockers.append(
+                    f"concurrency {concurrency} p99 {stage.latency_ms_p99:.2f}ms exceeds 1500ms"
+                )
     if strict and target_chunks < 100_000_000:
-        blockers.append("strict scale proof requires an index containing at least 100,000,000 chunks")
+        blockers.append(
+            "strict scale proof requires an index containing at least 100,000,000 chunks"
+        )
     payload = {
         "status": "failed" if blockers else "passed",
         "endpoint": normalized,
@@ -1097,7 +1337,9 @@ async def run_rag_load_test(
         "stages": [item.model_dump(mode="json") for item in results],
         "blockers": blockers,
     }
-    digest = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
     return RAGLoadReport(**payload, report_sha256=digest)
 
 
@@ -1107,7 +1349,10 @@ def _write_rag_report(report: StrictModel, output_dir: str | Path, stem: str) ->
     target = root / f"{stem}.json"
     temporary = target.with_suffix(".json.tmp")
     temporary.write_text(
-        json.dumps(report.model_dump(mode="json"), indent=2, sort_keys=True, ensure_ascii=True) + "\n",
+        json.dumps(
+            report.model_dump(mode="json"), indent=2, sort_keys=True, ensure_ascii=True
+        )
+        + "\n",
         encoding="utf-8",
     )
     os.replace(temporary, target)
@@ -1123,19 +1368,25 @@ def _write_rag_report(report: StrictModel, output_dir: str | Path, stem: str) ->
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Evaluate and load-test the authoritative Craftly Hybrid RAG engine")
+    parser = argparse.ArgumentParser(
+        description="Evaluate and load-test the authoritative Craftly Hybrid RAG engine"
+    )
     commands = parser.add_subparsers(dest="command", required=True)
     evaluate = commands.add_parser("evaluate")
     evaluate.add_argument("--tasks", required=True)
     evaluate.add_argument("--governance", required=True)
     evaluate.add_argument("--output-dir", required=True)
     evaluate.add_argument("--sqlite-path")
-    evaluate.add_argument("--database-url", default=os.environ.get("CRAFTLY_DATABASE_URL"))
+    evaluate.add_argument(
+        "--database-url", default=os.environ.get("CRAFTLY_DATABASE_URL")
+    )
     evaluate.add_argument("--organization-id")
     evaluate.add_argument("--production", action="store_true")
     candidates = commands.add_parser("build-candidates")
     candidates.add_argument("--sqlite-path")
-    candidates.add_argument("--database-url", default=os.environ.get("CRAFTLY_DATABASE_URL"))
+    candidates.add_argument(
+        "--database-url", default=os.environ.get("CRAFTLY_DATABASE_URL")
+    )
     candidates.add_argument("--organization-id", required=True)
     candidates.add_argument("--project-id", required=True)
     candidates.add_argument("--output", required=True)
@@ -1156,7 +1407,9 @@ def main() -> None:
     args = parser.parse_args()
     if args.command == "build-candidates":
         if args.database_url:
-            store: Any = PostgresRAGStore(args.database_url, organization_id=args.organization_id)
+            store: Any = PostgresRAGStore(
+                args.database_url, organization_id=args.organization_id
+            )
         else:
             store = LocalStore(args.sqlite_path) if args.sqlite_path else LocalStore()
         try:
@@ -1182,7 +1435,14 @@ def main() -> None:
         return
     if args.command == "load-test":
         token = os.environ.get("CRAFTLY_RAG_LOAD_TOKEN", "")
-        query_rows = [json.loads(line) for line in Path(args.queries).resolve(strict=True).read_text(encoding="utf-8-sig").splitlines() if line.strip()]
+        query_rows = [
+            json.loads(line)
+            for line in Path(args.queries)
+            .resolve(strict=True)
+            .read_text(encoding="utf-8-sig")
+            .splitlines()
+            if line.strip()
+        ]
         queries = [str(row["query"]) for row in query_rows]
         report = asyncio.run(
             run_rag_load_test(
@@ -1199,11 +1459,17 @@ def main() -> None:
         print(json.dumps(report.model_dump(mode="json"), indent=2, sort_keys=True))
         raise SystemExit(0 if report.status == "passed" else 2)
 
-    tasks, governance, governance_sha256 = load_governed_rag_evaluation(args.tasks, args.governance)
+    tasks, governance, governance_sha256 = load_governed_rag_evaluation(
+        args.tasks, args.governance
+    )
     if args.production:
         if not args.database_url or not args.organization_id:
-            raise SystemExit("production evaluation requires --database-url and --organization-id")
-        store: Any = PostgresRAGStore(args.database_url, organization_id=args.organization_id)
+            raise SystemExit(
+                "production evaluation requires --database-url and --organization-id"
+            )
+        store: Any = PostgresRAGStore(
+            args.database_url, organization_id=args.organization_id
+        )
     else:
         store = LocalStore(args.sqlite_path) if args.sqlite_path else LocalStore()
     try:
@@ -1222,4 +1488,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

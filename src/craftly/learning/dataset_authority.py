@@ -25,9 +25,9 @@ from typing import Any, Literal, Protocol
 
 from pydantic import Field, field_validator, model_validator
 
+from src.craftly.shared.integrity import canonical_json_text as _json
+from src.craftly.shared.integrity import sha256_file as _hash_file
 from src.craftly.shared.schemas import StrictModel
-from src.craftly.shared.integrity import canonical_json_text as _json, sha256_file as _hash_file
-
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 REVIEW_RUBRIC_ID = "craftly-review-rubric-v1"
@@ -145,7 +145,9 @@ class ReviewItemCreate(StrictModel):
 
     @model_validator(mode="after")
     def validate_contract(self) -> "ReviewItemCreate":
-        object.__setattr__(self, "content_hash", _validate_hash(self.content_hash, "content_hash"))
+        object.__setattr__(
+            self, "content_hash", _validate_hash(self.content_hash, "content_hash")
+        )
         object.__setattr__(
             self,
             "source_snapshot_sha256",
@@ -193,7 +195,9 @@ class ReviewDecisionCreate(StrictModel):
 
     @model_validator(mode="after")
     def validate_contract(self) -> "ReviewDecisionCreate":
-        object.__setattr__(self, "content_hash", _validate_hash(self.content_hash, "content_hash"))
+        object.__setattr__(
+            self, "content_hash", _validate_hash(self.content_hash, "content_hash")
+        )
         object.__setattr__(
             self,
             "source_snapshot_sha256",
@@ -252,8 +256,14 @@ class PromotionEvidenceCreate(StrictModel):
 
     @model_validator(mode="after")
     def validate_contract(self) -> "PromotionEvidenceCreate":
-        object.__setattr__(self, "manifest_sha256", _validate_hash(self.manifest_sha256, "manifest_sha256"))
-        object.__setattr__(self, "policy_sha256", _validate_hash(self.policy_sha256, "policy_sha256"))
+        object.__setattr__(
+            self,
+            "manifest_sha256",
+            _validate_hash(self.manifest_sha256, "manifest_sha256"),
+        )
+        object.__setattr__(
+            self, "policy_sha256", _validate_hash(self.policy_sha256, "policy_sha256")
+        )
         return self
 
 
@@ -297,9 +307,15 @@ class ReviewEvidenceReport(StrictModel):
             raise ValueError("review evidence rejected total is inconsistent")
         if self.pending != sum(item.pending for item in self.by_source.values()):
             raise ValueError("review evidence pending total is inconsistent")
-        if self.paired_reviews != sum(item.paired_reviews for item in self.by_source.values()):
+        if self.paired_reviews != sum(
+            item.paired_reviews for item in self.by_source.values()
+        ):
             raise ValueError("review evidence paired_reviews total is inconsistent")
-        expected_status = "empty" if self.total_items == 0 else ("complete" if self.pending == 0 else "in_progress")
+        expected_status = (
+            "empty"
+            if self.total_items == 0
+            else ("complete" if self.pending == 0 else "in_progress")
+        )
         if self.status != expected_status:
             raise ValueError(f"review evidence status must be {expected_status!r}")
         return self
@@ -339,20 +355,28 @@ class ReviewerRoster(StrictModel):
         if len(reviewer_ids) != len(set(reviewer_ids)):
             raise ValueError("reviewer roster contains duplicate reviewer_id")
         if len(subjects) != len(set(subjects)):
-            raise ValueError("reviewer roster contains duplicate identity-provider subject")
+            raise ValueError(
+                "reviewer roster contains duplicate identity-provider subject"
+            )
         return self
 
-    def active_identity(self, reviewer_id: str, role: Literal["reviewer", "adjudicator"]) -> ReviewerIdentity:
+    def active_identity(
+        self, reviewer_id: str, role: Literal["reviewer", "adjudicator"]
+    ) -> ReviewerIdentity:
         identity = next(
             (
                 item
                 for item in self.identities
-                if item.reviewer_id == reviewer_id and item.active and role in item.roles
+                if item.reviewer_id == reviewer_id
+                and item.active
+                and role in item.roles
             ),
             None,
         )
         if identity is None:
-            raise PermissionError(f"{reviewer_id!r} is not an active {role} in the governed roster")
+            raise PermissionError(
+                f"{reviewer_id!r} is not an active {role} in the governed roster"
+            )
         return identity
 
     def readiness_blockers(self) -> list[str]:
@@ -368,11 +392,17 @@ class ReviewerRoster(StrictModel):
         }
         blockers: list[str] = []
         if len(reviewers) < 2:
-            blockers.append("at least two active reviewers with distinct identity-provider subjects are required")
+            blockers.append(
+                "at least two active reviewers with distinct identity-provider subjects are required"
+            )
         if not adjudicators:
             blockers.append("at least one active adjudicator is required")
-        if adjudicators and not any(subject not in reviewers for subject in adjudicators):
-            blockers.append("an adjudicator identity independent of both reviewer identities is required")
+        if adjudicators and not any(
+            subject not in reviewers for subject in adjudicators
+        ):
+            blockers.append(
+                "an adjudicator identity independent of both reviewer identities is required"
+            )
         return blockers
 
 
@@ -410,7 +440,9 @@ class ReviewerRosterReadinessReport(StrictModel):
 
 class ReviewerGovernanceBundleReport(StrictModel):
     schema_version: Literal[1] = 1
-    status: Literal["awaiting_human_identities", "ready_for_qualification"] = "awaiting_human_identities"
+    status: Literal["awaiting_human_identities", "ready_for_qualification"] = (
+        "awaiting_human_identities"
+    )
     roster_id: str
     rubric_id: str
     output_dir: str
@@ -423,8 +455,12 @@ class ReviewerGovernanceBundleReport(StrictModel):
 
     @model_validator(mode="after")
     def validate_hashes(self) -> "ReviewerGovernanceBundleReport":
-        object.__setattr__(self, "roster_sha256", _validate_hash(self.roster_sha256, "roster_sha256"))
-        object.__setattr__(self, "rubric_sha256", _validate_hash(self.rubric_sha256, "rubric_sha256"))
+        object.__setattr__(
+            self, "roster_sha256", _validate_hash(self.roster_sha256, "roster_sha256")
+        )
+        object.__setattr__(
+            self, "rubric_sha256", _validate_hash(self.rubric_sha256, "rubric_sha256")
+        )
         return self
 
 
@@ -453,7 +489,9 @@ class ReviewerDeliveryReport(StrictModel):
 
     @model_validator(mode="after")
     def validate_contract(self) -> "ReviewerDeliveryReport":
-        object.__setattr__(self, "rubric_sha256", _validate_hash(self.rubric_sha256, "rubric_sha256"))
+        object.__setattr__(
+            self, "rubric_sha256", _validate_hash(self.rubric_sha256, "rubric_sha256")
+        )
         object.__setattr__(
             self,
             "qualification_pack_sha256",
@@ -462,7 +500,9 @@ class ReviewerDeliveryReport(StrictModel):
         if len(self.packages) != 2:
             raise ValueError("reviewer delivery requires exactly two reviewer packages")
         if len({package.reviewer_id for package in self.packages}) != 2:
-            raise ValueError("reviewer delivery packages must target distinct reviewers")
+            raise ValueError(
+                "reviewer delivery packages must target distinct reviewers"
+            )
         return self
 
 
@@ -498,7 +538,9 @@ class ReviewerQualificationPackReport(StrictModel):
 
     @model_validator(mode="after")
     def validate_hashes(self) -> "ReviewerQualificationPackReport":
-        object.__setattr__(self, "pack_sha256", _validate_hash(self.pack_sha256, "pack_sha256"))
+        object.__setattr__(
+            self, "pack_sha256", _validate_hash(self.pack_sha256, "pack_sha256")
+        )
         object.__setattr__(
             self,
             "answer_key_sha256",
@@ -518,7 +560,9 @@ class ReviewerQualificationResponse(StrictModel):
     def validate_rationale(cls, value: str) -> str:
         normalized = " ".join(value.split())
         if len(normalized) < 30:
-            raise ValueError("qualification rationale must contain at least 30 non-whitespace characters")
+            raise ValueError(
+                "qualification rationale must contain at least 30 non-whitespace characters"
+            )
         if normalized.lower() in {"looks good", "approve", "reject", "not good"}:
             raise ValueError("qualification rationale must be concrete")
         return normalized
@@ -563,17 +607,30 @@ class ReviewerQualificationEvaluationReport(StrictModel):
             "qualification_pack_sha256",
             "answer_key_sha256",
         ):
-            object.__setattr__(self, field_name, _validate_hash(getattr(self, field_name), field_name))
-        if len(self.reviewers) != 2 or len({item.reviewer_id for item in self.reviewers}) != 2:
-            raise ValueError("qualification evaluation requires exactly two distinct reviewers")
+            object.__setattr__(
+                self, field_name, _validate_hash(getattr(self, field_name), field_name)
+            )
+        if (
+            len(self.reviewers) != 2
+            or len({item.reviewer_id for item in self.reviewers}) != 2
+        ):
+            raise ValueError(
+                "qualification evaluation requires exactly two distinct reviewers"
+            )
         expected_status = "failed" if self.blockers else "passed"
         if self.status != expected_status:
-            raise ValueError(f"qualification evaluation status must be {expected_status!r}")
+            raise ValueError(
+                f"qualification evaluation status must be {expected_status!r}"
+            )
         if not self.blockers:
             if any(not item.passed for item in self.reviewers):
-                raise ValueError("passing qualification report contains a failed reviewer")
+                raise ValueError(
+                    "passing qualification report contains a failed reviewer"
+                )
             if self.reviewer_agreement_kappa < self.minimum_kappa:
-                raise ValueError("passing qualification report is below the kappa threshold")
+                raise ValueError(
+                    "passing qualification report is below the kappa threshold"
+                )
         return self
 
 
@@ -733,7 +790,8 @@ def initialize_reviewer_governance_bundle(
     existing = [str(path) for path in protected_paths if path.exists()]
     if existing:
         raise FileExistsError(
-            "refusing to overwrite reviewer governance artifacts: " + ", ".join(existing)
+            "refusing to overwrite reviewer governance artifacts: "
+            + ", ".join(existing)
         )
 
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -770,7 +828,9 @@ def initialize_reviewer_governance_bundle(
     return report
 
 
-def _reviewer_qualification_cases() -> list[tuple[ReviewerQualificationItem, ReviewerQualificationAnswer]]:
+def _reviewer_qualification_cases() -> list[
+    tuple[ReviewerQualificationItem, ReviewerQualificationAnswer]
+]:
     cases = [
         (
             "security_document",
@@ -969,22 +1029,37 @@ def _reviewer_qualification_cases() -> list[tuple[ReviewerQualificationItem, Rev
                 rationale=rationale,
             ),
         )
-        for index, (data_type, title, candidate, evidence, decision, reason_code, rationale) in enumerate(
+        for index, (
+            data_type,
+            title,
+            candidate,
+            evidence,
+            decision,
+            reason_code,
+            rationale,
+        ) in enumerate(
             cases,
             start=1,
         )
     ]
 
 
-def initialize_reviewer_qualification_pack(output_dir: str | Path) -> ReviewerQualificationPackReport:
+def initialize_reviewer_qualification_pack(
+    output_dir: str | Path,
+) -> ReviewerQualificationPackReport:
     root = Path(output_dir).expanduser().resolve()
     pack_path = root / "reviewer-qualification-v1.jsonl"
     answer_key_path = root / "reviewer-qualification-answer-key-v1.json"
     manifest_path = root / "reviewer-qualification-manifest.json"
-    existing = [str(path) for path in (pack_path, answer_key_path, manifest_path) if path.exists()]
+    existing = [
+        str(path)
+        for path in (pack_path, answer_key_path, manifest_path)
+        if path.exists()
+    ]
     if existing:
         raise FileExistsError(
-            "refusing to overwrite reviewer qualification artifacts: " + ", ".join(existing)
+            "refusing to overwrite reviewer qualification artifacts: "
+            + ", ".join(existing)
         )
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
     cases = _reviewer_qualification_cases()
@@ -995,10 +1070,15 @@ def initialize_reviewer_qualification_pack(output_dir: str | Path) -> ReviewerQu
     approve_count = sum(answer.expected_decision == "approve" for answer in answers)
     reject_count = sum(answer.expected_decision == "reject" for answer in answers)
     if (approve_count, reject_count) != (10, 10):
-        raise RuntimeError("reviewer qualification answer key must contain ten approvals and ten rejections")
+        raise RuntimeError(
+            "reviewer qualification answer key must contain ten approvals and ten rejections"
+        )
     _write_text_atomically(
         pack_path,
-        "".join(json.dumps(item.model_dump(mode="json"), sort_keys=True) + "\n" for item in items),
+        "".join(
+            json.dumps(item.model_dump(mode="json"), sort_keys=True) + "\n"
+            for item in items
+        ),
     )
     _write_text_atomically(
         answer_key_path,
@@ -1030,7 +1110,9 @@ def initialize_reviewer_qualification_pack(output_dir: str | Path) -> ReviewerQu
     return report
 
 
-def finalize_reviewer_governance_bundle(output_dir: str | Path) -> ReviewerGovernanceBundleReport:
+def finalize_reviewer_governance_bundle(
+    output_dir: str | Path,
+) -> ReviewerGovernanceBundleReport:
     root = Path(output_dir).expanduser().resolve(strict=True)
     roster_path = root / "data_reviewers.json"
     rubric_path = root / "reviewer-rubric-v1.md"
@@ -1038,12 +1120,16 @@ def finalize_reviewer_governance_bundle(output_dir: str | Path) -> ReviewerGover
     manifest_path = root / "reviewer-governance-manifest.json"
     for required_path in (roster_path, rubric_path, onboarding_path, manifest_path):
         if not required_path.is_file():
-            raise FileNotFoundError(f"reviewer governance artifact is missing: {required_path}")
+            raise FileNotFoundError(
+                f"reviewer governance artifact is missing: {required_path}"
+            )
 
     roster = load_reviewer_roster(roster_path)
     readiness = reviewer_roster_readiness(roster)
     if readiness.status != "ready":
-        raise ValueError("reviewer roster is not ready: " + "; ".join(readiness.blockers))
+        raise ValueError(
+            "reviewer roster is not ready: " + "; ".join(readiness.blockers)
+        )
     expected_rubric = build_reviewer_rubric_markdown()
     if rubric_path.read_text(encoding="utf-8") != expected_rubric:
         raise ValueError("reviewer rubric does not match the code-governed v1 rubric")
@@ -1075,7 +1161,9 @@ def prepare_reviewer_delivery_packages(
     governance_root = Path(governance_dir).expanduser().resolve(strict=True)
     output_root = Path(output_dir).expanduser().resolve()
     governance_manifest_path = governance_root / "reviewer-governance-manifest.json"
-    qualification_manifest_path = governance_root / "reviewer-qualification-manifest.json"
+    qualification_manifest_path = (
+        governance_root / "reviewer-qualification-manifest.json"
+    )
     governance = ReviewerGovernanceBundleReport.model_validate_json(
         governance_manifest_path.read_text(encoding="utf-8")
     )
@@ -1083,7 +1171,9 @@ def prepare_reviewer_delivery_packages(
         qualification_manifest_path.read_text(encoding="utf-8")
     )
     if governance.status != "ready_for_qualification":
-        raise ValueError("reviewer governance manifest must be finalized before delivery")
+        raise ValueError(
+            "reviewer governance manifest must be finalized before delivery"
+        )
 
     roster_path = governance_root / "data_reviewers.json"
     rubric_path = governance_root / "reviewer-rubric-v1.md"
@@ -1098,7 +1188,9 @@ def prepare_reviewer_delivery_packages(
     roster = load_reviewer_roster(roster_path)
     readiness = reviewer_roster_readiness(roster)
     if readiness.status != "ready":
-        raise ValueError("reviewer roster is no longer ready: " + "; ".join(readiness.blockers))
+        raise ValueError(
+            "reviewer roster is no longer ready: " + "; ".join(readiness.blockers)
+        )
     reviewers = sorted(
         (
             identity
@@ -1112,10 +1204,15 @@ def prepare_reviewer_delivery_packages(
 
     output_root.mkdir(mode=0o700, parents=True, exist_ok=True)
     report_path = output_root / "reviewer-delivery-report.json"
-    targets = [output_root / f"{reviewer.reviewer_id}-qualification.zip" for reviewer in reviewers]
+    targets = [
+        output_root / f"{reviewer.reviewer_id}-qualification.zip"
+        for reviewer in reviewers
+    ]
     existing = [str(path) for path in [*targets, report_path] if path.exists()]
     if existing:
-        raise FileExistsError("refusing to overwrite reviewer delivery artifacts: " + ", ".join(existing))
+        raise FileExistsError(
+            "refusing to overwrite reviewer delivery artifacts: " + ", ".join(existing)
+        )
 
     pack_rows = [
         json.loads(line)
@@ -1180,7 +1277,9 @@ def prepare_reviewer_delivery_packages(
                 _write_deterministic_zip_entry(
                     archive,
                     "delivery-manifest.json",
-                    (json.dumps(package_manifest, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+                    (
+                        json.dumps(package_manifest, indent=2, sort_keys=True) + "\n"
+                    ).encode("utf-8"),
                 )
             temporary.replace(target)
         finally:
@@ -1189,7 +1288,9 @@ def prepare_reviewer_delivery_packages(
         with zipfile.ZipFile(target, mode="r") as archive:
             names = set(archive.namelist())
         if "reviewer-qualification-answer-key-v1.json" in names or len(names) != 4:
-            raise RuntimeError("reviewer delivery package content contract was violated")
+            raise RuntimeError(
+                "reviewer delivery package content contract was violated"
+            )
         packages.append(
             ReviewerDeliveryArtifact(
                 reviewer_id=reviewer.reviewer_id,
@@ -1245,7 +1346,9 @@ def evaluate_reviewer_qualification(
         answer_key_path,
     ):
         if not required_path.is_file():
-            raise FileNotFoundError(f"qualification governance artifact is missing: {required_path}")
+            raise FileNotFoundError(
+                f"qualification governance artifact is missing: {required_path}"
+            )
 
     governance = ReviewerGovernanceBundleReport.model_validate_json(
         governance_path.read_text(encoding="utf-8")
@@ -1259,16 +1362,28 @@ def evaluate_reviewer_qualification(
         "reviewer roster": (_hash_file(roster_path), governance.roster_sha256),
         "reviewer rubric": (_hash_file(rubric_path), governance.rubric_sha256),
         "qualification pack": (_hash_file(pack_path), qualification.pack_sha256),
-        "qualification answer key": (_hash_file(answer_key_path), qualification.answer_key_sha256),
+        "qualification answer key": (
+            _hash_file(answer_key_path),
+            qualification.answer_key_sha256,
+        ),
     }
-    changed = [name for name, (actual, expected) in integrity_checks.items() if actual != expected]
+    changed = [
+        name
+        for name, (actual, expected) in integrity_checks.items()
+        if actual != expected
+    ]
     if changed:
-        raise ValueError("qualification governance artifact changed after binding: " + ", ".join(changed))
+        raise ValueError(
+            "qualification governance artifact changed after binding: "
+            + ", ".join(changed)
+        )
 
     roster = load_reviewer_roster(roster_path)
     readiness = reviewer_roster_readiness(roster)
     if readiness.status != "ready":
-        raise ValueError("reviewer roster is no longer ready: " + "; ".join(readiness.blockers))
+        raise ValueError(
+            "reviewer roster is no longer ready: " + "; ".join(readiness.blockers)
+        )
     expected_reviewers = {
         identity.reviewer_id
         for identity in roster.identities
@@ -1287,7 +1402,10 @@ def evaluate_reviewer_qualification(
         raise ValueError("qualification pack must contain twenty unique items")
 
     answer_payload = json.loads(answer_key_path.read_text(encoding="utf-8"))
-    if answer_payload.get("schema_version") != 1 or answer_payload.get("rubric_id") != REVIEW_RUBRIC_ID:
+    if (
+        answer_payload.get("schema_version") != 1
+        or answer_payload.get("rubric_id") != REVIEW_RUBRIC_ID
+    ):
         raise ValueError("qualification answer key contract is invalid")
     answers = [
         ReviewerQualificationAnswer.model_validate(item)
@@ -1305,9 +1423,13 @@ def evaluate_reviewer_qualification(
             raise ValueError("qualification response files must be distinct")
         resolved_paths.add(response_path)
         if not response_path.is_file() or response_path.stat().st_size > 1_048_576:
-            raise ValueError(f"qualification response must be a regular file no larger than 1 MiB: {response_path}")
+            raise ValueError(
+                f"qualification response must be a regular file no larger than 1 MiB: {response_path}"
+            )
         rows: list[ReviewerQualificationResponse] = []
-        for line_number, line in enumerate(response_path.read_text(encoding="utf-8").splitlines(), start=1):
+        for line_number, line in enumerate(
+            response_path.read_text(encoding="utf-8").splitlines(), start=1
+        ):
             if not line.strip():
                 continue
             try:
@@ -1317,7 +1439,9 @@ def evaluate_reviewer_qualification(
                     f"invalid qualification response in {response_path} at line {line_number}: {exc}"
                 ) from exc
         if len(rows) != 20:
-            raise ValueError(f"{response_path} must contain exactly twenty completed responses")
+            raise ValueError(
+                f"{response_path} must contain exactly twenty completed responses"
+            )
         reviewer_ids = {row.reviewer_id for row in rows}
         if len(reviewer_ids) != 1:
             raise ValueError(f"{response_path} mixes reviewer identities")
@@ -1325,10 +1449,14 @@ def evaluate_reviewer_qualification(
         if reviewer_id not in expected_reviewers:
             raise PermissionError(f"{reviewer_id!r} is not an active governed reviewer")
         if reviewer_id in submissions:
-            raise ValueError(f"duplicate qualification submission for reviewer {reviewer_id!r}")
+            raise ValueError(
+                f"duplicate qualification submission for reviewer {reviewer_id!r}"
+            )
         by_item = {row.item_id: row for row in rows}
         if len(by_item) != 20 or set(by_item) != expected_item_ids:
-            raise ValueError(f"{response_path} contains duplicate, missing, or unexpected qualification items")
+            raise ValueError(
+                f"{response_path} contains duplicate, missing, or unexpected qualification items"
+            )
         submissions[reviewer_id] = (response_path, by_item)
     if set(submissions) != expected_reviewers:
         raise ValueError("qualification submissions do not cover both active reviewers")
@@ -1366,7 +1494,9 @@ def evaluate_reviewer_qualification(
         if not score.passed
     ]
     if kappa < minimum_kappa:
-        blockers.append(f"reviewer agreement kappa {kappa:.4f} is below {minimum_kappa:.4f}")
+        blockers.append(
+            f"reviewer agreement kappa {kappa:.4f} is below {minimum_kappa:.4f}"
+        )
 
     report = ReviewerQualificationEvaluationReport(
         status="failed" if blockers else "passed",
@@ -1390,7 +1520,10 @@ def evaluate_reviewer_qualification(
     markdown_path = output_root / "reviewer-qualification-evaluation.md"
     existing = [str(path) for path in (report_path, markdown_path) if path.exists()]
     if existing:
-        raise FileExistsError("refusing to overwrite qualification evaluation artifacts: " + ", ".join(existing))
+        raise FileExistsError(
+            "refusing to overwrite qualification evaluation artifacts: "
+            + ", ".join(existing)
+        )
     output_root.mkdir(mode=0o700, parents=True, exist_ok=True)
     _write_model_atomically(report, report_path)
     lines = [
@@ -1427,19 +1560,41 @@ def load_reviewer_roster(path: str | Path) -> ReviewerRoster:
 
 
 class DatasetAuthorityStore(Protocol):
-    async def record_source_snapshot(self, request: SourceSnapshotCreate) -> SourceSnapshotView: ...
+    async def record_source_snapshot(
+        self, request: SourceSnapshotCreate
+    ) -> SourceSnapshotView: ...
     async def enqueue(self, request: ReviewItemCreate) -> ReviewItemView: ...
-    async def list_items(self, *, status: str | None, limit: int, reviewer_id: str | None) -> list[ReviewItemView]: ...
-    async def get_item(self, review_item_id: str, *, reviewer_id: str | None) -> ReviewItemView: ...
-    async def claim(self, review_item_id: str, reviewer_id: str, lease_seconds: int) -> ReviewAssignment: ...
-    async def decide(self, review_item_id: str, reviewer_id: str, request: ReviewDecisionCreate) -> ReviewItemView: ...
-    async def adjudicate(self, review_item_id: str, adjudicator_id: str, request: ReviewAdjudicationCreate) -> ReviewItemView: ...
-    async def record_promotion(self, actor_id: str, request: PromotionEvidenceCreate) -> PromotionEvidenceView: ...
+    async def list_items(
+        self, *, status: str | None, limit: int, reviewer_id: str | None
+    ) -> list[ReviewItemView]: ...
+    async def get_item(
+        self, review_item_id: str, *, reviewer_id: str | None
+    ) -> ReviewItemView: ...
+    async def claim(
+        self, review_item_id: str, reviewer_id: str, lease_seconds: int
+    ) -> ReviewAssignment: ...
+    async def decide(
+        self, review_item_id: str, reviewer_id: str, request: ReviewDecisionCreate
+    ) -> ReviewItemView: ...
+    async def adjudicate(
+        self,
+        review_item_id: str,
+        adjudicator_id: str,
+        request: ReviewAdjudicationCreate,
+    ) -> ReviewItemView: ...
+    async def record_promotion(
+        self, actor_id: str, request: PromotionEvidenceCreate
+    ) -> PromotionEvidenceView: ...
     async def review_evidence(self) -> ReviewEvidenceReport: ...
 
 
-def _terminal_or_visible(status: str, reviewer_id: str | None, decision_reviewer: str) -> bool:
-    return status in {"approved", "rejected", "conflict", "adjudication_required"} or reviewer_id == decision_reviewer
+def _terminal_or_visible(
+    status: str, reviewer_id: str | None, decision_reviewer: str
+) -> bool:
+    return (
+        status in {"approved", "rejected", "conflict", "adjudication_required"}
+        or reviewer_id == decision_reviewer
+    )
 
 
 def _status_from_decisions(high_value: bool, decisions: list[str]) -> str:
@@ -1458,14 +1613,24 @@ def _cohen_kappa(pairs: list[tuple[str, str]]) -> float:
     observed = sum(left == right for left, right in pairs) / len(pairs)
     first_approve = sum(left == "approve" for left, _ in pairs) / len(pairs)
     second_approve = sum(right == "approve" for _, right in pairs) / len(pairs)
-    expected = first_approve * second_approve + (1 - first_approve) * (1 - second_approve)
-    return 1.0 if expected >= 1.0 else max(-1.0, min(1.0, (observed - expected) / (1 - expected)))
+    expected = first_approve * second_approve + (1 - first_approve) * (
+        1 - second_approve
+    )
+    return (
+        1.0
+        if expected >= 1.0
+        else max(-1.0, min(1.0, (observed - expected) / (1 - expected)))
+    )
 
 
-def _review_evidence_from_rows(items: list[dict[str, Any]], decisions: list[dict[str, Any]]) -> ReviewEvidenceReport:
+def _review_evidence_from_rows(
+    items: list[dict[str, Any]], decisions: list[dict[str, Any]]
+) -> ReviewEvidenceReport:
     decisions_by_item: dict[str, list[dict[str, Any]]] = {}
     for decision in decisions:
-        decisions_by_item.setdefault(str(decision["review_item_id"]), []).append(decision)
+        decisions_by_item.setdefault(str(decision["review_item_id"]), []).append(
+            decision
+        )
     accumulators: dict[str, dict[str, Any]] = {}
     for item in items:
         source = str(item["source_id"])
@@ -1505,7 +1670,9 @@ def _review_evidence_from_rows(items: list[dict[str, Any]], decisions: list[dict
     pending = sum(item.pending for item in by_source.values())
     total_items = approved + rejected + pending
     return ReviewEvidenceReport(
-        status="empty" if total_items == 0 else ("complete" if pending == 0 else "in_progress"),
+        status="empty"
+        if total_items == 0
+        else ("complete" if pending == 0 else "in_progress"),
         total_items=total_items,
         decision_count=len(decisions),
         source_count=len(by_source),
@@ -1531,7 +1698,9 @@ class SQLiteDatasetAuthorityStore:
         connection.execute("PRAGMA foreign_keys=ON")
         return connection
 
-    async def record_source_snapshot(self, request: SourceSnapshotCreate) -> SourceSnapshotView:
+    async def record_source_snapshot(
+        self, request: SourceSnapshotCreate
+    ) -> SourceSnapshotView:
         def operation() -> SourceSnapshotView:
             with self.lock, closing(self._connect()) as connection:
                 now = time.time()
@@ -1563,7 +1732,11 @@ class SQLiteDatasetAuthorityStore:
                     SELECT * FROM data_source_snapshots
                     WHERE source_id=? AND immutable_revision=? AND snapshot_sha256=?
                     """,
-                    (request.source_id, request.immutable_revision, request.snapshot_sha256),
+                    (
+                        request.source_id,
+                        request.immutable_revision,
+                        request.snapshot_sha256,
+                    ),
                 ).fetchone()
                 assert row is not None
                 connection.commit()
@@ -1583,8 +1756,15 @@ class SQLiteDatasetAuthorityStore:
 
         return await asyncio.to_thread(operation)
 
-    def _view(self, connection: sqlite3.Connection, review_item_id: str, reviewer_id: str | None) -> ReviewItemView:
-        row = connection.execute("SELECT * FROM dataset_review_items WHERE id=?", (review_item_id,)).fetchone()
+    def _view(
+        self,
+        connection: sqlite3.Connection,
+        review_item_id: str,
+        reviewer_id: str | None,
+    ) -> ReviewItemView:
+        row = connection.execute(
+            "SELECT * FROM dataset_review_items WHERE id=?", (review_item_id,)
+        ).fetchone()
         if row is None:
             raise KeyError(review_item_id)
         assignments = [
@@ -1667,7 +1847,9 @@ class SQLiteDatasetAuthorityStore:
 
         return await asyncio.to_thread(operation)
 
-    async def list_items(self, *, status: str | None, limit: int, reviewer_id: str | None) -> list[ReviewItemView]:
+    async def list_items(
+        self, *, status: str | None, limit: int, reviewer_id: str | None
+    ) -> list[ReviewItemView]:
         if status is not None and status not in REVIEW_STATUSES:
             raise ValueError("invalid review status")
         if not 1 <= limit <= 500:
@@ -1681,19 +1863,26 @@ class SQLiteDatasetAuthorityStore:
                         (status, limit),
                     )
                 else:
-                    rows = connection.execute("SELECT id FROM dataset_review_items ORDER BY created_at LIMIT ?", (limit,))
+                    rows = connection.execute(
+                        "SELECT id FROM dataset_review_items ORDER BY created_at LIMIT ?",
+                        (limit,),
+                    )
                 return [self._view(connection, row["id"], reviewer_id) for row in rows]
 
         return await asyncio.to_thread(operation)
 
-    async def get_item(self, review_item_id: str, *, reviewer_id: str | None) -> ReviewItemView:
+    async def get_item(
+        self, review_item_id: str, *, reviewer_id: str | None
+    ) -> ReviewItemView:
         return await asyncio.to_thread(self._get_sync, review_item_id, reviewer_id)
 
     def _get_sync(self, review_item_id: str, reviewer_id: str | None) -> ReviewItemView:
         with self.lock, closing(self._connect()) as connection:
             return self._view(connection, review_item_id, reviewer_id)
 
-    async def claim(self, review_item_id: str, reviewer_id: str, lease_seconds: int) -> ReviewAssignment:
+    async def claim(
+        self, review_item_id: str, reviewer_id: str, lease_seconds: int
+    ) -> ReviewAssignment:
         if not reviewer_id.strip():
             raise ValueError("reviewer_id cannot be empty")
         if not 60 <= lease_seconds <= 86_400:
@@ -1707,7 +1896,9 @@ class SQLiteDatasetAuthorityStore:
                     "DELETE FROM dataset_review_assignments WHERE status='claimed' AND expires_at<?",
                     (now,),
                 )
-                item = connection.execute("SELECT * FROM dataset_review_items WHERE id=?", (review_item_id,)).fetchone()
+                item = connection.execute(
+                    "SELECT * FROM dataset_review_items WHERE id=?", (review_item_id,)
+                ).fetchone()
                 if item is None:
                     raise KeyError(review_item_id)
                 if item["status"] in {"approved", "rejected"}:
@@ -1717,7 +1908,9 @@ class SQLiteDatasetAuthorityStore:
                     (review_item_id, reviewer_id),
                 ).fetchone()
                 if duplicate:
-                    raise PermissionError("same reviewer cannot occupy both review slots")
+                    raise PermissionError(
+                        "same reviewer cannot occupy both review slots"
+                    )
                 required = 2 if bool(item["high_value"]) else 1
                 occupied = {
                     int(row["reviewer_slot"])
@@ -1726,7 +1919,14 @@ class SQLiteDatasetAuthorityStore:
                         (review_item_id,),
                     )
                 }
-                slot = next((candidate for candidate in range(1, required + 1) if candidate not in occupied), None)
+                slot = next(
+                    (
+                        candidate
+                        for candidate in range(1, required + 1)
+                        if candidate not in occupied
+                    ),
+                    None,
+                )
                 if slot is None:
                     raise ValueError("all review slots are already claimed")
                 assignment_id = str(uuid.uuid4())
@@ -1737,7 +1937,15 @@ class SQLiteDatasetAuthorityStore:
                       id,review_item_id,reviewer_id,reviewer_slot,status,claimed_at,expires_at
                     ) VALUES (?,?,?,?,?,?,?)
                     """,
-                    (assignment_id, review_item_id, reviewer_id, slot, "claimed", now, expires_at),
+                    (
+                        assignment_id,
+                        review_item_id,
+                        reviewer_id,
+                        slot,
+                        "claimed",
+                        now,
+                        expires_at,
+                    ),
                 )
                 connection.execute(
                     "UPDATE dataset_review_items SET status='in_review',version=version+1,updated_at=? WHERE id=?",
@@ -1756,16 +1964,25 @@ class SQLiteDatasetAuthorityStore:
 
         return await asyncio.to_thread(operation)
 
-    async def decide(self, review_item_id: str, reviewer_id: str, request: ReviewDecisionCreate) -> ReviewItemView:
+    async def decide(
+        self, review_item_id: str, reviewer_id: str, request: ReviewDecisionCreate
+    ) -> ReviewItemView:
         def operation() -> ReviewItemView:
             with self.lock, closing(self._connect()) as connection:
                 connection.execute("BEGIN IMMEDIATE")
                 now = time.time()
-                item = connection.execute("SELECT * FROM dataset_review_items WHERE id=?", (review_item_id,)).fetchone()
+                item = connection.execute(
+                    "SELECT * FROM dataset_review_items WHERE id=?", (review_item_id,)
+                ).fetchone()
                 if item is None:
                     raise KeyError(review_item_id)
-                if item["content_hash"] != request.content_hash or item["source_snapshot_sha256"] != request.source_snapshot_sha256:
-                    raise ValueError("review evidence no longer matches content/source snapshot")
+                if (
+                    item["content_hash"] != request.content_hash
+                    or item["source_snapshot_sha256"] != request.source_snapshot_sha256
+                ):
+                    raise ValueError(
+                        "review evidence no longer matches content/source snapshot"
+                    )
                 assignment = connection.execute(
                     """
                     SELECT * FROM dataset_review_assignments
@@ -1817,11 +2034,18 @@ class SQLiteDatasetAuthorityStore:
 
         return await asyncio.to_thread(operation)
 
-    async def adjudicate(self, review_item_id: str, adjudicator_id: str, request: ReviewAdjudicationCreate) -> ReviewItemView:
+    async def adjudicate(
+        self,
+        review_item_id: str,
+        adjudicator_id: str,
+        request: ReviewAdjudicationCreate,
+    ) -> ReviewItemView:
         def operation() -> ReviewItemView:
             with self.lock, closing(self._connect()) as connection:
                 connection.execute("BEGIN IMMEDIATE")
-                item = connection.execute("SELECT * FROM dataset_review_items WHERE id=?", (review_item_id,)).fetchone()
+                item = connection.execute(
+                    "SELECT * FROM dataset_review_items WHERE id=?", (review_item_id,)
+                ).fetchone()
                 if item is None:
                     raise KeyError(review_item_id)
                 if item["status"] not in {"conflict", "adjudication_required"}:
@@ -1831,7 +2055,9 @@ class SQLiteDatasetAuthorityStore:
                     (review_item_id, adjudicator_id),
                 ).fetchone()
                 if reviewer:
-                    raise PermissionError("a reviewer cannot adjudicate the same record")
+                    raise PermissionError(
+                        "a reviewer cannot adjudicate the same record"
+                    )
                 now = time.time()
                 connection.execute(
                     """
@@ -1839,7 +2065,15 @@ class SQLiteDatasetAuthorityStore:
                       id,review_item_id,adjudicator_id,decision,rationale,evidence_json,created_at
                     ) VALUES (?,?,?,?,?,?,?)
                     """,
-                    (str(uuid.uuid4()), review_item_id, adjudicator_id, request.decision, request.rationale, _json(request.evidence), now),
+                    (
+                        str(uuid.uuid4()),
+                        review_item_id,
+                        adjudicator_id,
+                        request.decision,
+                        request.rationale,
+                        _json(request.evidence),
+                        now,
+                    ),
                 )
                 status = "approved" if request.decision == "approve" else "rejected"
                 connection.execute(
@@ -1851,7 +2085,9 @@ class SQLiteDatasetAuthorityStore:
 
         return await asyncio.to_thread(operation)
 
-    async def record_promotion(self, actor_id: str, request: PromotionEvidenceCreate) -> PromotionEvidenceView:
+    async def record_promotion(
+        self, actor_id: str, request: PromotionEvidenceCreate
+    ) -> PromotionEvidenceView:
         def operation() -> PromotionEvidenceView:
             with self.lock, closing(self._connect()) as connection:
                 now = time.time()
@@ -1901,7 +2137,12 @@ class SQLiteDatasetAuthorityStore:
     async def review_evidence(self) -> ReviewEvidenceReport:
         def operation() -> ReviewEvidenceReport:
             with self.lock, closing(self._connect()) as connection:
-                items = [dict(row) for row in connection.execute("SELECT id,source_id,status FROM dataset_review_items")]
+                items = [
+                    dict(row)
+                    for row in connection.execute(
+                        "SELECT id,source_id,status FROM dataset_review_items"
+                    )
+                ]
                 decisions = [
                     dict(row)
                     for row in connection.execute(
@@ -1927,10 +2168,14 @@ class PostgresDatasetAuthorityStore:
                 if self._pool is None:
                     import asyncpg
 
-                    self._pool = await asyncpg.create_pool(self.dsn, min_size=1, max_size=10, command_timeout=30)
+                    self._pool = await asyncpg.create_pool(
+                        self.dsn, min_size=1, max_size=10, command_timeout=30
+                    )
         return self._pool
 
-    async def record_source_snapshot(self, request: SourceSnapshotCreate) -> SourceSnapshotView:
+    async def record_source_snapshot(
+        self, request: SourceSnapshotCreate
+    ) -> SourceSnapshotView:
         pool = await self._get_pool()
         async with pool.acquire() as connection, connection.transaction():
             row = await connection.fetchrow(
@@ -1971,12 +2216,18 @@ class PostgresDatasetAuthorityStore:
     async def review_evidence(self) -> ReviewEvidenceReport:
         pool = await self._get_pool()
         async with pool.acquire() as connection:
-            item_rows = await connection.fetch("SELECT id,source_id,status FROM dataset_review_items")
+            item_rows = await connection.fetch(
+                "SELECT id,source_id,status FROM dataset_review_items"
+            )
             decision_rows = await connection.fetch(
                 "SELECT review_item_id,decision,created_at FROM dataset_review_decisions ORDER BY created_at"
             )
         items = [
-            {"id": str(row["id"]), "source_id": row["source_id"], "status": row["status"]}
+            {
+                "id": str(row["id"]),
+                "source_id": row["source_id"],
+                "status": row["status"],
+            }
             for row in item_rows
         ]
         decisions = [
@@ -1990,7 +2241,9 @@ class PostgresDatasetAuthorityStore:
         return _review_evidence_from_rows(items, decisions)
 
     @staticmethod
-    def _view_from_rows(item: Any, assignments: list[Any], decisions: list[Any], reviewer_id: str | None) -> ReviewItemView:
+    def _view_from_rows(
+        item: Any, assignments: list[Any], decisions: list[Any], reviewer_id: str | None
+    ) -> ReviewItemView:
         visible = [
             ReviewDecisionView(
                 reviewer_id=row["reviewer_id"],
@@ -2029,8 +2282,12 @@ class PostgresDatasetAuthorityStore:
             updated_at=item["updated_at"].timestamp(),
         )
 
-    async def _view(self, connection: Any, review_item_id: str, reviewer_id: str | None) -> ReviewItemView:
-        item = await connection.fetchrow("SELECT * FROM dataset_review_items WHERE id=$1::uuid", review_item_id)
+    async def _view(
+        self, connection: Any, review_item_id: str, reviewer_id: str | None
+    ) -> ReviewItemView:
+        item = await connection.fetchrow(
+            "SELECT * FROM dataset_review_items WHERE id=$1::uuid", review_item_id
+        )
         if item is None:
             raise KeyError(review_item_id)
         assignments = await connection.fetch(
@@ -2041,7 +2298,9 @@ class PostgresDatasetAuthorityStore:
             "SELECT * FROM dataset_review_decisions WHERE review_item_id=$1::uuid ORDER BY created_at",
             review_item_id,
         )
-        return self._view_from_rows(item, list(assignments), list(decisions), reviewer_id)
+        return self._view_from_rows(
+            item, list(assignments), list(decisions), reviewer_id
+        )
 
     async def enqueue(self, request: ReviewItemCreate) -> ReviewItemView:
         pool = await self._get_pool()
@@ -2065,7 +2324,9 @@ class PostgresDatasetAuthorityStore:
             )
             return await self._view(connection, str(row["id"]), None)
 
-    async def list_items(self, *, status: str | None, limit: int, reviewer_id: str | None) -> list[ReviewItemView]:
+    async def list_items(
+        self, *, status: str | None, limit: int, reviewer_id: str | None
+    ) -> list[ReviewItemView]:
         if status is not None and status not in REVIEW_STATUSES:
             raise ValueError("invalid review status")
         if not 1 <= limit <= 500:
@@ -2079,15 +2340,25 @@ class PostgresDatasetAuthorityStore:
                     limit,
                 )
             else:
-                rows = await connection.fetch("SELECT id FROM dataset_review_items ORDER BY created_at LIMIT $1", limit)
-            return [await self._view(connection, str(row["id"]), reviewer_id) for row in rows]
+                rows = await connection.fetch(
+                    "SELECT id FROM dataset_review_items ORDER BY created_at LIMIT $1",
+                    limit,
+                )
+            return [
+                await self._view(connection, str(row["id"]), reviewer_id)
+                for row in rows
+            ]
 
-    async def get_item(self, review_item_id: str, *, reviewer_id: str | None) -> ReviewItemView:
+    async def get_item(
+        self, review_item_id: str, *, reviewer_id: str | None
+    ) -> ReviewItemView:
         pool = await self._get_pool()
         async with pool.acquire() as connection:
             return await self._view(connection, review_item_id, reviewer_id)
 
-    async def claim(self, review_item_id: str, reviewer_id: str, lease_seconds: int) -> ReviewAssignment:
+    async def claim(
+        self, review_item_id: str, reviewer_id: str, lease_seconds: int
+    ) -> ReviewAssignment:
         if not 60 <= lease_seconds <= 86_400:
             raise ValueError("review lease must be between 60 and 86400 seconds")
         pool = await self._get_pool()
@@ -2116,7 +2387,14 @@ class PostgresDatasetAuthorityStore:
                     review_item_id,
                 )
             }
-            slot = next((candidate for candidate in range(1, required + 1) if candidate not in occupied), None)
+            slot = next(
+                (
+                    candidate
+                    for candidate in range(1, required + 1)
+                    if candidate not in occupied
+                ),
+                None,
+            )
             if slot is None:
                 raise ValueError("all review slots are already claimed")
             assignment_id = str(uuid.uuid4())
@@ -2147,7 +2425,9 @@ class PostgresDatasetAuthorityStore:
                 expires_at=row["expires_at"].timestamp(),
             )
 
-    async def decide(self, review_item_id: str, reviewer_id: str, request: ReviewDecisionCreate) -> ReviewItemView:
+    async def decide(
+        self, review_item_id: str, reviewer_id: str, request: ReviewDecisionCreate
+    ) -> ReviewItemView:
         pool = await self._get_pool()
         async with pool.acquire() as connection, connection.transaction():
             item = await connection.fetchrow(
@@ -2156,8 +2436,13 @@ class PostgresDatasetAuthorityStore:
             )
             if item is None:
                 raise KeyError(review_item_id)
-            if item["content_hash"] != request.content_hash or item["source_snapshot_sha256"] != request.source_snapshot_sha256:
-                raise ValueError("review evidence no longer matches content/source snapshot")
+            if (
+                item["content_hash"] != request.content_hash
+                or item["source_snapshot_sha256"] != request.source_snapshot_sha256
+            ):
+                raise ValueError(
+                    "review evidence no longer matches content/source snapshot"
+                )
             assignment = await connection.fetchrow(
                 """
                 SELECT * FROM dataset_review_assignments
@@ -2203,7 +2488,12 @@ class PostgresDatasetAuthorityStore:
             )
             return await self._view(connection, review_item_id, reviewer_id)
 
-    async def adjudicate(self, review_item_id: str, adjudicator_id: str, request: ReviewAdjudicationCreate) -> ReviewItemView:
+    async def adjudicate(
+        self,
+        review_item_id: str,
+        adjudicator_id: str,
+        request: ReviewAdjudicationCreate,
+    ) -> ReviewItemView:
         pool = await self._get_pool()
         async with pool.acquire() as connection, connection.transaction():
             item = await connection.fetchrow(
@@ -2241,7 +2531,9 @@ class PostgresDatasetAuthorityStore:
             )
             return await self._view(connection, review_item_id, adjudicator_id)
 
-    async def record_promotion(self, actor_id: str, request: PromotionEvidenceCreate) -> PromotionEvidenceView:
+    async def record_promotion(
+        self, actor_id: str, request: PromotionEvidenceCreate
+    ) -> PromotionEvidenceView:
         pool = await self._get_pool()
         async with pool.acquire() as connection, connection.transaction():
             row = await connection.fetchrow(
@@ -2284,25 +2576,39 @@ class DatasetAuthorityService:
         dsn = os.environ.get("CRAFTLY_DATABASE_URL", "").strip()
         if dsn.startswith(("postgres://", "postgresql://")):
             return cls(PostgresDatasetAuthorityStore(dsn))
-        local_path = os.environ.get("CRAFTLY_DATA_AUTHORITY_DB", "artifacts/craftly/dataset-authority.sqlite3")
+        local_path = os.environ.get(
+            "CRAFTLY_DATA_AUTHORITY_DB", "artifacts/craftly/dataset-authority.sqlite3"
+        )
         return cls(SQLiteDatasetAuthorityStore(local_path))
 
-    async def record_source_snapshot(self, request: SourceSnapshotCreate) -> SourceSnapshotView:
+    async def record_source_snapshot(
+        self, request: SourceSnapshotCreate
+    ) -> SourceSnapshotView:
         return await self.store.record_source_snapshot(request)
 
     async def enqueue(self, request: ReviewItemCreate) -> ReviewItemView:
         return await self.store.enqueue(request)
 
-    async def list_items(self, *, status: str | None, limit: int, reviewer_id: str | None) -> list[ReviewItemView]:
-        return await self.store.list_items(status=status, limit=limit, reviewer_id=reviewer_id)
+    async def list_items(
+        self, *, status: str | None, limit: int, reviewer_id: str | None
+    ) -> list[ReviewItemView]:
+        return await self.store.list_items(
+            status=status, limit=limit, reviewer_id=reviewer_id
+        )
 
-    async def get_item(self, review_item_id: str, *, reviewer_id: str | None) -> ReviewItemView:
+    async def get_item(
+        self, review_item_id: str, *, reviewer_id: str | None
+    ) -> ReviewItemView:
         return await self.store.get_item(review_item_id, reviewer_id=reviewer_id)
 
-    async def claim(self, review_item_id: str, reviewer_id: str, lease_seconds: int = 3_600) -> ReviewAssignment:
+    async def claim(
+        self, review_item_id: str, reviewer_id: str, lease_seconds: int = 3_600
+    ) -> ReviewAssignment:
         return await self.store.claim(review_item_id, reviewer_id, lease_seconds)
 
-    async def decide(self, review_item_id: str, reviewer_id: str, request: ReviewDecisionCreate) -> ReviewItemView:
+    async def decide(
+        self, review_item_id: str, reviewer_id: str, request: ReviewDecisionCreate
+    ) -> ReviewItemView:
         return await self.store.decide(review_item_id, reviewer_id, request)
 
     async def adjudicate(
@@ -2313,7 +2619,9 @@ class DatasetAuthorityService:
     ) -> ReviewItemView:
         return await self.store.adjudicate(review_item_id, adjudicator_id, request)
 
-    async def record_promotion(self, actor_id: str, request: PromotionEvidenceCreate) -> PromotionEvidenceView:
+    async def record_promotion(
+        self, actor_id: str, request: PromotionEvidenceCreate
+    ) -> PromotionEvidenceView:
         return await self.store.record_promotion(actor_id, request)
 
     async def review_evidence(self) -> ReviewEvidenceReport:
@@ -2322,7 +2630,9 @@ class DatasetAuthorityService:
 
 def content_snapshot_hash(content: str, source_snapshot_sha256: str) -> str:
     _validate_hash(source_snapshot_sha256, "source_snapshot_sha256")
-    return hashlib.sha256(f"{source_snapshot_sha256}:{content}".encode("utf-8", "replace")).hexdigest()
+    return hashlib.sha256(
+        f"{source_snapshot_sha256}:{content}".encode("utf-8", "replace")
+    ).hexdigest()
 
 
 def new_bootstrap_review_token() -> str:
@@ -2331,7 +2641,9 @@ def new_bootstrap_review_token() -> str:
     return secrets.token_urlsafe(32)
 
 
-async def _write_review_evidence_report(output_path: str | Path) -> ReviewEvidenceReport:
+async def _write_review_evidence_report(
+    output_path: str | Path,
+) -> ReviewEvidenceReport:
     service = DatasetAuthorityService.from_environment()
     report = await service.review_evidence()
     target = Path(output_path).expanduser().resolve()
@@ -2350,7 +2662,9 @@ async def _write_review_evidence_report(output_path: str | Path) -> ReviewEviden
 
 def _cli_service(database: str | None) -> DatasetAuthorityService:
     if database:
-        return DatasetAuthorityService(SQLiteDatasetAuthorityStore(Path(database).resolve()))
+        return DatasetAuthorityService(
+            SQLiteDatasetAuthorityStore(Path(database).resolve())
+        )
     return DatasetAuthorityService.from_environment()
 
 
@@ -2429,7 +2743,9 @@ async def _run_cli_command(args: argparse.Namespace) -> StrictModel | list[Stric
             reviewer_id=args.reviewer_id,
         )
     if args.command == "claim":
-        return await service.claim(args.review_item_id, args.reviewer_id, args.lease_seconds)
+        return await service.claim(
+            args.review_item_id, args.reviewer_id, args.lease_seconds
+        )
     if args.command == "decide":
         item = await service.get_item(args.review_item_id, reviewer_id=args.reviewer_id)
         return await service.decide(
@@ -2541,13 +2857,19 @@ def main() -> None:
         help="Create a non-authorizing onboarding template for real reviewer identities.",
     )
     roster_template_parser.add_argument("--output", required=True)
-    roster_template_parser.add_argument("--roster-id", default="craftly-data-reviewers-v1")
-    roster_template_parser.add_argument("--final-roster-path", default="config/data_reviewers.json")
+    roster_template_parser.add_argument(
+        "--roster-id", default="craftly-data-reviewers-v1"
+    )
+    roster_template_parser.add_argument(
+        "--final-roster-path", default="config/data_reviewers.json"
+    )
     roster_validate_parser = subparsers.add_parser(
         "validate-reviewer-roster",
         help="Validate reviewer independence and report calibration readiness.",
     )
-    roster_validate_parser.add_argument("--reviewer-roster", default="config/data_reviewers.json")
+    roster_validate_parser.add_argument(
+        "--reviewer-roster", default="config/data_reviewers.json"
+    )
     list_parser = subparsers.add_parser("list", help="List blinded review records.")
     list_parser.add_argument("--database")
     list_parser.add_argument("--reviewer-id")
@@ -2559,20 +2881,32 @@ def main() -> None:
     claim_parser.add_argument("--review-item-id", required=True)
     claim_parser.add_argument("--reviewer-id", required=True)
     claim_parser.add_argument("--lease-seconds", type=int, default=3_600)
-    decide_parser = subparsers.add_parser("decide", help="Submit a blinded reviewer decision.")
+    decide_parser = subparsers.add_parser(
+        "decide", help="Submit a blinded reviewer decision."
+    )
     decide_parser.add_argument("--database")
-    decide_parser.add_argument("--reviewer-roster", default="config/data_reviewers.json")
+    decide_parser.add_argument(
+        "--reviewer-roster", default="config/data_reviewers.json"
+    )
     decide_parser.add_argument("--review-item-id", required=True)
     decide_parser.add_argument("--reviewer-id", required=True)
-    decide_parser.add_argument("--decision", choices=["approve", "reject"], required=True)
+    decide_parser.add_argument(
+        "--decision", choices=["approve", "reject"], required=True
+    )
     decide_parser.add_argument("--rationale", required=True)
     decide_parser.add_argument("--evidence-json")
-    adjudicate_parser = subparsers.add_parser("adjudicate", help="Resolve a conflicting review with a third identity.")
+    adjudicate_parser = subparsers.add_parser(
+        "adjudicate", help="Resolve a conflicting review with a third identity."
+    )
     adjudicate_parser.add_argument("--database")
-    adjudicate_parser.add_argument("--reviewer-roster", default="config/data_reviewers.json")
+    adjudicate_parser.add_argument(
+        "--reviewer-roster", default="config/data_reviewers.json"
+    )
     adjudicate_parser.add_argument("--review-item-id", required=True)
     adjudicate_parser.add_argument("--adjudicator-id", required=True)
-    adjudicate_parser.add_argument("--decision", choices=["approve", "reject"], required=True)
+    adjudicate_parser.add_argument(
+        "--decision", choices=["approve", "reject"], required=True
+    )
     adjudicate_parser.add_argument("--rationale", required=True)
     adjudicate_parser.add_argument("--evidence-json")
     args = parser.parse_args()
