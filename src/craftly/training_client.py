@@ -10,7 +10,6 @@ import subprocess  # nosec B404 - git metadata lookup uses fixed argv
 import time
 import uuid
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, AsyncIterator
 from urllib.parse import urlparse
 

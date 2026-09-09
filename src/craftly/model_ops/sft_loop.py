@@ -7,10 +7,8 @@ masked cross-entropy loss focused strictly on defensive completion tokens.
 
 from __future__ import annotations
 
-import contextlib
 import json
 import math
-import os
 import shutil
 import time
 from pathlib import Path
@@ -19,7 +17,7 @@ from typing import Any
 from pydantic import Field
 
 from src.craftly.learning.continual import ExperienceReplayBuffer, ReferenceModelKLLoss
-from src.craftly.learning.sft_dataset import SFTDatasetEngine, SFTRecord, encode_sft_record
+from src.craftly.learning.sft_dataset import SFTDatasetEngine, encode_sft_record
 from src.craftly.model_ops.foundation import CheckpointManifest, ScratchDecoderConfig
 from src.craftly.model_ops.tokenizer_pipeline import load_tokenizer
 from src.craftly.model_ops.torch_decoder import (
@@ -29,8 +27,6 @@ from src.craftly.model_ops.torch_decoder import (
     save_trusted_checkpoint,
     select_torch_device,
 )
-from src.craftly.model_ops.pretrain_loop import git_commit
-from src.craftly.shared.integrity import sha256_file
 from src.craftly.shared.progress import NullProgressReporter, ProgressReporter
 from src.craftly.shared.schemas import StrictModel
 

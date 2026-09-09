@@ -15,7 +15,6 @@ from typing import Any
 
 from pydantic import Field
 
-from src.craftly.shared.integrity import sha256_file
 from src.craftly.shared.schemas import StrictModel
 
 

@@ -11,7 +11,6 @@ from typing import Any
 from src.craftly.model_ops.foundation import CheckpointManifest
 from src.craftly.model_ops.torch_decoder import (
     CraftlyDecoderLM,
-    ScratchDecoderConfig,
     require_torch,
     save_trusted_checkpoint,
     select_torch_device,

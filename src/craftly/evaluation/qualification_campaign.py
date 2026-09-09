@@ -43,7 +43,6 @@ from src.craftly.evaluation.benchmark_suites import (
 from src.craftly.evaluation.checkpoint_eval import evaluate_checkpoint
 from src.craftly.model_ops.checkpoint_compare import (
     CheckpointComparisonReport,
-    CheckpointSideReport,
     GenerationConfig,
     compare_checkpoints,
     evaluate_checkpoint_prompt_suite,

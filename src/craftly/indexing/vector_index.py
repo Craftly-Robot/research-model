@@ -14,7 +14,7 @@ import time
 import uuid
 from collections import Counter
 from pathlib import Path
-from typing import Any, Callable, Iterable, Iterator, Literal, Protocol
+from typing import Any, Callable, Iterable, Literal, Protocol
 from urllib.parse import urlparse
 
 import httpx

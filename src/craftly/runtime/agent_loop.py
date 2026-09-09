@@ -6,10 +6,7 @@ application, and test verification in an ephemeral scratch workspace.
 
 from __future__ import annotations
 
-import asyncio
-import difflib
 import json
-import os
 import re
 import shutil
 import subprocess  # nosec B404 - execution bounded by strict argv and timeout policy
@@ -24,13 +21,8 @@ from pydantic import Field
 from src.craftly.learning.agentic_dataset import (
     PATCH_END,
     PATCH_START,
-    THOUGHT_END,
-    THOUGHT_START,
     TOOL_CALL_END,
     TOOL_CALL_START,
-    TOOL_RESULT_END,
-    TOOL_RESULT_START,
-    ParsedAgentStep,
     ToolCall,
     ToolResult,
     format_tool_result,
@@ -38,7 +30,7 @@ from src.craftly.learning.agentic_dataset import (
 )
 from src.craftly.model_ops.backends import ModelBackend
 from src.craftly.shared.schemas import StrictModel
-from src.craftly.tools.policy import ALLOWED_TOOL_COMMANDS, HardenedToolExecutor
+from src.craftly.tools.policy import ALLOWED_TOOL_COMMANDS
 
 
 class AgenticTask(StrictModel):

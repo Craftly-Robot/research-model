@@ -3,39 +3,39 @@
 Provides full-parameter anti-forgetting techniques for scratch-origin models:
 1. Experience Replay Buffer (interleaved pretraining code replay)
 2. Reference Model KL-Divergence Anchor (policy drift penalty)
-3. Weight Space Merging (Spherical Linear Interpolation / SLERP and Task Vectors)
-4. Scientific Catastrophic Forgetting Evaluation Benchmark
+3. Elastic Weight Consolidation (EWC) - parameter importance penalty
+4. Weight Space Merging (Spherical Linear Interpolation / SLERP and Task Vectors)
+5. Scientific Catastrophic Forgetting Evaluation Benchmark
 """
 
 from __future__ import annotations
 
 import copy
-import json
 import math
 import random
 import time
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TYPE_CHECKING
 
 from pydantic import Field
 
-from src.craftly.model_ops.foundation import ScratchDecoderConfig
-from src.craftly.model_ops.tokenizer_pipeline import load_tokenizer
 from src.craftly.model_ops.torch_decoder import (
-    CraftlyDecoderLM,
     load_trusted_checkpoint,
     require_torch,
     save_trusted_checkpoint,
-    select_torch_device,
 )
 from src.craftly.shared.schemas import StrictModel
 
-try:
+if TYPE_CHECKING:
     import torch
     import torch.nn.functional as F
-except ImportError:  # pragma: no cover
-    torch = None  # type: ignore[assignment]
-    F = None  # type: ignore[assignment]
+else:
+    try:
+        import torch
+        import torch.nn.functional as F
+    except ImportError:  # pragma: no cover
+        torch = None  # type: ignore[assignment]
+        F = None  # type: ignore[assignment]
 
 
 # ---------------------------------------------------------------------------
@@ -227,7 +227,154 @@ class ReferenceModelKLLoss:
 
 
 # ---------------------------------------------------------------------------
-# 3. Weight Space Merging: SLERP & Task Vector Arithmetic
+# 3. Elastic Weight Consolidation (EWC): Parameter Importance Penalty
+# ---------------------------------------------------------------------------
+
+# WHAT IS EWC?
+# ============
+# When a neural network learns a new task, it tends to overwrite the weights
+# that were important for old tasks. This is called "catastrophic forgetting."
+#
+# EWC prevents this by:
+# 1. Measuring how important each parameter is for the OLD task (Fisher Information)
+# 2. During NEW task training, penalizing changes to important parameters
+#
+# The penalty works like a spring: important parameters are pulled back toward
+# their old values, while unimportant parameters are free to change.
+#
+# Mathematically:
+#   total_loss = new_task_loss + lambda * sum(F_i * (theta_i - theta_old_i)^2)
+#
+# Where:
+#   - F_i = Fisher Information for parameter i (how important it is)
+#   - theta_i = current value of parameter i
+#   - theta_old_i = value of parameter i after old task training
+#   - lambda = strength of the penalty (higher = less forgetting, but less learning)
+
+
+class ElasticWeightConsolidation:
+    """EWC: Penalizes changes to parameters important for previous tasks.
+
+    Usage:
+        # After finishing task A:
+        ewc = ElasticWeightConsolidation(model, device="cuda")
+        ewc.compute_fisher(dataloader_for_task_a)
+
+        # While training on task B, add ewc.penalty() to your loss:
+        loss = task_b_loss + ewc.penalty(model)
+    """
+
+    def __init__(self, model: Any, device: str = "cpu", damping: float = 1.0) -> None:
+        """Initialize EWC with a reference model.
+
+        Args:
+            model: The trained model (weights will be snapshotted as "old" weights)
+            device: Device to compute on
+            damping: Lambda parameter - higher means stronger penalty against forgetting.
+                     Typical values: 1000-10000 for strong protection, 1-100 for mild.
+        """
+        require_torch()
+        self.device = device
+        self.damping = damping  # lambda in the EWC formula
+
+        # Store the current model weights as "old" weights (theta_old)
+        # These are the weights we want to protect from large changes
+        self.old_weights: dict[str, Any] = {}
+        for name, param in model.named_parameters():
+            self.old_weights[name] = param.data.clone().detach()
+
+        # Fisher Information will be computed later via compute_fisher()
+        # Fisher is a diagonal approximation of the Hessian matrix
+        # It measures: "if I change this parameter slightly, how much does the loss change?"
+        # High Fisher = parameter is important for the old task
+        self.fisher: dict[str, Any] = {}
+
+    def compute_fisher(self, dataloader: Any, model: Any, num_samples: int = 1000) -> None:
+        """Compute Fisher Information Matrix (diagonal approximation).
+
+        The Fisher Information tells us which parameters are important for a task.
+        It's computed by:
+        1. Running the model on old task data
+        2. Computing gradients of the loss w.r.t. each parameter
+        3. Squaring those gradients (Fisher ≈ E[gradient^2])
+
+        Args:
+            dataloader: Iterator yielding (input_ids, labels) tuples from the OLD task
+            model: The model to compute Fisher for
+            num_samples: How many samples to use (more = more accurate, but slower)
+        """
+        require_torch()
+
+        # Initialize Fisher to zero for each parameter
+        self.fisher = {}
+        for name, param in model.named_parameters():
+            self.fisher[name] = torch.zeros_like(param.data)
+
+        model.train()
+        sample_count = 0
+
+        for batch in dataloader:
+            if sample_count >= num_samples:
+                break
+
+            # Unpack batch - handle both tuple and dict formats
+            if isinstance(batch, (list, tuple)):
+                input_ids, labels = batch[0].to(self.device), batch[1].to(self.device)
+            else:
+                input_ids = batch["input_ids"].to(self.device)
+                labels = batch["labels"].to(self.device)
+
+            # Forward pass: compute loss
+            model.zero_grad()
+            outputs = model(input_ids, labels=labels)
+            loss = outputs.loss
+
+            # Backward pass: compute gradients
+            loss.backward()
+
+            # Accumulate squared gradients (this is the Fisher Information)
+            # We use running average to handle batches
+            for name, param in model.named_parameters():
+                if param.grad is not None:
+                    # Fisher = E[gradient^2]
+                    # We accumulate and average at the end
+                    self.fisher[name] += param.grad.data ** 2
+
+            sample_count += input_ids.shape[0]
+
+        # Average over all samples
+        if sample_count > 0:
+            for name in self.fisher:
+                self.fisher[name] /= sample_count
+
+    def penalty(self, model: Any) -> Any:
+        """Compute the EWC penalty term.
+
+        This returns: lambda * sum(F_i * (theta_i - theta_old_i)^2)
+
+        Add this to your training loss:
+            total_loss = new_task_loss + ewc.penalty(model)
+        """
+        require_torch()
+        penalty_loss = torch.tensor(0.0, device=self.device)
+
+        for name, param in model.named_parameters():
+            if name in self.fisher and name in self.old_weights:
+                # How much has this parameter changed from the old task?
+                weight_diff = param - self.old_weights[name]
+
+                # How important is this parameter? (Fisher Information)
+                fisher_importance = self.fisher[name]
+
+                # Penalty = importance * squared_change
+                # Important parameters that changed a lot get a high penalty
+                penalty_loss += (fisher_importance * weight_diff ** 2).sum()
+
+        return self.damping * penalty_loss
+
+
+# ---------------------------------------------------------------------------
+# 4. Weight Space Merging: SLERP & Task Vector Arithmetic
 # ---------------------------------------------------------------------------
 
 class WeightMerger:
@@ -379,7 +526,7 @@ class WeightMerger:
 
 
 # ---------------------------------------------------------------------------
-# 4. Scientific Catastrophic Forgetting Benchmark Suite
+# 5. Scientific Catastrophic Forgetting Benchmark Suite
 # ---------------------------------------------------------------------------
 
 class ForgettingTask(StrictModel):

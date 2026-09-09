@@ -16,8 +16,6 @@ from pydantic import Field, model_validator
 from src.craftly.learning.quality import iter_jsonl, stable_hash
 from src.craftly.model_ops.tokenizer_pipeline import ShardBuildConfig, ShardManifest, build_token_shards, load_tokenizer
 from src.craftly.shared.config_contracts import (
-    CurriculumStageContract as CurriculumStage,
-    MixExperimentContract as MixExperiment,
     MixRatiosContract as MixConfig,
     load_mix_ratios_contract,
 )
