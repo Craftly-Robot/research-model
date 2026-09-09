@@ -45,6 +45,8 @@ try:
 except ImportError:  # pragma: no cover
     torch = None  # type: ignore[assignment]
 
+from src.craftly.learning.continual import ElasticWeightConsolidation
+
 
 DistributedStrategy = Literal["none", "fsdp", "deepspeed_zero2", "deepspeed_zero3", "megatron"]
 LearningRateSchedule = Literal["constant", "linear", "cosine"]
@@ -1202,6 +1204,18 @@ def validation_loss(
     return mean_loss
 
 
+def _ewc_dataloader(
+    stream: TokenShardStream,
+    batch_size: int,
+    sequence_length: int,
+    device: "torch.device",
+) -> Any:
+    """Yield (input_ids, labels) tensors for EWC Fisher computation."""
+    for batch in stream.batches(epoch=0):
+        input_ids = tensor_batch(batch, device=device)
+        yield input_ids, input_ids
+
+
 def run_pretraining_loop(
     *,
     output_dir: str | Path,
@@ -1617,6 +1631,11 @@ def run_pretraining_loop(
             f"requested final step {steps} must be greater than resumed checkpoint step {start_step}"
         )
 
+    # Initialize EWC (Elastic Weight Consolidation) if enabled
+    ewc: ElasticWeightConsolidation | None = None
+    if ewc_lambda > 0.0:
+        ewc = ElasticWeightConsolidation(model, lambda_=ewc_lambda)
+
     model.train()
     started = time.perf_counter()
     train_losses: list[float] = []
@@ -1671,6 +1690,21 @@ def run_pretraining_loop(
     validations_without_improvement = 0
     early_stopped = False
     early_stop_reason = ""
+
+    # Compute EWC Fisher information on initial data before training starts
+    if ewc is not None and start_step == 0:
+        ewc.compute_fisher(
+            _ewc_dataloader(train_stream, batch_size, sequence_length, selected),
+            max_samples=ewc_fisher_samples,
+            device=str(selected),
+        )
+        active_progress.emit(
+            "ewc",
+            "fisher_computed",
+            lambda_=ewc_lambda,
+            fisher_samples=ewc_fisher_samples,
+        )
+
     while current_step < steps:
         optimizer_step_losses: list[float] = []
         optimizer_step_mtp_losses: list[float] = []
