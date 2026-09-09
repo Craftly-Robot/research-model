@@ -1746,10 +1746,13 @@ def run_pretraining_loop(
                         router_load_ratios.append(float(router_metric["p99_to_mean_load"]))
                     if router_dropped_assignments:
                         raise RuntimeError("dropless MoE invariant failed: one or more token assignments were dropped")
+                    # Add EWC penalty to loss if enabled
+                    ewc_penalty = ewc.penalty() if ewc is not None else torch.tensor(0.0)
+                    total_loss = output.loss + ewc_penalty
                     backward_loss = (
-                        output.loss
+                        total_loss
                         if is_deepspeed_strategy(distributed_strategy)
-                        else output.loss / gradient_accumulation_steps
+                        else total_loss / gradient_accumulation_steps
                     )
                 if is_deepspeed_strategy(distributed_strategy):
                     model.backward(backward_loss)
