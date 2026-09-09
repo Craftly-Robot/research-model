@@ -1,4 +1,4 @@
-﻿"""Repository-aware patch verification loop.
+"""Repository-aware patch verification loop.
 
 This is the production-facing glue between repository indexing, context
 packing, patch preview/apply, verifier execution, and post-patch reindexing.
@@ -161,4 +161,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

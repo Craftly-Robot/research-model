@@ -30,7 +30,6 @@ from src.craftly.shared.config import load_active_profile
 from src.craftly.shared.schemas import StrictModel
 from src.craftly.training_workspace import TrainingProfileRegistry
 
-
 ReadinessStatus = Literal[
     "production_ready",
     "production_ready_requires_external_service",
@@ -73,7 +72,9 @@ def _env_enabled(name: str) -> bool:
     return os.environ.get(name, "0") == "1"
 
 
-def _external_dependency(name: str, *, env: str | None = None, executable: str | None = None, path: str | None = None) -> tuple[bool, str]:
+def _external_dependency(
+    name: str, *, env: str | None = None, executable: str | None = None, path: str | None = None
+) -> tuple[bool, str]:
     if env:
         value = os.environ.get(env)
         return bool(value), f"env:{env}"
@@ -120,10 +121,16 @@ def _check_auth(mode: str) -> ReadinessCheck:
     return ReadinessCheck(
         subsystem="auth",
         status="production_ready" if not missing else "blocked_missing_dependency",
-        summary="JWT auth is enforced for protected routes." if not missing else "JWT auth is not production-enforced.",
+        summary="JWT auth is enforced for protected routes."
+        if not missing
+        else "JWT auth is not production-enforced.",
         required_dependencies=["CRAFTLY_AUTH_ENABLED", "CRAFTLY_JWT_SECRET"],
         missing_dependencies=missing,
-        evidence={"enabled": config.enabled, "token_issue_allowed": config.allow_token_issue, "secret_present": bool(config.jwt_secret)},
+        evidence={
+            "enabled": config.enabled,
+            "token_issue_allowed": config.allow_token_issue,
+            "secret_present": bool(config.jwt_secret),
+        },
         production_blocker=mode == "production" and bool(missing),
     )
 
@@ -137,8 +144,12 @@ def _check_quota(mode: str) -> ReadinessCheck:
         missing.append("CRAFTLY_REDIS_URL")
     return ReadinessCheck(
         subsystem="quota",
-        status="production_ready_requires_external_service" if not missing else "blocked_missing_dependency",
-        summary="Redis-backed regenerative quota is configured." if not missing else "Quota is missing Redis production configuration.",
+        status="production_ready_requires_external_service"
+        if not missing
+        else "blocked_missing_dependency",
+        summary="Redis-backed regenerative quota is configured."
+        if not missing
+        else "Quota is missing Redis production configuration.",
         required_dependencies=["CRAFTLY_QUOTA_ENABLED", "CRAFTLY_REDIS_URL"],
         missing_dependencies=missing,
         evidence={"enabled": config.enabled, "redis_url_present": bool(config.redis_url)},
@@ -155,8 +166,12 @@ def _check_model_backend(mode: str) -> ReadinessCheck:
         missing.append("non-mock CRAFTLY_MODEL_BACKEND")
     if backend in {"craftly_serving", "craftly_serving", "active"} and not active.get("endpoint"):
         missing.append("CRAFTLY_MODEL_ENDPOINT")
-    checkpoint_manifest = os.environ.get("CRAFTLY_CHECKPOINT_MANIFEST") or os.environ.get("CRAFTLY_CHECKPOINT_MANIFEST", "")
-    tokenizer_path = os.environ.get("CRAFTLY_TOKENIZER_PATH") or os.environ.get("CRAFTLY_TOKENIZER_PATH", "")
+    checkpoint_manifest = os.environ.get("CRAFTLY_CHECKPOINT_MANIFEST") or os.environ.get(
+        "CRAFTLY_CHECKPOINT_MANIFEST", ""
+    )
+    tokenizer_path = os.environ.get("CRAFTLY_TOKENIZER_PATH") or os.environ.get(
+        "CRAFTLY_TOKENIZER_PATH", ""
+    )
     if backend in {"craftly_serving", "craftly_serving", "active"}:
         if not checkpoint_manifest or not Path(checkpoint_manifest).exists():
             missing.append("CRAFTLY_CHECKPOINT_MANIFEST existing file")
@@ -165,8 +180,15 @@ def _check_model_backend(mode: str) -> ReadinessCheck:
     return ReadinessCheck(
         subsystem="serving",
         status="production_ready" if not missing else "blocked_missing_dependency",
-        summary="Native Craftly serving backend is selected." if not missing else "Serving is still using mock/test-double configuration.",
-        required_dependencies=["CRAFTLY_MODEL_BACKEND", "CRAFTLY_MODEL_ENDPOINT", "CRAFTLY_CHECKPOINT_MANIFEST", "CRAFTLY_TOKENIZER_PATH"],
+        summary="Native Craftly serving backend is selected."
+        if not missing
+        else "Serving is still using mock/test-double configuration.",
+        required_dependencies=[
+            "CRAFTLY_MODEL_BACKEND",
+            "CRAFTLY_MODEL_ENDPOINT",
+            "CRAFTLY_CHECKPOINT_MANIFEST",
+            "CRAFTLY_TOKENIZER_PATH",
+        ],
         missing_dependencies=missing,
         evidence={
             "backend": backend,
@@ -182,7 +204,11 @@ def _check_model_backend(mode: str) -> ReadinessCheck:
 def _check_external_services(mode: str) -> list[ReadinessCheck]:
     specs = [
         ("postgres", "CRAFTLY_DATABASE_URL", "Postgres persistence/migrations"),
-        ("object_storage", "CRAFTLY_OBJECT_STORE_URI", "S3/MinIO dataset/checkpoint artifact storage"),
+        (
+            "object_storage",
+            "CRAFTLY_OBJECT_STORE_URI",
+            "S3/MinIO dataset/checkpoint artifact storage",
+        ),
         ("otel", "CRAFTLY_OTEL_EXPORTER_OTLP_ENDPOINT", "OpenTelemetry exporter"),
     ]
     checks: list[ReadinessCheck] = []
@@ -191,7 +217,9 @@ def _check_external_services(mode: str) -> list[ReadinessCheck]:
         checks.append(
             ReadinessCheck(
                 subsystem=subsystem,
-                status="production_ready_requires_external_service" if present else "blocked_missing_dependency",
+                status="production_ready_requires_external_service"
+                if present
+                else "blocked_missing_dependency",
                 summary=summary if present else f"{summary} is not configured.",
                 required_dependencies=[dep],
                 missing_dependencies=[] if present else [dep],
@@ -204,11 +232,7 @@ def _check_external_services(mode: str) -> list[ReadinessCheck]:
         "CRAFTLY_EMBEDDING_URL": bool(os.environ.get("CRAFTLY_EMBEDDING_URL")),
         "CRAFTLY_EMBEDDING_MANIFEST": bool(os.environ.get("CRAFTLY_EMBEDDING_MANIFEST")),
     }
-    missing_qdrant = [
-        f"env:{name}"
-        for name, present in qdrant_dependencies.items()
-        if not present
-    ]
+    missing_qdrant = [f"env:{name}" for name, present in qdrant_dependencies.items() if not present]
     manifest_evidence: dict[str, Any] = {}
     if not missing_qdrant:
         try:
@@ -218,7 +242,9 @@ def _check_external_services(mode: str) -> list[ReadinessCheck]:
                     dims=int(os.environ.get("CRAFTLY_EMBEDDING_DIMS", "768")),
                     qdrant_url=os.environ.get("CRAFTLY_QDRANT_URL"),
                     embedding_url=os.environ.get("CRAFTLY_EMBEDDING_URL"),
-                    embedding_model=os.environ.get("CRAFTLY_EMBEDDING_MODEL", "Craftly-Code-Embed-v1"),
+                    embedding_model=os.environ.get(
+                        "CRAFTLY_EMBEDDING_MODEL", "Craftly-Code-Embed-v1"
+                    ),
                     embedding_manifest_path=os.environ.get("CRAFTLY_EMBEDDING_MANIFEST"),
                     production_mode=True,
                 )
@@ -299,7 +325,9 @@ def _check_rag_runtime(mode: str) -> ReadinessCheck:
     evaluation_passed = False
     if evaluation_path_value:
         try:
-            evaluation = json.loads(Path(evaluation_path_value).resolve(strict=True).read_text(encoding="utf-8-sig"))
+            evaluation = json.loads(
+                Path(evaluation_path_value).resolve(strict=True).read_text(encoding="utf-8-sig")
+            )
             evaluation_passed = (
                 evaluation.get("status") == "passed"
                 and int(evaluation.get("task_count", 0)) >= 500
@@ -317,12 +345,18 @@ def _check_rag_runtime(mode: str) -> ReadinessCheck:
     load_passed = False
     if load_path_value:
         try:
-            load_report = json.loads(Path(load_path_value).resolve(strict=True).read_text(encoding="utf-8-sig"))
+            load_report = json.loads(
+                Path(load_path_value).resolve(strict=True).read_text(encoding="utf-8-sig")
+            )
             stages = load_report.get("stages", [])
             load_passed = (
                 load_report.get("status") == "passed"
                 and int(load_report.get("target_chunks", 0)) >= 100_000_000
-                and any(int(item.get("concurrency", 0)) >= 1000 for item in stages if isinstance(item, dict))
+                and any(
+                    int(item.get("concurrency", 0)) >= 1000
+                    for item in stages
+                    if isinstance(item, dict)
+                )
             )
             if not load_passed:
                 missing.append("passed 100M-chunk/1000-concurrency RAG load report")
@@ -332,7 +366,9 @@ def _check_rag_runtime(mode: str) -> ReadinessCheck:
         missing.append("env:CRAFTLY_RAG_LOAD_REPORT")
     status: ReadinessStatus
     if missing:
-        status = "blocked_missing_dependency" if mode == "production" else "built_not_cluster_proven"
+        status = (
+            "blocked_missing_dependency" if mode == "production" else "built_not_cluster_proven"
+        )
     elif proof_passed and evaluation_passed and load_passed:
         status = "production_ready_requires_external_service"
     else:
@@ -371,12 +407,26 @@ def _check_cli_tools(mode: str) -> list[ReadinessCheck]:
     ]
     checks: list[ReadinessCheck] = []
     for subsystem, executable, module, summary in tools:
-        present = _codeql_present() if subsystem == "codeql" else (_python_tool_present(executable, module) if module else shutil.which(executable) is not None)
-        dep = f"executable:{executable}" if module is None else f"executable:{executable} or python module:{module}"
+        present = (
+            _codeql_present()
+            if subsystem == "codeql"
+            else (
+                _python_tool_present(executable, module)
+                if module
+                else shutil.which(executable) is not None
+            )
+        )
+        dep = (
+            f"executable:{executable}"
+            if module is None
+            else f"executable:{executable} or python module:{module}"
+        )
         checks.append(
             ReadinessCheck(
                 subsystem=subsystem,
-                status="production_ready_requires_external_service" if present else "blocked_missing_dependency",
+                status="production_ready_requires_external_service"
+                if present
+                else "blocked_missing_dependency",
                 summary=summary if present else f"{summary} executable is missing.",
                 required_dependencies=[dep],
                 missing_dependencies=[] if present else [dep],
@@ -405,12 +455,17 @@ def _check_training_stack(mode: str) -> list[ReadinessCheck]:
     hf_export_ready = bool(
         hf_export_dir
         and all((Path(hf_export_dir) / name).exists() for name in ["config.json", "tokenizer.json"])
-        and ((Path(hf_export_dir) / "model.safetensors").exists() or (Path(hf_export_dir) / "pytorch_model.bin").exists())
+        and (
+            (Path(hf_export_dir) / "model.safetensors").exists()
+            or (Path(hf_export_dir) / "pytorch_model.bin").exists()
+        )
     )
     trt_build = shutil.which("trtllm-build") is not None
     vllm_trt_missing = []
     if not hf_export_ready:
-        vllm_trt_missing.append("CRAFTLY_HF_EXPORT_DIR with config.json/model.safetensors/tokenizer.json")
+        vllm_trt_missing.append(
+            "CRAFTLY_HF_EXPORT_DIR with config.json/model.safetensors/tokenizer.json"
+        )
     if not vllm_available:
         vllm_trt_missing.append("python module: vllm")
     if not trt_build:
@@ -463,13 +518,24 @@ def _check_training_stack(mode: str) -> list[ReadinessCheck]:
                 if cuda_available
                 else "CUDA training runtime is not available on this host."
             ),
-            required_dependencies=["CUDA-capable GPU", "PyTorch CUDA build", "measured distributed training proof"],
+            required_dependencies=[
+                "CUDA-capable GPU",
+                "PyTorch CUDA build",
+                "measured distributed training proof",
+            ],
             missing_dependencies=(
                 ["measured distributed training proof"]
                 if cuda_available
-                else ["CUDA-capable GPU or compatible PyTorch CUDA build", "measured distributed training proof"]
+                else [
+                    "CUDA-capable GPU or compatible PyTorch CUDA build",
+                    "measured distributed training proof",
+                ]
             ),
-            evidence={"torch_version": torch_version, "cuda_available": cuda_available, "cluster_proven": False},
+            evidence={
+                "torch_version": torch_version,
+                "cuda_available": cuda_available,
+                "cluster_proven": False,
+            },
             production_blocker=mode == "production",
         ),
         ReadinessCheck(
@@ -483,7 +549,9 @@ def _check_training_stack(mode: str) -> list[ReadinessCheck]:
         ),
         ReadinessCheck(
             subsystem="deepspeed_megatron",
-            status="built_not_cluster_proven" if not deepspeed_missing else "blocked_missing_dependency",
+            status="built_not_cluster_proven"
+            if not deepspeed_missing
+            else "blocked_missing_dependency",
             summary=(
                 "DeepSpeed and Megatron launch contracts are wired; both still require measured cluster gates."
                 if not deepspeed_missing
@@ -496,7 +564,9 @@ def _check_training_stack(mode: str) -> list[ReadinessCheck]:
         ),
         ReadinessCheck(
             subsystem="vllm_tensorrt",
-            status="built_not_cluster_proven" if not vllm_trt_missing else "blocked_missing_dependency",
+            status="built_not_cluster_proven"
+            if not vllm_trt_missing
+            else "blocked_missing_dependency",
             summary=(
                 "Dense HF export dependencies exist; runtime decode parity is still required and MLA/MoE conversion is not implemented."
                 if hf_export_ready
@@ -543,7 +613,9 @@ def _check_training_workspace(mode: str) -> ReadinessCheck:
         profile_count = len(TrainingProfileRegistry.from_file().profiles)
     except (FileNotFoundError, ValueError):
         missing.append("valid config/training_profiles.json")
-    kubernetes_client = importlib.util.find_spec("kubernetes") is not None or shutil.which("kubectl") is not None
+    kubernetes_client = (
+        importlib.util.find_spec("kubernetes") is not None or shutil.which("kubectl") is not None
+    )
     if not kubernetes_client:
         missing.append("kubernetes Python client or kubectl")
     return ReadinessCheck(
@@ -554,7 +626,13 @@ def _check_training_workspace(mode: str) -> ReadinessCheck:
             if not missing
             else "Training workspace production dependencies are incomplete."
         ),
-        required_dependencies=["Postgres", "Redis Streams", "S3/MinIO", "JWT signing key", "Kubernetes scheduler client"],
+        required_dependencies=[
+            "Postgres",
+            "Redis Streams",
+            "S3/MinIO",
+            "JWT signing key",
+            "Kubernetes scheduler client",
+        ],
         missing_dependencies=missing,
         evidence={
             "profile_count": profile_count,
@@ -658,13 +736,16 @@ def _check_agent_execution(mode: str) -> ReadinessCheck:
             pack_proven = (
                 int(pack_evidence.get("task_count") or 0) == 50
                 and len(pack_task_ids) == 50
-                and all(int(category_counts.get(name) or 0) == 10 for name in [
-                    "coding",
-                    "debugging",
-                    "defensive_security",
-                    "patch_generation",
-                    "long_context",
-                ])
+                and all(
+                    int(category_counts.get(name) or 0) == 10
+                    for name in [
+                        "coding",
+                        "debugging",
+                        "defensive_security",
+                        "patch_generation",
+                        "long_context",
+                    ]
+                )
                 and bool(pack_evidence.get("evaluation_only"))
                 and bool(pack_evidence.get("benchmark_holdout"))
                 and not bool(pack_evidence.get("ground_truth_in_prompts"))
@@ -696,7 +777,9 @@ def _check_agent_execution(mode: str) -> ReadinessCheck:
             )
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             scorecard_proven = False
-    missing = [str(path) for path in [engine, scorecard_runner, qualification_runner] if not path.is_file()]
+    missing = [
+        str(path) for path in [engine, scorecard_runner, qualification_runner] if not path.is_file()
+    ]
     if mode == "production" and not pack_proven:
         missing.append(f"governed immutable 50-task qualification pack: {pack_path}")
     if mode == "production" and not scorecard_proven:
@@ -757,7 +840,9 @@ def _check_benchmark_files(mode: str, benchmark_dir: str | Path) -> ReadinessChe
     protected_manifest = root / "protected" / "protected_benchmark_manifest.json"
     protected_config = repository_root / "config" / "protected_benchmarks.json"
     executable_report_value = os.environ.get("CRAFTLY_EXECUTABLE_BENCHMARK_REPORT", "")
-    executable_report = Path(executable_report_value).expanduser() if executable_report_value else None
+    executable_report = (
+        Path(executable_report_value).expanduser() if executable_report_value else None
+    )
     missing: list[str] = []
     evidence: dict[str, Any] = {
         "benchmark_dir": str(root),
@@ -838,7 +923,9 @@ def run_production_readiness(
         _check_benchmark_files(mode, benchmark_dir),
     ]
     failed = any(check.production_blocker for check in checks)
-    return ProductionReadinessReport(mode=mode, status="failed" if failed else "passed", checks=checks)
+    return ProductionReadinessReport(
+        mode=mode, status="failed" if failed else "passed", checks=checks
+    )
 
 
 def write_markdown(report: ProductionReadinessReport, path: str | Path) -> Path:
@@ -855,7 +942,9 @@ def write_markdown(report: ProductionReadinessReport, path: str | Path) -> Path:
     ]
     for check in report.checks:
         missing = ", ".join(check.missing_dependencies)
-        lines.append(f"| {check.subsystem} | {check.status} | {check.production_blocker} | {missing} | {check.summary} |")
+        lines.append(
+            f"| {check.subsystem} | {check.status} | {check.production_blocker} | {missing} | {check.summary} |"
+        )
     target.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return target
 
@@ -879,4 +968,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

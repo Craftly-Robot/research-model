@@ -1,4 +1,4 @@
-﻿"""Allowlisted web corpus ingestion for defensive coding/security data."""
+"""Allowlisted web corpus ingestion for defensive coding/security data."""
 
 from __future__ import annotations
 
@@ -18,7 +18,6 @@ from pydantic import Field, field_validator, model_validator
 
 from src.craftly.shared.schemas import StrictModel
 
-
 TAG_RE = re.compile(r"<(script|style).*?</\1>", re.IGNORECASE | re.DOTALL)
 HTML_RE = re.compile(r"<[^>]+>")
 
@@ -32,7 +31,9 @@ class SourceSpec(StrictModel):
     category: str = "defensive_security"
     source_family: str | None = None
     trust_tier: Literal["quarantine", "reviewed", "trusted", "protected_holdout"] = "quarantine"
-    approved_use: Literal["foundation", "defensive", "authorized_lab", "evaluation_only"] = "defensive"
+    approved_use: Literal["foundation", "defensive", "authorized_lab", "evaluation_only"] = (
+        "defensive"
+    )
     approval_status: Literal["pending", "approved", "rejected", "expired"] = "pending"
     immutable_revision: str = "rolling"
     license_evidence_sha256: str | None = None
@@ -71,7 +72,7 @@ class SourceSpec(StrictModel):
         return normalized
 
     @model_validator(mode="after")
-    def finalize_identity(self) -> "SourceSpec":
+    def finalize_identity(self) -> SourceSpec:
         if self.source_id is None:
             object.__setattr__(
                 self,
@@ -153,7 +154,9 @@ class WebCorpusIngestor:
         errors: list[str] = []
         robots = RobotsCache(self.config.user_agent)
         headers = {"User-Agent": self.config.user_agent}
-        async with httpx.AsyncClient(headers=headers, timeout=self.config.request_timeout_seconds, follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            headers=headers, timeout=self.config.request_timeout_seconds, follow_redirects=True
+        ) as client:
             with target.open("w", encoding="utf-8") as handle:
                 for source in sources:
                     for url in source.urls:
@@ -176,9 +179,13 @@ class WebCorpusIngestor:
                             continue
                         handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
                         fetched += 1
-        return IngestReport(output_path=str(target), fetched=fetched, rejected=rejected, errors=errors)
+        return IngestReport(
+            output_path=str(target), fetched=fetched, rejected=rejected, errors=errors
+        )
 
-    async def fetch_one(self, client: httpx.AsyncClient, source: SourceSpec, url: str) -> dict[str, Any]:
+    async def fetch_one(
+        self, client: httpx.AsyncClient, source: SourceSpec, url: str
+    ) -> dict[str, Any]:
         response = await client.get(url)
         response.raise_for_status()
         raw = response.text[: self.config.max_bytes_per_doc]
@@ -186,7 +193,9 @@ class WebCorpusIngestor:
         media_type = content_type.split(";", 1)[0].strip().lower()
         if media_type and media_type not in source.allowed_content_types:
             raise ValueError(f"content_type_not_allowed:{media_type}")
-        text = text_from_html(raw) if "html" in content_type.lower() or "<html" in raw.lower() else raw
+        text = (
+            text_from_html(raw) if "html" in content_type.lower() or "<html" in raw.lower() else raw
+        )
         raw_hash = content_hash(raw)
         canonical_hash = content_hash(text)
         snapshot_payload = {
@@ -250,11 +259,12 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    ingestor = WebCorpusIngestor(CrawlConfig(max_docs=args.max_docs, delay_seconds=args.delay_seconds))
+    ingestor = WebCorpusIngestor(
+        CrawlConfig(max_docs=args.max_docs, delay_seconds=args.delay_seconds)
+    )
     report = asyncio.run(ingestor.ingest(load_sources(args.sources), args.output))
     print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":
     main()
-

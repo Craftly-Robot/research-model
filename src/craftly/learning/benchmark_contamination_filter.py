@@ -1,4 +1,4 @@
-﻿"""Benchmark contamination filtering for dataset construction."""
+"""Benchmark contamination filtering for dataset construction."""
 
 from __future__ import annotations
 
@@ -16,7 +16,6 @@ from pydantic import Field
 from src.craftly.learning.near_dedup import normalized_structure_hash
 from src.craftly.learning.quality import iter_jsonl, stable_hash
 from src.craftly.shared.schemas import StrictModel
-
 
 DEFAULT_BENCHMARK_PATTERNS = [
     r"\bhumaneval\b",
@@ -288,12 +287,16 @@ class ProtectedBenchmarkFingerprintIndex:
                 [(key, signature_id) for key in _signature_band_keys(signature)],
             )
 
-    def match(self, row: dict[str, Any], *, minimum_similarity: float = 0.80) -> tuple[str | None, str | None]:
+    def match(
+        self, row: dict[str, Any], *, minimum_similarity: float = 0.80
+    ) -> tuple[str | None, str | None]:
         text = _text(row)
         if not text:
             return None, None
         exact = stable_hash(" ".join(text.split()))
-        hit = self.connection.execute("SELECT benchmark FROM protected_exact WHERE hash=?", (exact,)).fetchone()
+        hit = self.connection.execute(
+            "SELECT benchmark FROM protected_exact WHERE hash=?", (exact,)
+        ).fetchone()
         if hit:
             return "exact_fingerprint", str(hit[0])
         task_id = _task_id(row)
@@ -306,7 +309,9 @@ class ProtectedBenchmarkFingerprintIndex:
                 return "task_id_fingerprint", str(hit[0])
         structure = normalized_structure_hash(text, _language(row))
         if structure:
-            hit = self.connection.execute("SELECT benchmark FROM protected_structure WHERE hash=?", (structure,)).fetchone()
+            hit = self.connection.execute(
+                "SELECT benchmark FROM protected_structure WHERE hash=?", (structure,)
+            ).fetchone()
             if hit:
                 return "structural_fingerprint", str(hit[0])
         signature = minhash_signature(text)
@@ -322,10 +327,14 @@ class ProtectedBenchmarkFingerprintIndex:
                 """,
                 (key,),
             )
-            candidates.update((str(benchmark), str(serialized)) for benchmark, serialized in matches)
+            candidates.update(
+                (str(benchmark), str(serialized)) for benchmark, serialized in matches
+            )
         for benchmark, serialized in candidates:
             protected = tuple(int(value) for value in json.loads(serialized))
-            similarity = sum(left == right for left, right in zip(signature, protected)) / MINHASH_SIZE
+            similarity = (
+                sum(left == right for left, right in zip(signature, protected)) / MINHASH_SIZE
+            )
             if similarity >= minimum_similarity:
                 return f"near_fingerprint:{similarity:.6f}", str(benchmark)
         return None, None
@@ -369,7 +378,9 @@ class ContaminationDetector:
     def __init__(self, patterns: list[str] | None = None) -> None:
         self.filter = BenchmarkContaminationFilter(patterns)
 
-    def scan_jsonl(self, paths: list[str | Path], *, block_on_hit: bool = True) -> ContaminationReport:
+    def scan_jsonl(
+        self, paths: list[str | Path], *, block_on_hit: bool = True
+    ) -> ContaminationReport:
         hits: list[ContaminationHit] = []
         scanned = 0
         for path in paths:
@@ -388,7 +399,9 @@ class ContaminationDetector:
                             content_hash=str(row.get("content_hash") or stable_hash(text)),
                         )
                     )
-        return ContaminationReport(scanned_rows=scanned, hits=hits, blocked=bool(hits and block_on_hit))
+        return ContaminationReport(
+            scanned_rows=scanned, hits=hits, blocked=bool(hits and block_on_hit)
+        )
 
 
 def filter_benchmark_contamination_jsonl(
@@ -400,7 +413,9 @@ def filter_benchmark_contamination_jsonl(
     minimum_similarity: float = 0.80,
 ) -> BenchmarkContaminationFilterReport:
     detector = BenchmarkContaminationFilter(patterns)
-    protected = ProtectedBenchmarkFingerprintIndex(protected_index_path) if protected_index_path else None
+    protected = (
+        ProtectedBenchmarkFingerprintIndex(protected_index_path) if protected_index_path else None
+    )
     target = Path(output_path)
     target.parent.mkdir(parents=True, exist_ok=True)
     accepted = 0
@@ -415,7 +430,9 @@ def filter_benchmark_contamination_jsonl(
                     pattern = detector.find_pattern(text)
                     benchmark: str | None = None
                     if pattern is None and protected is not None:
-                        match, benchmark = protected.match(row, minimum_similarity=minimum_similarity)
+                        match, benchmark = protected.match(
+                            row, minimum_similarity=minimum_similarity
+                        )
                         pattern = match
                     if pattern is not None:
                         rejected += 1
@@ -457,7 +474,9 @@ def filter_benchmark_contamination_jsonl(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Remove benchmark-contaminated rows from Craftly JSONL shards.")
+    parser = argparse.ArgumentParser(
+        description="Remove benchmark-contaminated rows from Craftly JSONL shards."
+    )
     parser.add_argument("--input", nargs="+", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--patterns")
@@ -481,4 +500,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

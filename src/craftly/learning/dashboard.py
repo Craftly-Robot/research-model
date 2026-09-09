@@ -1,4 +1,4 @@
-﻿"""Render a lightweight dataset operations dashboard."""
+"""Render a lightweight dataset operations dashboard."""
 
 from __future__ import annotations
 
@@ -52,9 +52,13 @@ def render_dashboard(report: dict[str, Any]) -> str:
         ("Feedback Items", len(feedback.get("recommendations", []))),
         ("Uploaded Objects", len(uploaded)),
     ]
-    table = "\n".join(f"<tr><th>{html.escape(str(k))}</th><td>{html.escape(str(v))}</td></tr>" for k, v in rows)
+    table = "\n".join(
+        f"<tr><th>{html.escape(str(k))}</th><td>{html.escape(str(v))}</td></tr>" for k, v in rows
+    )
     warnings = source.get("warnings", [])
-    warning_html = "".join(f"<li>{html.escape(str(item))}</li>" for item in warnings) or "<li>None</li>"
+    warning_html = (
+        "".join(f"<li>{html.escape(str(item))}</li>" for item in warnings) or "<li>None</li>"
+    )
     reputation_rows = ""
     for item in source_reputation.get("sources", [])[:20]:
         reputation_rows += (
@@ -66,7 +70,7 @@ def render_dashboard(report: dict[str, Any]) -> str:
             "</tr>"
         )
     if not reputation_rows:
-        reputation_rows = "<tr><td colspan=\"4\">No reputation report yet</td></tr>"
+        reputation_rows = '<tr><td colspan="4">No reputation report yet</td></tr>'
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -113,4 +117,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

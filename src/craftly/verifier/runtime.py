@@ -1,21 +1,24 @@
-﻿"""MVP verifier runtime for tests and defensive static checks."""
+"""MVP verifier runtime for tests and defensive static checks."""
 
 from __future__ import annotations
 
 import re
 import time
 import uuid
+from pathlib import Path
 from typing import Any
 
 from pydantic import Field
 
 from src.craftly.db import LocalStore
 from src.craftly.shared.config import ROOT
-from src.craftly.shared.config_contracts import VerifierPolicyContract, load_verifier_policy_contract
+from src.craftly.shared.config_contracts import (
+    VerifierPolicyContract,
+    load_verifier_policy_contract,
+)
 from src.craftly.shared.schemas import StrictModel
 from src.craftly.tools import HardenedToolExecutor, SecurityScanner, ToolExecuteRequest
 from src.craftly.tools.policy import project_root
-
 
 SECRET_PATTERNS = [
     re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
@@ -99,7 +102,11 @@ class VerifierRuntime:
             for item in security_results
             if item["status"] in {"skipped", "timeout"} and request.fail_on_tool_unavailable
         ]
-        status = "passed" if not failed_tests and not failed_security and not unavailable_security else "failed"
+        status = (
+            "passed"
+            if not failed_tests and not failed_security and not unavailable_security
+            else "failed"
+        )
         return VerificationResponse(
             project_id=request.project_id,
             run_id=request.run_id,
@@ -137,7 +144,9 @@ class VerifierRuntime:
             raise KeyError(f"unknown project: {project_id}")
         findings = []
         for chunk in self.store.list_chunks(project_id):
-            for line_no, line in enumerate(str(chunk["content"]).splitlines(), start=chunk["start_line"]):
+            for line_no, line in enumerate(
+                str(chunk["content"]).splitlines(), start=chunk["start_line"]
+            ):
                 if any(pattern.search(line) for pattern in SECRET_PATTERNS):
                     findings.append(
                         {
@@ -158,7 +167,16 @@ class VerifierRuntime:
         lowered = prompt.lower()
         risks = [
             term
-            for term in ["delete", "secret", "password", "token", "unsafe", "eval", "exploit", "malware"]
+            for term in [
+                "delete",
+                "secret",
+                "password",
+                "token",
+                "unsafe",
+                "eval",
+                "exploit",
+                "malware",
+            ]
             if term in lowered
         ]
         confidence = 0.9 if not risks else 0.65
@@ -173,9 +191,12 @@ class VerifierRuntime:
         if prompt and "security" in prompt.lower() and "test" not in artifact.lower():
             issues.append("security-related artifact does not mention tests")
         confidence = 0.9 if not issues else 0.55
-        return GuardrailReview(accepted=confidence >= 0.6, confidence=confidence, risks=[], issues=issues)
+        return GuardrailReview(
+            accepted=confidence >= 0.6, confidence=confidence, risks=[], issues=issues
+        )
 
 
 def load_verifier_policy(path: str | None = None) -> VerifierPolicyContract:
-    return load_verifier_policy_contract(Path(path) if path else ROOT / "config" / "verifier_policy.json")
-
+    return load_verifier_policy_contract(
+        Path(path) if path else ROOT / "config" / "verifier_policy.json"
+    )

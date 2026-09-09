@@ -17,3 +17,14 @@ craftly = "src.craftly.training_client:main"
 [tool.setuptools]
 packages = ["src", "src.craftly"]
 py-modules = ["craftly_client"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]

@@ -60,7 +60,7 @@ class RepositoryAgentTask(StrictModel):
         return commands
 
     @model_validator(mode="after")
-    def validate_assertion_paths(self) -> "RepositoryAgentTask":
+    def validate_assertion_paths(self) -> RepositoryAgentTask:
         paths = [
             *self.expected_changed_files,
             *self.required_substrings,
@@ -256,9 +256,7 @@ class AgentScorecardRunner:
                 )
                 after = self._file_hashes(worktree)
                 changed = {
-                    path
-                    for path in set(before) | set(after)
-                    if before.get(path) != after.get(path)
+                    path for path in set(before) | set(after) if before.get(path) != after.get(path)
                 }
                 expected_files = set(task.expected_changed_files)
                 expected_files_changed = not expected_files or expected_files.issubset(changed)
@@ -325,10 +323,17 @@ class AgentScorecardRunner:
         regressions = sum(
             1
             for item in scores
-            if item.accepted and (not item.tests_passed or not item.security_passed or not item.content_assertions_passed)
+            if item.accepted
+            and (
+                not item.tests_passed
+                or not item.security_passed
+                or not item.content_assertions_passed
+            )
         )
         average_score = sum(item.score for item in scores) / len(scores) if scores else 0.0
-        average_confidence = sum(item.confidence for item in scores) / len(scores) if scores else 0.0
+        average_confidence = (
+            sum(item.confidence for item in scores) / len(scores) if scores else 0.0
+        )
         required = 0.80 if self.policy_mode == "strict" else 0.0
         passed = (
             bool(scores)
@@ -366,11 +371,19 @@ class AgentScorecardRunner:
         require_complete: bool,
     ) -> dict[str, str]:
         profile_payload = load_active_profile()
-        profile = profile_payload.get("profile") if isinstance(profile_payload.get("profile"), dict) else {}
+        profile = (
+            profile_payload.get("profile")
+            if isinstance(profile_payload.get("profile"), dict)
+            else {}
+        )
         evidence = dict(profile.get("evidence") or {}) if isinstance(profile, dict) else {}
         profile_source = active_profile_path()
-        checkpoint_value = str(profile.get("checkpoint_manifest") or "") if isinstance(profile, dict) else ""
-        tokenizer_value = str(profile.get("tokenizer_path") or "") if isinstance(profile, dict) else ""
+        checkpoint_value = (
+            str(profile.get("checkpoint_manifest") or "") if isinstance(profile, dict) else ""
+        )
+        tokenizer_value = (
+            str(profile.get("tokenizer_path") or "") if isinstance(profile, dict) else ""
+        )
 
         if profile_source.is_file():
             evidence["active_profile_sha256"] = sha256_file(profile_source)
@@ -378,12 +391,16 @@ class AgentScorecardRunner:
             checkpoint = Path(checkpoint_value).expanduser().resolve(strict=True)
             actual_checkpoint_hash = sha256_file(checkpoint)
             if evidence.get("checkpoint_manifest_sha256") != actual_checkpoint_hash:
-                raise RuntimeError("active model profile checkpoint evidence does not match the checkpoint manifest")
+                raise RuntimeError(
+                    "active model profile checkpoint evidence does not match the checkpoint manifest"
+                )
         if tokenizer_value:
             tokenizer = Path(tokenizer_value).expanduser().resolve(strict=True)
             actual_tokenizer_hash = sha256_file(tokenizer)
             if evidence.get("tokenizer_sha256") != actual_tokenizer_hash:
-                raise RuntimeError("active model profile tokenizer evidence does not match the tokenizer")
+                raise RuntimeError(
+                    "active model profile tokenizer evidence does not match the tokenizer"
+                )
 
         if require_complete:
             required = {
@@ -403,12 +420,18 @@ class AgentScorecardRunner:
                     + ", ".join(missing)
                 )
             if backend.name != "craftly_serving":
-                raise RuntimeError("strict scorecard requires the evidence-bound Craftly serving backend")
+                raise RuntimeError(
+                    "strict scorecard requires the evidence-bound Craftly serving backend"
+                )
             identity = await backend.identity()
             if identity.get("checkpoint_manifest_sha256") != evidence["checkpoint_manifest_sha256"]:
-                raise RuntimeError("serving checkpoint identity does not match the active model profile")
+                raise RuntimeError(
+                    "serving checkpoint identity does not match the active model profile"
+                )
             if identity.get("tokenizer_sha256") != evidence["tokenizer_sha256"]:
-                raise RuntimeError("serving tokenizer identity does not match the active model profile")
+                raise RuntimeError(
+                    "serving tokenizer identity does not match the active model profile"
+                )
             identity_evidence = {
                 "status": identity.get("status"),
                 "model_name": identity.get("model_name"),
@@ -439,14 +462,26 @@ class AgentScorecardRunner:
     def _validate_suite(self, tasks: list[RepositoryAgentTask]) -> None:
         minimum = 50 if self.policy_mode == "strict" else 1
         if not minimum <= len(tasks) <= 100:
-            raise ValueError(f"{self.policy_mode} scorecard requires {minimum}-100 repository tasks")
+            raise ValueError(
+                f"{self.policy_mode} scorecard requires {minimum}-100 repository tasks"
+            )
         ids = [task.task_id for task in tasks]
         if len(ids) != len(set(ids)):
             raise ValueError("scorecard task IDs must be unique")
         categories = {task.category for task in tasks}
-        if self.policy_mode == "strict" and not {"coding", "debugging", "security", "patch", "long_context"}.issubset(categories):
-            raise ValueError("strict scorecard must cover coding, debugging, security, patch, and long_context")
-        if self.policy_mode == "strict" and any(not task.run_semgrep and not task.run_codeql for task in tasks):
+        if self.policy_mode == "strict" and not {
+            "coding",
+            "debugging",
+            "security",
+            "patch",
+            "long_context",
+        }.issubset(categories):
+            raise ValueError(
+                "strict scorecard must cover coding, debugging, security, patch, and long_context"
+            )
+        if self.policy_mode == "strict" and any(
+            not task.run_semgrep and not task.run_codeql for task in tasks
+        ):
             raise ValueError("every strict scorecard task must enable Semgrep or CodeQL")
         if self.policy_mode == "strict":
             for category in ["coding", "debugging", "security", "patch", "long_context"]:
@@ -456,22 +491,34 @@ class AgentScorecardRunner:
                 raise ValueError("strict scorecard requires at least 10 short-prompt tasks")
             if any(not task.expected_changed_files for task in tasks):
                 raise ValueError("strict scorecard tasks require expected_changed_files")
-            if any(not task.required_substrings and not task.forbidden_substrings for task in tasks):
+            if any(
+                not task.required_substrings and not task.forbidden_substrings for task in tasks
+            ):
                 raise ValueError("strict scorecard tasks require at least one content assertion")
 
     @staticmethod
     def _allowed_roots(default: Path) -> list[Path]:
-        configured = [item for item in os.environ.get("CRAFTLY_SCORECARD_REPO_ROOTS", "").split(os.pathsep) if item]
+        configured = [
+            item
+            for item in os.environ.get("CRAFTLY_SCORECARD_REPO_ROOTS", "").split(os.pathsep)
+            if item
+        ]
         return [Path(item).expanduser().resolve(strict=True) for item in configured] or [default]
 
     @staticmethod
     def _resolve_repository(value: str, default_root: Path, allowed_roots: list[Path]) -> Path:
         candidate = Path(value).expanduser()
-        candidate = candidate.resolve(strict=True) if candidate.is_absolute() else (default_root / candidate).resolve(strict=True)
+        candidate = (
+            candidate.resolve(strict=True)
+            if candidate.is_absolute()
+            else (default_root / candidate).resolve(strict=True)
+        )
         if not candidate.is_dir():
             raise ValueError(f"scorecard repository is not a directory: {candidate}")
         if not any(candidate == root or root in candidate.parents for root in allowed_roots):
-            raise ValueError(f"scorecard repository is outside CRAFTLY_SCORECARD_REPO_ROOTS: {candidate}")
+            raise ValueError(
+                f"scorecard repository is outside CRAFTLY_SCORECARD_REPO_ROOTS: {candidate}"
+            )
         return candidate
 
     @staticmethod
@@ -529,7 +576,10 @@ class AgentScorecardRunner:
 
     def _write_reports(self, output_dir: Path, report: AgentScorecardReport) -> None:
         payload = report.model_dump(mode="json")
-        self._atomic_text(output_dir / "agent_scorecard.json", json.dumps(payload, indent=2, sort_keys=True) + "\n")
+        self._atomic_text(
+            output_dir / "agent_scorecard.json",
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
+        )
         lines = [
             "# Craftly Repository Agent Scorecard",
             "",
@@ -575,7 +625,9 @@ async def _run_cli(args: argparse.Namespace) -> AgentScorecardReport:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run 50-100 real repository tasks through the Craftly agent")
+    parser = argparse.ArgumentParser(
+        description="Run 50-100 real repository tasks through the Craftly agent"
+    )
     parser.add_argument("--tasks", required=True, help="JSONL repository task suite")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--repository-root")

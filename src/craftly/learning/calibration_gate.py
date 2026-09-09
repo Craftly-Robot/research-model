@@ -35,11 +35,11 @@ from src.craftly.learning.benchmark_contamination_filter import (
 )
 from src.craftly.learning.data_engine import DataEngine, DataEngineConfig, FrontierStore
 from src.craftly.learning.dataset_authority import (
-    ReviewItemCreate,
     ReviewerQualificationEvaluationReport,
     ReviewerRoster,
-    SQLiteDatasetAuthorityStore,
+    ReviewItemCreate,
     SourceSnapshotCreate,
+    SQLiteDatasetAuthorityStore,
     load_reviewer_roster,
 )
 from src.craftly.learning.license_filter import LicenseFilterReport, filter_jsonl_by_license
@@ -51,11 +51,13 @@ from src.craftly.learning.source_registry import (
     SourceRegistryReport,
     source_registry_entry_sha256,
 )
-from src.craftly.shared.config_contracts import DatasetTrustPolicyContract, load_dataset_trust_policy
+from src.craftly.shared.config_contracts import (
+    DatasetTrustPolicyContract,
+    load_dataset_trust_policy,
+)
+from src.craftly.shared.integrity import sha256_file as _sha256_file
 from src.craftly.shared.progress import ProgressReporter, progress_from_options
 from src.craftly.shared.schemas import StrictModel
-from src.craftly.shared.integrity import sha256_file as _sha256_file
-
 
 CalibrationStage = Literal["calibration_200", "calibration_5k"]
 CalibrationNextStage = Literal[
@@ -124,7 +126,7 @@ class CalibrationManifest(StrictModel):
     created_at_unix: float = Field(default_factory=time.time)
 
     @model_validator(mode="after")
-    def validate_stage_contract(self) -> "CalibrationManifest":
+    def validate_stage_contract(self) -> CalibrationManifest:
         required_count = STAGE_RECORD_COUNTS[self.stage]
         if not self.dev_test and self.target_records != required_count:
             raise ValueError(f"{self.stage} requires exactly {required_count} target records")
@@ -164,7 +166,7 @@ class CalibrationDecision(StrictModel):
     created_at_unix: float = Field(default_factory=time.time)
 
     @model_validator(mode="after")
-    def validate_decision_contract(self) -> "CalibrationDecision":
+    def validate_decision_contract(self) -> CalibrationDecision:
         for name in (
             "manifest_sha256",
             "source_registry_sha256",
@@ -214,7 +216,10 @@ def _fresh_directory(path: str | Path) -> Path:
 
 def _registry_sha256(registry: SourceRegistry) -> str:
     payload = json.dumps(
-        [source.model_dump(mode="json") for source in sorted(registry.to_sources(), key=lambda item: item.source_id or "")],
+        [
+            source.model_dump(mode="json")
+            for source in sorted(registry.to_sources(), key=lambda item: item.source_id or "")
+        ],
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
@@ -224,11 +229,15 @@ def _registry_sha256(registry: SourceRegistry) -> str:
 
 def _legal_evidence_sha256(path: str | Path) -> str:
     root = Path(path).resolve()
-    files = sorted(
-        item
-        for item in root.rglob("*")
-        if item.is_file() and item.name in {"approval.json", "license.txt"}
-    ) if root.is_dir() else []
+    files = (
+        sorted(
+            item
+            for item in root.rglob("*")
+            if item.is_file() and item.name in {"approval.json", "license.txt"}
+        )
+        if root.is_dir()
+        else []
+    )
     payload = [
         {
             "path": file.relative_to(root).as_posix(),
@@ -262,10 +271,7 @@ def _validate_reviewer_qualification(
     evaluated_reviewers = {item.reviewer_id for item in report.reviewers}
     if evaluated_reviewers != active_reviewers:
         raise ValueError("reviewer qualification identities do not match the active reviewers")
-    if any(
-        not item.passed or item.accuracy < report.minimum_accuracy
-        for item in report.reviewers
-    ):
+    if any(not item.passed or item.accuracy < report.minimum_accuracy for item in report.reviewers):
         raise ValueError("reviewer qualification accuracy threshold was not met")
     if report.reviewer_agreement_kappa < report.minimum_kappa:
         raise ValueError("reviewer qualification agreement threshold was not met")
@@ -334,7 +340,9 @@ def _authority_evidence(manifest: CalibrationManifest) -> list[dict[str, Any]]:
                     "binding": binding.model_dump(mode="json"),
                     "item": dict(item),
                     "decisions": decisions,
-                    "adjudication": dict(adjudication_row) if adjudication_row is not None else None,
+                    "adjudication": dict(adjudication_row)
+                    if adjudication_row is not None
+                    else None,
                     "source_snapshot": dict(snapshot) if snapshot is not None else None,
                 }
             )
@@ -343,7 +351,9 @@ def _authority_evidence(manifest: CalibrationManifest) -> list[dict[str, Any]]:
 
 def _authority_evidence_sha256(manifest: CalibrationManifest) -> str:
     evidence = _authority_evidence(manifest)
-    return stable_hash(json.dumps(evidence, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+    return stable_hash(
+        json.dumps(evidence, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    )
 
 
 def _replay_manifest_evidence(
@@ -355,15 +365,12 @@ def _replay_manifest_evidence(
     issues: list[str] = []
     checks: dict[str, bool] = {}
     for name, path in manifest.artifacts.items():
-        checks[f"artifact_{name}_untampered"] = (
-            Path(path).is_file() and _sha256_file(path) == manifest.artifact_sha256.get(name)
-        )
+        checks[f"artifact_{name}_untampered"] = Path(path).is_file() and _sha256_file(
+            path
+        ) == manifest.artifact_sha256.get(name)
     rows_path = manifest.artifacts.get("calibration_rows")
     rows = list(iter_jsonl(rows_path)) if rows_path and Path(rows_path).is_file() else []
-    row_hashes = {
-        str(row.get("content_hash") or stable_hash(_row_text(row)))
-        for row in rows
-    }
+    row_hashes = {str(row.get("content_hash") or stable_hash(_row_text(row))) for row in rows}
     high_value_types = set(policy.high_value_data_types)
     high_value_hashes = {
         str(row.get("content_hash") or stable_hash(_row_text(row)))
@@ -462,10 +469,13 @@ def _replay_manifest_evidence(
             "authority_review_bindings_valid": bindings_valid,
             "adjudicator_identity_separate": adjudicator_separation_valid,
             "all_sample_records_have_two_reviews": paired == sample_count and pending == 0,
-            "review_acceptance_threshold": acceptance_rate >= policy.review.sampled_acceptance_minimum,
+            "review_acceptance_threshold": acceptance_rate
+            >= policy.review.sampled_acceptance_minimum,
             "reviewer_agreement_threshold": kappa >= policy.review.reviewer_agreement_minimum,
-            "average_quality_threshold": average_quality >= policy.promotion.minimum_average_quality,
-            "source_fraction_threshold": maximum_source_fraction <= policy.source_limits.source_max_token_fraction,
+            "average_quality_threshold": average_quality
+            >= policy.promotion.minimum_average_quality,
+            "source_fraction_threshold": maximum_source_fraction
+            <= policy.source_limits.source_max_token_fraction,
             "protected_contamination_zero": contamination_hits == 0,
         }
     )
@@ -591,9 +601,11 @@ def validate_advancement_decision(
     if governance_issues:
         raise ValueError("calibration governance binding is stale: " + "; ".join(governance_issues))
     policy = load_dataset_trust_policy(trust_policy_path)
-    replay_checks, replay_metrics, replay_issues, replay_authority_sha256 = _replay_manifest_evidence(
-        manifest,
-        policy,
+    replay_checks, replay_metrics, replay_issues, replay_authority_sha256 = (
+        _replay_manifest_evidence(
+            manifest,
+            policy,
+        )
     )
     if replay_issues or not all(replay_checks.values()):
         raise ValueError("calibration evidence replay failed: " + "; ".join(replay_issues))
@@ -601,13 +613,19 @@ def validate_advancement_decision(
         raise ValueError("calibration decision metrics do not match replayed evidence")
     for check_name, replayed in replay_checks.items():
         if decision.checks.get(check_name) is not replayed:
-            raise ValueError(f"calibration decision check does not match replayed evidence: {check_name}")
+            raise ValueError(
+                f"calibration decision check does not match replayed evidence: {check_name}"
+            )
     if replay_authority_sha256 != decision.authority_evidence_sha256:
         raise ValueError("dataset authority evidence changed after calibration finalization")
 
     prior_requirement = STAGE_PRIOR_REQUIREMENTS[manifest.stage]
     if prior_requirement is None:
-        if manifest.prior_decision_path or manifest.prior_decision_sha256 or decision.prior_decision_sha256:
+        if (
+            manifest.prior_decision_path
+            or manifest.prior_decision_sha256
+            or decision.prior_decision_sha256
+        ):
             raise ValueError("calibration_200 must not contain prior-stage evidence")
     else:
         if not manifest.prior_decision_path or not manifest.prior_decision_sha256:
@@ -653,7 +671,9 @@ def preflight_calibration(
     registry.prepare_approval_requests(approval_request_dir)
     try:
         source_report = registry.validate()
-        blockers.extend(f"source_legal_approval:{issue}" for issue in registry.production_blockers())
+        blockers.extend(
+            f"source_legal_approval:{issue}" for issue in registry.production_blockers()
+        )
         blockers.extend(
             f"source_legal_evidence:{issue}"
             for issue in registry.verify_approval_evidence_directory(legal_evidence_dir)
@@ -661,12 +681,16 @@ def preflight_calibration(
     except (ValueError, FileNotFoundError) as exc:
         blockers.append(f"source_legal_approval:{exc}")
     try:
-        protected = validate_protected_benchmark_manifest(protected_config_path, protected_manifest_path)
+        protected = validate_protected_benchmark_manifest(
+            protected_config_path, protected_manifest_path
+        )
     except (ValueError, FileNotFoundError, json.JSONDecodeError) as exc:
         blockers.append(f"protected_benchmarks:{exc}")
     try:
         reviewer_roster = load_reviewer_roster(reviewer_roster_path)
-        blockers.extend(f"reviewer_roster:{issue}" for issue in reviewer_roster.readiness_blockers())
+        blockers.extend(
+            f"reviewer_roster:{issue}" for issue in reviewer_roster.readiness_blockers()
+        )
     except (ValueError, FileNotFoundError, json.JSONDecodeError) as exc:
         blockers.append(f"reviewer_roster:{exc}")
     if reviewer_qualification_report_path is None:
@@ -724,7 +748,9 @@ def _source_snapshot_sha256(source_id: str, revision: str, content_hashes: list[
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
-def _write_calibration_rows(input_path: Path, output_path: Path, target_records: int) -> list[dict[str, Any]]:
+def _write_calibration_rows(
+    input_path: Path, output_path: Path, target_records: int
+) -> list[dict[str, Any]]:
     rows = list(iter_jsonl(input_path))
     rows.sort(key=lambda row: (str(row.get("source") or ""), str(row.get("content_hash") or "")))
     selected = rows[:target_records]
@@ -762,10 +788,11 @@ async def _bind_review_sample(
         assert source.license_evidence_sha256 is not None
         assert source.legal_approval_sha256 is not None
         content_hashes = [
-            str(row.get("content_hash") or stable_hash(_row_text(row)))
-            for row in source_rows
+            str(row.get("content_hash") or stable_hash(_row_text(row))) for row in source_rows
         ]
-        snapshot_sha256 = _source_snapshot_sha256(source_id, source.immutable_revision, content_hashes)
+        snapshot_sha256 = _source_snapshot_sha256(
+            source_id, source.immutable_revision, content_hashes
+        )
         await authority.record_source_snapshot(
             SourceSnapshotCreate(
                 source_id=source_id,
@@ -868,7 +895,11 @@ async def run_calibration(
 ) -> CalibrationPreflightReport | CalibrationManifest:
     if dev_test_target_records is not None and not dev_test:
         raise ValueError("custom calibration counts require explicit dev-test mode")
-    target_records = dev_test_target_records if dev_test_target_records is not None else STAGE_RECORD_COUNTS[stage]
+    target_records = (
+        dev_test_target_records
+        if dev_test_target_records is not None
+        else STAGE_RECORD_COUNTS[stage]
+    )
     if target_records <= 0:
         raise ValueError("calibration target must be positive")
     prior_requirement = STAGE_PRIOR_REQUIREMENTS[stage]
@@ -911,14 +942,20 @@ async def run_calibration(
     if preflight.status != "ready":
         return preflight
     assert reviewer_qualification_report_path is not None
-    reviewer_qualification_path = Path(reviewer_qualification_report_path).expanduser().resolve(strict=True)
+    reviewer_qualification_path = (
+        Path(reviewer_qualification_report_path).expanduser().resolve(strict=True)
+    )
 
     registry = SourceRegistry.from_file(sources_path)
-    registry_report = registry.validate(production=True)
+    registry.validate(production=True)
     policy = load_dataset_trust_policy(trust_policy_path)
     protected_manifest_file = Path(protected_manifest_path).resolve()
-    protected_manifest = validate_protected_benchmark_manifest(protected_config_path, protected_manifest_file)
-    protected_index = (protected_manifest_file.parent / protected_manifest.fingerprint_index_path).resolve()
+    protected_manifest = validate_protected_benchmark_manifest(
+        protected_config_path, protected_manifest_file
+    )
+    protected_index = (
+        protected_manifest_file.parent / protected_manifest.fingerprint_index_path
+    ).resolve()
     progress: ProgressReporter = progress_from_options(
         path=str(root / "progress.jsonl"),
         to_stdout=progress_to_stdout,
@@ -1070,7 +1107,9 @@ async def finalize_calibration(
     registry = SourceRegistry.from_file(sources_path)
     try:
         registry.validate(production=True)
-        checks["source_contracts_unchanged"] = _registry_sha256(registry) == manifest.source_registry_sha256
+        checks["source_contracts_unchanged"] = (
+            _registry_sha256(registry) == manifest.source_registry_sha256
+        )
     except ValueError as exc:
         checks["source_contracts_unchanged"] = False
         issues.append(f"source registry is no longer production-valid: {exc}")
@@ -1080,7 +1119,9 @@ async def finalize_calibration(
         _legal_evidence_sha256(legal_evidence_dir) == manifest.legal_evidence_sha256
     )
     issues.extend(f"legal evidence invalid: {blocker}" for blocker in legal_blockers)
-    checks["trust_policy_unchanged"] = _sha256_file(trust_policy_path) == manifest.trust_policy_sha256
+    checks["trust_policy_unchanged"] = (
+        _sha256_file(trust_policy_path) == manifest.trust_policy_sha256
+    )
     checks["reviewer_roster_ready"] = not roster.readiness_blockers()
     checks["reviewer_roster_unchanged"] = (
         _sha256_file(reviewer_roster_path) == manifest.reviewer_roster_sha256
@@ -1117,8 +1158,7 @@ async def finalize_calibration(
         else []
     )
     row_hashes = {
-        str(row.get("content_hash") or stable_hash(_row_text(row)))
-        for row in calibration_rows
+        str(row.get("content_hash") or stable_hash(_row_text(row))) for row in calibration_rows
     }
     high_value_hashes = {
         str(row.get("content_hash") or stable_hash(_row_text(row)))
@@ -1128,9 +1168,7 @@ async def finalize_calibration(
     bound_hashes = {binding.content_hash for binding in manifest.review_bindings}
     bound_routine = sum(not binding.actual_high_value for binding in manifest.review_bindings)
     routine_rows = len(calibration_rows) - len(high_value_hashes)
-    minimum_routine_sample = math.ceil(
-        max(0, routine_rows) * policy.review.routine_sample_fraction
-    )
+    minimum_routine_sample = math.ceil(max(0, routine_rows) * policy.review.routine_sample_fraction)
     calculated_source_counts: dict[str, int] = {}
     for row in calibration_rows:
         source_name = str(row.get("source") or "unknown")
@@ -1139,9 +1177,7 @@ async def finalize_calibration(
         source_name: round(count / max(1, len(calibration_rows)), 6)
         for source_name, count in sorted(calculated_source_counts.items())
     }
-    checks["manifest_row_count_matches_artifact"] = (
-        len(calibration_rows) == manifest.final_records
-    )
+    checks["manifest_row_count_matches_artifact"] = len(calibration_rows) == manifest.final_records
     checks["review_bindings_reference_calibration_rows"] = bound_hashes.issubset(row_hashes)
     checks["all_high_value_rows_bound_for_review"] = high_value_hashes.issubset(bound_hashes)
     checks["routine_review_sample_fraction_met"] = bound_routine >= minimum_routine_sample
@@ -1229,10 +1265,13 @@ async def finalize_calibration(
                 )
             ),
             "all_sample_records_have_two_reviews": paired == sample_count and pending == 0,
-            "review_acceptance_threshold": acceptance_rate >= policy.review.sampled_acceptance_minimum,
+            "review_acceptance_threshold": acceptance_rate
+            >= policy.review.sampled_acceptance_minimum,
             "reviewer_agreement_threshold": kappa >= policy.review.reviewer_agreement_minimum,
-            "average_quality_threshold": average_quality >= policy.promotion.minimum_average_quality,
-            "source_fraction_threshold": maximum_source_fraction <= policy.source_limits.source_max_token_fraction,
+            "average_quality_threshold": average_quality
+            >= policy.promotion.minimum_average_quality,
+            "source_fraction_threshold": maximum_source_fraction
+            <= policy.source_limits.source_max_token_fraction,
             "protected_contamination_zero": contamination_hits == 0,
         }
     )
@@ -1276,19 +1315,27 @@ async def finalize_calibration(
         issues=issues,
         next_stage=next_stage,
     )
-    target = Path(output_path).resolve() if output_path else manifest_file.parent / "calibration_decision.json"
+    target = (
+        Path(output_path).resolve()
+        if output_path
+        else manifest_file.parent / "calibration_decision.json"
+    )
     _write_json_atomic(target, decision)
     return decision
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run the governed Craftly 200 -> 5k calibration ladder.")
+    parser = argparse.ArgumentParser(
+        description="Run the governed Craftly 200 -> 5k calibration ladder."
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
     for name in ("prepare", "run"):
         command = subparsers.add_parser(name)
         command.add_argument("--sources", default="config/data_sources.ultimate.json")
         command.add_argument("--protected-config", default="config/protected_benchmarks.json")
-        command.add_argument("--protected-manifest", default="data/eval/protected/protected_benchmark_manifest.json")
+        command.add_argument(
+            "--protected-manifest", default="data/eval/protected/protected_benchmark_manifest.json"
+        )
         command.add_argument("--reviewer-roster", default="config/data_reviewers.json")
         command.add_argument(
             "--reviewer-qualification-report",
@@ -1318,7 +1365,9 @@ def _parse_args() -> argparse.Namespace:
     finalize.add_argument("--manifest", required=True)
     finalize.add_argument("--sources", default="config/data_sources.ultimate.json")
     finalize.add_argument("--protected-config", default="config/protected_benchmarks.json")
-    finalize.add_argument("--protected-manifest", default="data/eval/protected/protected_benchmark_manifest.json")
+    finalize.add_argument(
+        "--protected-manifest", default="data/eval/protected/protected_benchmark_manifest.json"
+    )
     finalize.add_argument("--reviewer-roster", default="config/data_reviewers.json")
     finalize.add_argument("--legal-evidence-dir", default="governance/source-approvals")
     finalize.add_argument("--trust-policy", default="config/dataset_trust_policy.json")

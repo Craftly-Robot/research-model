@@ -1,4 +1,4 @@
-﻿"""Benchmark feedback loop for dataset quality and task promotion."""
+"""Benchmark feedback loop for dataset quality and task promotion."""
 
 from __future__ import annotations
 
@@ -80,7 +80,14 @@ def build_feedback_report(
                 metadata={"automated_pass_by_type": automated_pass_by_type},
             )
         )
-    if components and max(float(components.get("security_signal", 0.0)), float(components.get("agentic_signal", 0.0))) < 0.2:
+    if (
+        components
+        and max(
+            float(components.get("security_signal", 0.0)),
+            float(components.get("agentic_signal", 0.0)),
+        )
+        < 0.2
+    ):
         recommendations.append(
             FeedbackRecommendation(
                 kind="signal_quality",
@@ -172,4 +179,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

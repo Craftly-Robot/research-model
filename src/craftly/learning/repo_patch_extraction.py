@@ -1,4 +1,4 @@
-﻿"""Extract defensive patch tasks from approved local Git repositories."""
+"""Extract defensive patch tasks from approved local Git repositories."""
 
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ from pydantic import Field
 
 from src.craftly.learning.quality import stable_hash
 from src.craftly.shared.schemas import StrictModel
-
 
 SECURITY_PATCH_TERMS = (
     "auth",
@@ -98,7 +97,11 @@ def extract_security_patch_tasks(
             if not _looks_security_relevant(subject):
                 skipped += 1
                 continue
-            patch = _run_git(repo, ["show", "--format=fuller", "--patch", "--find-renames", commit], max_bytes=max_patch_chars)
+            patch = _run_git(
+                repo,
+                ["show", "--format=fuller", "--patch", "--find-renames", commit],
+                max_bytes=max_patch_chars,
+            )
             if not _looks_security_relevant(patch):
                 skipped += 1
                 continue
@@ -131,16 +134,19 @@ def extract_security_patch_tasks(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Extract defensive security patch tasks from an approved local repo.")
+    parser = argparse.ArgumentParser(
+        description="Extract defensive security patch tasks from an approved local repo."
+    )
     parser.add_argument("--repo", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--license", required=True)
     parser.add_argument("--max-commits", type=int, default=200)
     args = parser.parse_args()
-    report = extract_security_patch_tasks(args.repo, args.output, license_name=args.license, max_commits=args.max_commits)
+    report = extract_security_patch_tasks(
+        args.repo, args.output, license_name=args.license, max_commits=args.max_commits
+    )
     print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":
     main()
-

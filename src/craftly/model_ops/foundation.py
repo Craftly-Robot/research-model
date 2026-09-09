@@ -8,8 +8,8 @@ is attached.
 
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import os
 import tempfile
 import time
@@ -19,9 +19,8 @@ from typing import Any, Literal
 
 from pydantic import Field, model_validator
 
-from src.craftly.shared.schemas import StrictModel
 from src.craftly.shared.integrity import canonical_json_bytes, sha256_file
-
+from src.craftly.shared.schemas import StrictModel
 
 TRAINING_STEP_SEMANTICS = "optimizer_update_v2"
 
@@ -134,10 +133,13 @@ class ScratchDecoderConfig(StrictModel):
     target_active_parameters: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
-    def validate_shape(self) -> "ScratchDecoderConfig":
+    def validate_shape(self) -> ScratchDecoderConfig:
         if self.hidden_size % self.num_attention_heads != 0:
             raise ValueError("hidden_size must be divisible by num_attention_heads")
-        if self.effective_context_length is not None and self.effective_context_length < self.max_sequence_length:
+        if (
+            self.effective_context_length is not None
+            and self.effective_context_length < self.max_sequence_length
+        ):
             raise ValueError("effective_context_length cannot be smaller than max_sequence_length")
         if self.attention_architecture == "gqa":
             if self.num_attention_heads % self.num_key_value_heads != 0:
@@ -171,7 +173,9 @@ class ScratchDecoderConfig(StrictModel):
                 raise ValueError("MoE architecture requires moe_intermediate_size")
         else:
             if dense_layers != self.num_layers:
-                raise ValueError("dense architecture must use dense feed-forward blocks in every layer")
+                raise ValueError(
+                    "dense architecture must use dense feed-forward blocks in every layer"
+                )
             if any((self.num_routed_experts, self.num_shared_experts, self.experts_per_token)):
                 raise ValueError("dense architecture cannot configure MoE experts")
         return self
@@ -221,8 +225,7 @@ class ScratchDecoderConfig(StrictModel):
             return 0
         fusion_projection = 2 * self.hidden_size * self.hidden_size
         dense_transformer = (
-            self._attention_parameters_per_layer()
-            + 3 * self.hidden_size * self.intermediate_size
+            self._attention_parameters_per_layer() + 3 * self.hidden_size * self.intermediate_size
         )
         # Hidden input norm, next-token embedding norm, two block norms, and
         # the prediction output norm.
@@ -241,17 +244,41 @@ class ScratchDecoderConfig(StrictModel):
             routed_experts = self.moe_layer_count * self.num_routed_experts * expert_size
             shared_experts = self.moe_layer_count * self.num_shared_experts * expert_size
             routers = self.moe_layer_count * self.hidden_size * self.num_routed_experts
-            active_experts = self.moe_layer_count * (
-                self.experts_per_token + self.num_shared_experts
-            ) * expert_size
+            active_experts = (
+                self.moe_layer_count
+                * (self.experts_per_token + self.num_shared_experts)
+                * expert_size
+            )
         mtp = self.mtp_num_layers * self._mtp_parameters_per_layer()
         lm_head = 0 if self.tie_word_embeddings else embedding
-        total = embedding + attention + norms + dense_mlp + routed_experts + shared_experts + routers + mtp + lm_head
-        active = embedding + attention + norms + dense_mlp + active_experts + routers + mtp + lm_head
-        total_delta = None if self.target_total_parameters is None else (total - self.target_total_parameters) / self.target_total_parameters
-        active_delta = None if self.target_active_parameters is None else (active - self.target_active_parameters) / self.target_active_parameters
+        total = (
+            embedding
+            + attention
+            + norms
+            + dense_mlp
+            + routed_experts
+            + shared_experts
+            + routers
+            + mtp
+            + lm_head
+        )
+        active = (
+            embedding + attention + norms + dense_mlp + active_experts + routers + mtp + lm_head
+        )
+        total_delta = (
+            None
+            if self.target_total_parameters is None
+            else (total - self.target_total_parameters) / self.target_total_parameters
+        )
+        active_delta = (
+            None
+            if self.target_active_parameters is None
+            else (active - self.target_active_parameters) / self.target_active_parameters
+        )
         if self.attention_architecture == "mla":
-            compressed_cache_elements = int(self.kv_lora_rank or 0) + int(self.qk_rope_head_dim or 0)
+            compressed_cache_elements = int(self.kv_lora_rank or 0) + int(
+                self.qk_rope_head_dim or 0
+            )
             expanded_cache_elements = self.num_attention_heads * (
                 int(self.qk_nope_head_dim or 0)
                 + int(self.qk_rope_head_dim or 0)
@@ -409,7 +436,13 @@ def context_curriculum() -> tuple[ContextCurriculumStage, ...]:
             sequence_length=1_000_000,
             training_mode="context_parallel",
             minimum_ruler_score=0.80,
-            required_evaluations=("ruler", "helmet", "repoqa", "context_order", "unsupported_claims"),
+            required_evaluations=(
+                "ruler",
+                "helmet",
+                "repoqa",
+                "context_order",
+                "unsupported_claims",
+            ),
             production_claim="built_not_cluster_proven",
         ),
         ContextCurriculumStage(
@@ -417,7 +450,11 @@ def context_curriculum() -> tuple[ContextCurriculumStage, ...]:
             sequence_length=5_000_000,
             training_mode="evaluation",
             minimum_ruler_score=0.80,
-            required_evaluations=("hierarchical_retrieval", "evidence_recall", "unsupported_claims"),
+            required_evaluations=(
+                "hierarchical_retrieval",
+                "evidence_recall",
+                "unsupported_claims",
+            ),
             production_claim="hierarchical_effective_context_not_full_attention",
         ),
     )
@@ -454,7 +491,7 @@ class ParallelismPlan(StrictModel):
         )
 
     @model_validator(mode="after")
-    def validate_parallelism(self) -> "ParallelismPlan":
+    def validate_parallelism(self) -> ParallelismPlan:
         if self.data_parallel % self.expert_parallel:
             raise ValueError("data_parallel must be divisible by expert_parallel")
         return self
@@ -476,7 +513,7 @@ class PretrainingRunSpec(StrictModel):
     output_dir: str = "artifacts/craftly/pretraining"
 
     @model_validator(mode="after")
-    def validate_training_shape(self) -> "PretrainingRunSpec":
+    def validate_training_shape(self) -> PretrainingRunSpec:
         if self.sequence_length > self.architecture.max_sequence_length:
             raise ValueError("sequence_length cannot exceed architecture.max_sequence_length")
         if self.min_learning_rate > self.learning_rate:
@@ -532,7 +569,7 @@ class CheckpointManifest(StrictModel):
         trained_tokens: int,
         checkpoint_dir: str | Path,
         metrics: dict[str, float] | None = None,
-    ) -> "CheckpointManifest":
+    ) -> CheckpointManifest:
         root = Path(checkpoint_dir).resolve()
         files = []
         if root.exists():
@@ -558,7 +595,9 @@ class CheckpointManifest(StrictModel):
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
         payload = json.dumps(self.model_dump(), indent=2, sort_keys=True)
-        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=target.parent, delete=False) as handle:
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", dir=target.parent, delete=False
+        ) as handle:
             handle.write(payload)
             handle.write("\n")
             temp_name = handle.name
@@ -865,10 +904,12 @@ def architecture_presets() -> dict[str, ScratchDecoderConfig]:
         f"craftly-{key.replace('_', '-')}": model_profile(key)
         for key in ("7b", "7b_moe", "32b", "62b", "4t_moe")
     }
-    presets.update({
-        f"craftly-{key.replace('_', '-')}": model_profile(key)
-        for key in ("7b", "7b_moe", "32b", "62b", "4t_moe")
-    })
+    presets.update(
+        {
+            f"craftly-{key.replace('_', '-')}": model_profile(key)
+            for key in ("7b", "7b_moe", "32b", "62b", "4t_moe")
+        }
+    )
     return presets
 
 
@@ -897,4 +938,3 @@ def foundation_status() -> dict[str, Any]:
             "evaluation baseline",
         ],
     }
-

@@ -10,7 +10,6 @@ from pathlib import Path
 
 from alembic import op
 
-
 revision = "0003_task_retry"
 down_revision = "0002_data_platform"
 branch_labels = None

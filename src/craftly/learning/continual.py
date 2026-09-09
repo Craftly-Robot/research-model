@@ -15,7 +15,7 @@ import math
 import random
 import time
 from pathlib import Path
-from typing import Any, Literal, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import Field
 
@@ -108,7 +108,7 @@ CANONICAL_PRETRAINING_REPLAY_SAMPLES: list[dict[str, str]] = [
             "        self.send_response(200)\n"
             "        self.send_header('Content-type', 'application/json')\n"
             "        self.end_headers()\n"
-            "        self.wfile.write(b'{\"status\": \"healthy\"}')\n"
+            '        self.wfile.write(b\'{"status": "healthy"}\')\n'
         ),
     },
     {
@@ -189,6 +189,7 @@ class ExperienceReplayBuffer:
 # 2. KL Divergence Penalty: Reference Policy Constraint
 # ---------------------------------------------------------------------------
 
+
 class ReferenceModelKLLoss:
     """Computes token-level KL divergence penalty between active model and frozen base model."""
 
@@ -216,7 +217,7 @@ class ReferenceModelKLLoss:
         log_q = F.log_softmax(ref_logits / t, dim=-1)
 
         # KL(P || Q) = sum P * (log P - log Q)
-        kl_per_token = torch.sum(p * (log_p - log_q), dim=-1) * (t ** 2)
+        kl_per_token = torch.sum(p * (log_p - log_q), dim=-1) * (t**2)
 
         if mask is not None:
             active_mask = (mask != -100).float()
@@ -338,7 +339,7 @@ class ElasticWeightConsolidation:
                 if param.grad is not None:
                     # Fisher = E[gradient^2]
                     # We accumulate and average at the end
-                    self.fisher[name] += param.grad.data ** 2
+                    self.fisher[name] += param.grad.data**2
 
             sample_count += input_ids.shape[0]
 
@@ -368,7 +369,7 @@ class ElasticWeightConsolidation:
 
                 # Penalty = importance * squared_change
                 # Important parameters that changed a lot get a high penalty
-                penalty_loss += (fisher_importance * weight_diff ** 2).sum()
+                penalty_loss += (fisher_importance * weight_diff**2).sum()
 
         return self.damping * penalty_loss
 
@@ -376,6 +377,7 @@ class ElasticWeightConsolidation:
 # ---------------------------------------------------------------------------
 # 4. Weight Space Merging: SLERP & Task Vector Arithmetic
 # ---------------------------------------------------------------------------
+
 
 class WeightMerger:
     """Merges foundation base weights and specialized SFT weights without external checkpoints."""
@@ -455,11 +457,15 @@ class WeightMerger:
                 continue
 
             if base_val.shape != sft_val.shape:
-                raise ValueError(f"Shape mismatch for parameter '{key}': {base_val.shape} vs {sft_val.shape}")
+                raise ValueError(
+                    f"Shape mismatch for parameter '{key}': {base_val.shape} vs {sft_val.shape}"
+                )
 
             # 1D biases and layer norms are typically linearly averaged
             if base_val.dim() <= 1 or method == "linear":
-                merged[key] = ((1.0 - t) * base_val.float() + t * sft_val.float()).to(base_val.dtype)
+                merged[key] = ((1.0 - t) * base_val.float() + t * sft_val.float()).to(
+                    base_val.dtype
+                )
             else:
                 merged[key] = cls.slerp(base_val, sft_val, t=t)
 
@@ -513,8 +519,9 @@ class WeightMerger:
     @staticmethod
     def _extract_or_load(path: Path) -> dict[str, Any]:
         if path.suffix == ".zip":
-            import zipfile
             import tempfile
+            import zipfile
+
             with tempfile.TemporaryDirectory(prefix="craftly_merge_") as td:
                 with zipfile.ZipFile(path, "r") as zf:
                     zf.extractall(td)
@@ -528,6 +535,7 @@ class WeightMerger:
 # ---------------------------------------------------------------------------
 # 5. Scientific Catastrophic Forgetting Benchmark Suite
 # ---------------------------------------------------------------------------
+
 
 class ForgettingTask(StrictModel):
     task_id: str
@@ -584,7 +592,9 @@ class ForgettingReport(StrictModel):
     perplexity_defensive: float
     general_retention_score: float
     evaluated_tasks_count: int
-    created_at_utc: str = Field(default_factory=lambda: time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime()))
+    created_at_utc: str = Field(
+        default_factory=lambda: time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+    )
 
 
 def evaluate_continual_perplexity(

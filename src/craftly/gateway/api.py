@@ -1,10 +1,10 @@
-﻿"""Consolidated Craftly Gateway API."""
+"""Consolidated Craftly Gateway API."""
 
 from __future__ import annotations
 
 import asyncio
-import json
 import hashlib
+import json
 import os
 import re
 import threading
@@ -18,8 +18,21 @@ from pydantic import BaseModel, Field
 
 from src.craftly.db import LocalStore, PostgresRAGStore, PostgresRAGStoreFactory
 from src.craftly.evaluation.benchmarks import BenchmarkHarness, built_in_security_tasks
-from src.craftly.identity import AuthError, auth_status, create_jwt, install_auth, install_quota, validate_token_issue_request
-from src.craftly.indexing import ContextBuilder, RepositoryIndexer, VectorBackendConfig, create_vector_index, vector_capabilities
+from src.craftly.identity import (
+    AuthError,
+    auth_status,
+    create_jwt,
+    install_auth,
+    install_quota,
+    validate_token_issue_request,
+)
+from src.craftly.indexing import (
+    ContextBuilder,
+    RepositoryIndexer,
+    VectorBackendConfig,
+    create_vector_index,
+    vector_capabilities,
+)
 from src.craftly.indexing.repository_indexer import RAGIndexCoordinator
 from src.craftly.learning.dataset_authority import (
     DatasetAuthorityService,
@@ -39,12 +52,32 @@ from src.craftly.model_ops.backends import active_model_health, list_model_profi
 from src.craftly.model_ops.foundation import PretrainingRunSpec, foundation_status
 from src.craftly.observability import METRICS, install_observability
 from src.craftly.patches import PatchPreviewRequest, PatchService, PatchVerifyRequest
-from src.craftly.runtime.collaboration import AgentMessage, BlackboardKind, BlackboardWrite, CollaborationRuntime, FailureIntelligence
+from src.craftly.runtime.collaboration import (
+    AgentMessage,
+    BlackboardKind,
+    BlackboardWrite,
+    CollaborationRuntime,
+    FailureIntelligence,
+)
 from src.craftly.runtime.engine import CraftlyRuntime
-from src.craftly.runtime.execution import AgentExecutionReport, AgentExecutionRequest, AgentExecutionService
-from src.craftly.runtime.taskgraph import AgentRunCreateRequest, TaskCompleteRequest, TaskFailRequest, TaskGraphRuntime
-from src.craftly.shared.schemas import CraftlyRunRequest, CraftlyRunReport
-from src.craftly.tools import DockerSandboxRunner, HardenedToolExecutor, SandboxRunRequest, ToolExecuteRequest
+from src.craftly.runtime.execution import (
+    AgentExecutionReport,
+    AgentExecutionRequest,
+    AgentExecutionService,
+)
+from src.craftly.runtime.taskgraph import (
+    AgentRunCreateRequest,
+    TaskCompleteRequest,
+    TaskFailRequest,
+    TaskGraphRuntime,
+)
+from src.craftly.shared.schemas import CraftlyRunReport, CraftlyRunRequest
+from src.craftly.tools import (
+    DockerSandboxRunner,
+    HardenedToolExecutor,
+    SandboxRunRequest,
+    ToolExecuteRequest,
+)
 from src.craftly.training_workspace import (
     ArtifactUploadRequest,
     CheckpointCommitRequest,
@@ -99,11 +132,19 @@ def resolve_registered_repo_path(value: str) -> Path:
         if normalized.startswith("/") or re.match(r"^[A-Za-z]:", normalized):
             raise ValueError("repo_path must be relative to an allowed project root")
         parts = normalized.split("/")
-        if any(part in {"", ".", ".."} or SAFE_REPO_PATH_PART.fullmatch(part) is None for part in parts):
+        if any(
+            part in {"", ".", ".."} or SAFE_REPO_PATH_PART.fullmatch(part) is None for part in parts
+        ):
             raise ValueError("repo_path contains an unsafe path component")
 
-    configured = [item for item in os.environ.get("CRAFTLY_PROJECT_ROOTS", "").split(os.pathsep) if item]
-    roots = [Path(item).expanduser().resolve() for item in configured] if configured else [Path.cwd().resolve()]
+    configured = [
+        item for item in os.environ.get("CRAFTLY_PROJECT_ROOTS", "").split(os.pathsep) if item
+    ]
+    roots = (
+        [Path(item).expanduser().resolve() for item in configured]
+        if configured
+        else [Path.cwd().resolve()]
+    )
     for root in roots:
         candidate = root.joinpath(*parts).resolve()
         try:
@@ -137,7 +178,9 @@ class VectorSearchRequest(BaseModel):
     project_id: str = Field(min_length=1)
     query: str = Field(min_length=1)
     top_k: int = Field(default=12, ge=1, le=100)
-    backend: str = Field(default="local_hashing", pattern="^(local_hashing|faiss|hnsw|qdrant|pgvector)$")
+    backend: str = Field(
+        default="local_hashing", pattern="^(local_hashing|faiss|hnsw|qdrant|pgvector)$"
+    )
     dims: int = Field(default=384, ge=64, le=4096)
 
 
@@ -235,7 +278,9 @@ def rag_store(organization_id: str) -> LocalStore | PostgresRAGStore:
             )
             RAG_STORE_FACTORY_DSN = dsn
         elif dsn != RAG_STORE_FACTORY_DSN:
-            raise RuntimeError("CRAFTLY_DATABASE_URL changed after the shared RAG pool was initialized")
+            raise RuntimeError(
+                "CRAFTLY_DATABASE_URL changed after the shared RAG pool was initialized"
+            )
         return RAG_STORE_FACTORY.for_organization(organization_id)
 
 
@@ -265,7 +310,11 @@ def production_vector_config() -> VectorBackendConfig:
 def _dataset_version_manifest_path(version_id: str) -> Path:
     if SAFE_DATASET_VERSION.fullmatch(version_id) is None:
         raise ValueError("invalid dataset version identifier")
-    root = Path(os.environ.get("CRAFTLY_DATASET_VERSIONS_ROOT", "data/production")).expanduser().resolve()
+    root = (
+        Path(os.environ.get("CRAFTLY_DATASET_VERSIONS_ROOT", "data/production"))
+        .expanduser()
+        .resolve()
+    )
     candidate = (root / version_id / "dataset_version_manifest.json").resolve()
     try:
         candidate.relative_to(root)
@@ -274,7 +323,9 @@ def _dataset_version_manifest_path(version_id: str) -> Path:
     if not candidate.is_file():
         direct = (root / "dataset_version_manifest.json").resolve()
         if direct.is_file():
-            payload = ProductionDatasetManifest.model_validate_json(direct.read_text(encoding="utf-8"))
+            payload = ProductionDatasetManifest.model_validate_json(
+                direct.read_text(encoding="utf-8")
+            )
             if payload.version_id == version_id:
                 return direct
         raise FileNotFoundError("dataset version manifest not found")
@@ -286,7 +337,12 @@ async def require_training_job_access(request: Request, job_id: str, scope: str)
     job = await TRAINING_WORKSPACE.get_job(job_id)
     claims = getattr(request.state, "jwt_claims", {}) or {}
     job_bound = str(claims.get("job_id") or "") == job_id
-    if AUTH_CONFIG.enabled and "training:admin" not in request_scopes(request) and not job_bound and job.owner_id != request_owner(request):
+    if (
+        AUTH_CONFIG.enabled
+        and "training:admin" not in request_scopes(request)
+        and not job_bound
+        and job.owner_id != request_owner(request)
+    ):
         raise PermissionError("training job belongs to a different workspace identity")
     return job
 
@@ -341,7 +397,9 @@ async def issue_auth_token(request: AuthTokenRequest) -> dict[str, object]:
 
 def training_access_token(account: ServiceAccount) -> str:
     if not AUTH_CONFIG.jwt_secret:
-        raise HTTPException(status_code=503, detail="CRAFTLY_JWT_SECRET is required for workspace tokens")
+        raise HTTPException(
+            status_code=503, detail="CRAFTLY_JWT_SECRET is required for workspace tokens"
+        )
     return create_jwt(
         subject=account.service_account_id,
         secret=AUTH_CONFIG.jwt_secret,
@@ -358,10 +416,14 @@ async def training_workspace_readiness() -> dict[str, Any]:
 
 
 @app.post("/v1/training/service-accounts")
-async def create_training_service_account(request: TrainingServiceAccountRequest, http_request: Request) -> dict[str, Any]:
+async def create_training_service_account(
+    request: TrainingServiceAccountRequest, http_request: Request
+) -> dict[str, Any]:
     try:
         require_scope(http_request, "training:admin")
-        credential = await TRAINING_WORKSPACE.create_service_account(name=request.name, scopes=request.scopes)
+        credential = await TRAINING_WORKSPACE.create_service_account(
+            name=request.name, scopes=request.scopes
+        )
         return credential.model_dump(mode="json")
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
@@ -389,9 +451,13 @@ async def exchange_training_token(request: TrainingTokenExchangeRequest) -> dict
 
 @app.post("/v1/training/token/refresh")
 async def refresh_training_token(request: TrainingTokenRefreshRequest) -> dict[str, Any]:
-    account = await TRAINING_WORKSPACE.authenticate_refresh(request.session_id, request.refresh_token)
+    account = await TRAINING_WORKSPACE.authenticate_refresh(
+        request.session_id, request.refresh_token
+    )
     if account is None:
-        raise HTTPException(status_code=401, detail="refresh session is invalid, expired, or revoked")
+        raise HTTPException(
+            status_code=401, detail="refresh session is invalid, expired, or revoked"
+        )
     return {
         "token_type": "Bearer",  # nosec B105 - OAuth token type label, not a credential.
         "access_token": training_access_token(account),
@@ -402,7 +468,9 @@ async def refresh_training_token(request: TrainingTokenRefreshRequest) -> dict[s
 
 
 @app.post("/v1/training/token/revoke")
-async def revoke_training_token(request: TrainingTokenRefreshRequest, http_request: Request) -> dict[str, Any]:
+async def revoke_training_token(
+    request: TrainingTokenRefreshRequest, http_request: Request
+) -> dict[str, Any]:
     try:
         require_scope(http_request, "training:jobs:read")
         revoked = await TRAINING_WORKSPACE.revoke_refresh(request.session_id, request.refresh_token)
@@ -440,11 +508,15 @@ async def training_campaigns(http_request: Request) -> dict[str, Any]:
 
 
 @app.post("/v1/training/jobs")
-async def create_training_job(request: TrainingJobCreateRequest, http_request: Request) -> dict[str, Any]:
+async def create_training_job(
+    request: TrainingJobCreateRequest, http_request: Request
+) -> dict[str, Any]:
     try:
         require_scope(http_request, "training:jobs:create")
         job = await TRAINING_WORKSPACE.create_job(request, owner_id=request_owner(http_request))
-        METRICS.inc("craftly_training_jobs_total", profile=job.spec.profile_id, status=job.status.value)
+        METRICS.inc(
+            "craftly_training_jobs_total", profile=job.spec.profile_id, status=job.status.value
+        )
         return job.model_dump(mode="json")
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
@@ -456,7 +528,11 @@ async def create_training_job(request: TrainingJobCreateRequest, http_request: R
 async def list_training_jobs(http_request: Request, limit: int = 100) -> dict[str, Any]:
     try:
         require_scope(http_request, "training:jobs:read")
-        owner = None if "training:admin" in request_scopes(http_request) else request_owner(http_request)
+        owner = (
+            None
+            if "training:admin" in request_scopes(http_request)
+            else request_owner(http_request)
+        )
         jobs = await TRAINING_WORKSPACE.list_jobs(owner_id=owner, limit=limit)
         return {"jobs": [job.model_dump(mode="json") for job in jobs]}
     except PermissionError as exc:
@@ -505,11 +581,15 @@ async def resume_training_job(job_id: str, http_request: Request) -> dict[str, A
 
 
 @app.post("/v1/training/jobs/{job_id}/worker-token")
-async def issue_training_worker_token(job_id: str, http_request: Request, ttl_seconds: int = 21_600) -> dict[str, Any]:
+async def issue_training_worker_token(
+    job_id: str, http_request: Request, ttl_seconds: int = 21_600
+) -> dict[str, Any]:
     try:
         job = await require_training_job_access(http_request, job_id, "training:jobs:create")
         if not AUTH_CONFIG.jwt_secret:
-            raise HTTPException(status_code=503, detail="CRAFTLY_JWT_SECRET is required for worker tokens")
+            raise HTTPException(
+                status_code=503, detail="CRAFTLY_JWT_SECRET is required for worker tokens"
+            )
         ttl = min(max(ttl_seconds, 900), 86_400)
         token = create_jwt(
             subject=f"worker:{job.job_id}",
@@ -520,7 +600,12 @@ async def issue_training_worker_token(job_id: str, http_request: Request, ttl_se
             ttl_seconds=ttl,
             extra_claims={"job_id": job.job_id, "token_class": "training_worker"},
         )
-        return {"token_type": "Bearer", "access_token": token, "expires_in": ttl, "job_id": job.job_id}
+        return {
+            "token_type": "Bearer",
+            "access_token": token,
+            "expires_in": ttl,
+            "job_id": job.job_id,
+        }
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except KeyError as exc:
@@ -533,7 +618,9 @@ async def claim_notebook_training_job(job_id: str, http_request: Request) -> dic
         await require_training_job_access(http_request, job_id, "training:jobs:create")
         job, attempt = await TRAINING_WORKSPACE.claim_notebook_job(job_id)
         if not AUTH_CONFIG.jwt_secret:
-            raise HTTPException(status_code=503, detail="CRAFTLY_JWT_SECRET is required for notebook worker tokens")
+            raise HTTPException(
+                status_code=503, detail="CRAFTLY_JWT_SECRET is required for notebook worker tokens"
+            )
         token = create_jwt(
             subject=f"worker:{job.job_id}",
             secret=AUTH_CONFIG.jwt_secret,
@@ -558,14 +645,22 @@ async def claim_notebook_training_job(job_id: str, http_request: Request) -> dic
 
 
 @app.post("/v1/training/jobs/{job_id}/events:batch")
-async def ingest_training_events(job_id: str, request: TrainingEventBatch, http_request: Request) -> dict[str, Any]:
+async def ingest_training_events(
+    job_id: str, request: TrainingEventBatch, http_request: Request
+) -> dict[str, Any]:
     try:
         await require_training_job_access(http_request, job_id, "training:events:write")
         events = await TRAINING_WORKSPACE.ingest_events(job_id, request)
         METRICS.inc("craftly_training_events_total", value=float(len(events)), kind="batch")
         if not events:
             METRICS.inc("craftly_training_event_duplicates_total", value=float(len(request.events)))
-            return {"accepted": 0, "duplicates": len(request.events), "first_sequence": None, "last_sequence": None, "last_event_id": None}
+            return {
+                "accepted": 0,
+                "duplicates": len(request.events),
+                "first_sequence": None,
+                "last_sequence": None,
+                "last_event_id": None,
+            }
         profile_id = (await TRAINING_WORKSPACE.get_job(job_id)).spec.profile_id
         for event in events:
             if event.loss is not None:
@@ -590,7 +685,9 @@ async def ingest_training_events(job_id: str, request: TrainingEventBatch, http_
 
 
 @app.get("/v1/training/jobs/{job_id}/audit")
-async def list_training_audit(job_id: str, http_request: Request, limit: int = 100) -> dict[str, Any]:
+async def list_training_audit(
+    job_id: str, http_request: Request, limit: int = 100
+) -> dict[str, Any]:
     try:
         await require_training_job_access(http_request, job_id, "training:jobs:read")
         events = await TRAINING_WORKSPACE.list_audit_events(job_id, limit=limit)
@@ -602,7 +699,9 @@ async def list_training_audit(job_id: str, http_request: Request, limit: int = 1
 
 
 @app.get("/v1/training/jobs/{job_id}/events")
-async def stream_training_events(job_id: str, http_request: Request, after_sequence: int = 0) -> StreamingResponse:
+async def stream_training_events(
+    job_id: str, http_request: Request, after_sequence: int = 0
+) -> StreamingResponse:
     try:
         await require_training_job_access(http_request, job_id, "training:jobs:read")
     except PermissionError as exc:
@@ -614,7 +713,9 @@ async def stream_training_events(job_id: str, http_request: Request, after_seque
         try:
             after_sequence = max(after_sequence, int(header_cursor))
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail="Last-Event-ID must be an integer sequence") from exc
+            raise HTTPException(
+                status_code=400, detail="Last-Event-ID must be an integer sequence"
+            ) from exc
 
     async def generate() -> Any:
         async for event in TRAINING_WORKSPACE.stream_events(job_id, after_sequence=after_sequence):
@@ -623,7 +724,9 @@ async def stream_training_events(job_id: str, http_request: Request, after_seque
             if event is None:
                 yield ": heartbeat\n\n"
                 continue
-            payload = json.dumps(event.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+            payload = json.dumps(
+                event.model_dump(mode="json"), sort_keys=True, separators=(",", ":")
+            )
             yield f"id: {event.sequence}\nevent: {event.kind}\ndata: {payload}\n\n"
 
     return StreamingResponse(
@@ -646,7 +749,9 @@ async def list_training_artifacts(job_id: str, http_request: Request) -> dict[st
 
 
 @app.post("/v1/training/jobs/{job_id}/artifacts/presign")
-async def presign_training_artifact(job_id: str, request: ArtifactUploadRequest, http_request: Request) -> dict[str, Any]:
+async def presign_training_artifact(
+    job_id: str, request: ArtifactUploadRequest, http_request: Request
+) -> dict[str, Any]:
     try:
         await require_training_job_access(http_request, job_id, "training:artifacts:write")
         return await TRAINING_WORKSPACE.presign_artifact_upload(job_id, request)
@@ -668,7 +773,9 @@ async def register_training_artifact(
 ) -> dict[str, Any]:
     try:
         await require_training_job_access(http_request, job_id, "training:artifacts:write")
-        artifact = await TRAINING_WORKSPACE.verify_and_register_artifact(job_id, request.upload, uri=request.uri)
+        artifact = await TRAINING_WORKSPACE.verify_and_register_artifact(
+            job_id, request.upload, uri=request.uri
+        )
         return artifact.model_dump(mode="json")
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
@@ -681,7 +788,9 @@ async def register_training_artifact(
 
 
 @app.post("/v1/training/jobs/{job_id}/checkpoints")
-async def commit_training_checkpoint(job_id: str, request: CheckpointCommitRequest, http_request: Request) -> dict[str, Any]:
+async def commit_training_checkpoint(
+    job_id: str, request: CheckpointCommitRequest, http_request: Request
+) -> dict[str, Any]:
     try:
         await require_training_job_access(http_request, job_id, "training:artifacts:write")
         checkpoint = await TRAINING_WORKSPACE.commit_checkpoint(job_id, request)
@@ -708,7 +817,9 @@ async def list_training_checkpoints(job_id: str, http_request: Request) -> dict[
 
 
 @app.post("/v1/training/jobs/{job_id}/evaluations")
-async def commit_training_evaluation(job_id: str, request: EvaluationCommitRequest, http_request: Request) -> dict[str, Any]:
+async def commit_training_evaluation(
+    job_id: str, request: EvaluationCommitRequest, http_request: Request
+) -> dict[str, Any]:
     try:
         await require_training_job_access(http_request, job_id, "training:artifacts:write")
         evaluation = await TRAINING_WORKSPACE.commit_evaluation(job_id, request)
@@ -735,7 +846,9 @@ async def list_training_evaluations(job_id: str, http_request: Request) -> dict[
 
 
 @app.post("/v1/training/jobs/{job_id}/checkpoints/{checkpoint_id}/promote")
-async def promote_training_checkpoint(job_id: str, checkpoint_id: str, http_request: Request) -> dict[str, Any]:
+async def promote_training_checkpoint(
+    job_id: str, checkpoint_id: str, http_request: Request
+) -> dict[str, Any]:
     try:
         await require_training_job_access(http_request, job_id, "training:admin")
         checkpoint = await TRAINING_WORKSPACE.promote_checkpoint(
@@ -782,7 +895,9 @@ async def data_platform_status() -> dict[str, object]:
 
 
 @app.post("/v1/data/reviews")
-async def enqueue_dataset_review(request: ReviewItemCreate, http_request: Request) -> dict[str, Any]:
+async def enqueue_dataset_review(
+    request: ReviewItemCreate, http_request: Request
+) -> dict[str, Any]:
     try:
         require_scope(http_request, "data:review")
         return (await DATASET_AUTHORITY.enqueue(request)).model_dump()
@@ -793,7 +908,9 @@ async def enqueue_dataset_review(request: ReviewItemCreate, http_request: Reques
 
 
 @app.post("/v1/data/source-snapshots")
-async def record_dataset_source_snapshot(request: SourceSnapshotCreate, http_request: Request) -> dict[str, Any]:
+async def record_dataset_source_snapshot(
+    request: SourceSnapshotCreate, http_request: Request
+) -> dict[str, Any]:
     try:
         require_scope(http_request, "data:audit")
         return (await DATASET_AUTHORITY.record_source_snapshot(request)).model_dump()
@@ -840,7 +957,9 @@ async def claim_dataset_review(
 ) -> dict[str, Any]:
     try:
         require_scope(http_request, "data:review")
-        assignment = await DATASET_AUTHORITY.claim(record_id, request_owner(http_request), request.lease_seconds)
+        assignment = await DATASET_AUTHORITY.claim(
+            record_id, request_owner(http_request), request.lease_seconds
+        )
         return assignment.model_dump()
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
@@ -891,7 +1010,9 @@ async def get_dataset_version(version_id: str, http_request: Request) -> dict[st
     try:
         require_scope(http_request, "data:audit")
         path = _dataset_version_manifest_path(version_id)
-        return ProductionDatasetManifest.model_validate_json(path.read_text(encoding="utf-8")).model_dump()
+        return ProductionDatasetManifest.model_validate_json(
+            path.read_text(encoding="utf-8")
+        ).model_dump()
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except FileNotFoundError as exc:
@@ -905,7 +1026,9 @@ async def promote_dataset_version(version_id: str, http_request: Request) -> dic
     try:
         require_scope(http_request, "data:promote")
         path = _dataset_version_manifest_path(version_id)
-        policy_path = os.environ.get("CRAFTLY_DATASET_TRUST_POLICY", "config/dataset_trust_policy.json")
+        policy_path = os.environ.get(
+            "CRAFTLY_DATASET_TRUST_POLICY", "config/dataset_trust_policy.json"
+        )
         manifest = validate_dataset_manifest_for_promotion(path, trust_policy_path=policy_path)
         manifest_sha256 = hashlib.sha256(path.read_bytes()).hexdigest()
         event = await DATASET_AUTHORITY.record_promotion(
@@ -976,7 +1099,9 @@ async def create_session(request: SessionCreateRequest) -> dict[str, Any]:
 
 
 @app.post("/v1/projects/{project_id}/index")
-async def index_project(project_id: str, payload: IndexProjectRequest, http_request: Request) -> dict[str, Any]:
+async def index_project(
+    project_id: str, payload: IndexProjectRequest, http_request: Request
+) -> dict[str, Any]:
     try:
         project = require_project_access(http_request, project_id, "context:index")
     except PermissionError as exc:
@@ -988,7 +1113,9 @@ async def index_project(project_id: str, payload: IndexProjectRequest, http_requ
     if project["index_status"] == "ready" and not payload.force:
         return await asyncio.to_thread(active_store.index_status, project_id)
     if payload.overlap_tokens >= payload.max_chunk_tokens:
-        raise HTTPException(status_code=400, detail="overlap_tokens must be smaller than max_chunk_tokens")
+        raise HTTPException(
+            status_code=400, detail="overlap_tokens must be smaller than max_chunk_tokens"
+        )
     suffixes = set(payload.include_suffixes) if payload.include_suffixes else None
     try:
         production = os.environ.get("CRAFTLY_ENV", "development").lower() == "production"
@@ -1064,7 +1191,9 @@ async def list_project_index_jobs(
 
 
 @app.get("/v1/projects/{project_id}/index/jobs/{job_id}")
-async def get_project_index_job(project_id: str, job_id: str, http_request: Request) -> dict[str, Any]:
+async def get_project_index_job(
+    project_id: str, job_id: str, http_request: Request
+) -> dict[str, Any]:
     try:
         require_project_access(http_request, project_id, "context:read")
         organization_id = request_organization(http_request)
@@ -1083,12 +1212,16 @@ async def get_project_index_job(project_id: str, job_id: str, http_request: Requ
 
 
 @app.post("/v1/projects/{project_id}/index/jobs/{job_id}/cancel")
-async def cancel_project_index_job(project_id: str, job_id: str, http_request: Request) -> dict[str, Any]:
+async def cancel_project_index_job(
+    project_id: str, job_id: str, http_request: Request
+) -> dict[str, Any]:
     try:
         require_project_access(http_request, project_id, "context:index")
         organization_id = request_organization(http_request)
         active_store = rag_store(organization_id)
-        job = await asyncio.to_thread(active_store.get_index_job, job_id, organization_id=organization_id)
+        job = await asyncio.to_thread(
+            active_store.get_index_job, job_id, organization_id=organization_id
+        )
         if job is None or str(job["project_id"]) != project_id:
             raise KeyError("index job not found")
         return await asyncio.to_thread(
@@ -1227,7 +1360,9 @@ async def list_agent_messages(
         require_scope(request, "agents:messages:read")
         return [
             item.model_dump(mode="json")
-            for item in CollaborationRuntime(STORE).history(run_id, correlation_id=correlation_id, limit=limit)
+            for item in CollaborationRuntime(STORE).history(
+                run_id, correlation_id=correlation_id, limit=limit
+            )
         ]
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
@@ -1258,7 +1393,10 @@ async def read_agent_blackboard(
 ) -> list[dict[str, Any]]:
     try:
         require_scope(request, "agents:blackboard:read")
-        return [item.model_dump(mode="json") for item in CollaborationRuntime(STORE).blackboard(run_id, kind=kind)]
+        return [
+            item.model_dump(mode="json")
+            for item in CollaborationRuntime(STORE).blackboard(run_id, kind=kind)
+        ]
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except KeyError as exc:
@@ -1297,7 +1435,9 @@ async def project_symbols(project_id: str, request: Request) -> dict[str, Any]:
         if not isinstance(dependency_values, list):
             dependency_values = [dependency_values] if dependency_values else []
         if path:
-            dependencies.setdefault(path, set()).update(str(item) for item in dependency_values if item)
+            dependencies.setdefault(path, set()).update(
+                str(item) for item in dependency_values if item
+            )
         if not chunk.get("symbol_name"):
             continue
         symbols.append(
@@ -1343,11 +1483,17 @@ async def build_context(payload: ContextBuildRequest, http_request: Request) -> 
 
 
 @app.post("/v1/context/vector-search")
-async def vector_search(payload: VectorSearchRequest, http_request: Request, response: Response) -> dict[str, Any]:
+async def vector_search(
+    payload: VectorSearchRequest, http_request: Request, response: Response
+) -> dict[str, Any]:
     try:
         project = require_project_access(http_request, payload.project_id, "context:read")
         production = os.environ.get("CRAFTLY_ENV", "development").lower() == "production"
-        config = production_vector_config() if production else VectorBackendConfig(backend=payload.backend, dims=payload.dims)  # type: ignore[arg-type]
+        config = (
+            production_vector_config()
+            if production
+            else VectorBackendConfig(backend=payload.backend, dims=payload.dims)
+        )  # type: ignore[arg-type]
         organization_id = request_organization(http_request)
         index = create_vector_index(rag_store(organization_id), config)
         response.headers["Deprecation"] = "true"
@@ -1377,7 +1523,9 @@ async def vector_sync(request: VectorSyncRequest, http_request: Request) -> dict
         organization_id = request_organization(http_request)
         index = create_vector_index(
             rag_store(organization_id),
-            production_vector_config() if production else VectorBackendConfig(backend=request.backend, dims=request.dims),  # type: ignore[arg-type]
+            production_vector_config()
+            if production
+            else VectorBackendConfig(backend=request.backend, dims=request.dims),  # type: ignore[arg-type]
         )
         report = await asyncio.to_thread(
             index.sync_project,
@@ -1401,11 +1549,15 @@ async def get_vector_capabilities() -> dict[str, Any]:
 
 
 @app.post("/v1/memory/ingest")
-async def ingest_memory(request: MemoryIngestRequest, http_request: Request, project_id: str | None = None) -> dict[str, Any]:
+async def ingest_memory(
+    request: MemoryIngestRequest, http_request: Request, project_id: str | None = None
+) -> dict[str, Any]:
     try:
         require_scope(http_request, "memory:write")
         if AUTH_CONFIG.enabled and project_id is None:
-            raise PermissionError("authenticated memory ingestion requires a tenant-bound project_id")
+            raise PermissionError(
+                "authenticated memory ingestion requires a tenant-bound project_id"
+            )
         if project_id is not None:
             require_project_access(http_request, project_id, "memory:write")
         organization_id = request_organization(http_request)
@@ -1427,12 +1579,16 @@ async def retrieve_memory(request: MemoryRetrieveRequest, http_request: Request)
     try:
         require_scope(http_request, "memory:read")
         if AUTH_CONFIG.enabled and request.project_id is None:
-            raise PermissionError("authenticated memory retrieval requires a tenant-bound project_id")
+            raise PermissionError(
+                "authenticated memory retrieval requires a tenant-bound project_id"
+            )
         if request.project_id is not None:
             require_project_access(http_request, request.project_id, "memory:read")
         organization_id = request_organization(http_request)
         report = await asyncio.to_thread(
-            UnifiedMemoryManager(project_id=request.project_id, store=rag_store(organization_id)).retrieve_report,
+            UnifiedMemoryManager(
+                project_id=request.project_id, store=rag_store(organization_id)
+            ).retrieve_report,
             request.query,
             limit=request.limit,
             layers=request.layers or None,  # type: ignore[arg-type]
@@ -1517,4 +1673,3 @@ async def run_verifier(request: VerificationRequest) -> dict[str, Any]:
 @app.post("/v1/agent/run", response_model=CraftlyRunReport)
 async def run_agent(request: CraftlyRunRequest) -> CraftlyRunReport:
     return await CraftlyRuntime().run(request)
-

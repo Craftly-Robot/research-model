@@ -1,4 +1,4 @@
-﻿"""Repository intelligence package for Craftly MVP."""
+"""Repository intelligence package for Craftly MVP."""
 
 from src.craftly.indexing.context_builder import (
     ContextBuilder,
@@ -10,8 +10,8 @@ from src.craftly.indexing.context_builder import (
     RAGLoadReport,
     RAGScalePlan,
     WorkspaceContextBuilder,
-    build_rag_scale_plan,
     build_rag_evaluation_candidates,
+    build_rag_scale_plan,
     load_governed_rag_evaluation,
     run_rag_load_test,
 )
@@ -75,4 +75,3 @@ __all__ = [
     "run_rag_load_test",
     "vector_capabilities",
 ]
-

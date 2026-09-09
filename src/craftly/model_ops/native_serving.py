@@ -1,4 +1,4 @@
-﻿"""Native Craftly scratch checkpoint serving.
+"""Native Craftly scratch checkpoint serving.
 
 This is the production path for serving Craftly-owned scratch checkpoints before
 vLLM/TensorRT conversion exists. It intentionally fails fast on missing assets
@@ -78,7 +78,9 @@ class NativeServingState:
     def __init__(self, config: NativeServingConfig) -> None:
         require_torch()
         self.config = config
-        self.manifest = CheckpointManifest.model_validate(json.loads(Path(config.checkpoint_manifest).read_text(encoding="utf-8-sig")))
+        self.manifest = CheckpointManifest.model_validate(
+            json.loads(Path(config.checkpoint_manifest).read_text(encoding="utf-8-sig"))
+        )
         self.checkpoint_path = Path(self.manifest.checkpoint_dir) / "model.pt"
         self.tokenizer_path = Path(config.tokenizer_path)
         if not self.checkpoint_path.exists():
@@ -92,7 +94,9 @@ class NativeServingState:
         self.tokenizer = load_tokenizer(self.tokenizer_path)
         vocab_size = int(self.tokenizer.get_vocab_size(with_added_tokens=True))
         if vocab_size > self.model_config.vocab_size:
-            raise ValueError(f"tokenizer vocab {vocab_size} exceeds model vocab {self.model_config.vocab_size}")
+            raise ValueError(
+                f"tokenizer vocab {vocab_size} exceeds model vocab {self.model_config.vocab_size}"
+            )
         saved_hash = str(payload.get("tokenizer_sha256") or "")
         actual_hash = sha256_file(self.tokenizer_path)
         if config.require_tokenizer_hash_match and saved_hash and saved_hash != actual_hash:
@@ -177,7 +181,11 @@ class NativeServingState:
             tokenizer=self.tokenizer,
             prompt=prompt,
             device=self.device,
-            config=GenerationConfig(max_new_tokens=request.max_tokens, temperature=request.temperature, top_k=request.top_k),
+            config=GenerationConfig(
+                max_new_tokens=request.max_tokens,
+                temperature=request.temperature,
+                top_k=request.top_k,
+            ),
         )
         return text, token_count, (time.perf_counter() - started) * 1000
 
@@ -230,7 +238,7 @@ class NativeServingState:
         await self._release_slot(failed=False)
         return result
 
-    async def _release_after_completion(self, work: "asyncio.Task[tuple[str, int, float]]") -> None:
+    async def _release_after_completion(self, work: asyncio.Task[tuple[str, int, float]]) -> None:
         with contextlib.suppress(Exception):
             await work
         await self._release_slot(failed=True)
@@ -252,7 +260,8 @@ def create_app(config: NativeServingConfig | None = None) -> FastAPI:
         tokenizer_path=os.environ.get("CRAFTLY_TOKENIZER_PATH", ""),
         model_name=os.environ.get("CRAFTLY_MODEL_NAME", "craftly-scratch"),
         device=os.environ.get("CRAFTLY_SERVING_DEVICE", "auto"),
-        require_tokenizer_hash_match=os.environ.get("CRAFTLY_REQUIRE_TOKENIZER_HASH_MATCH", "1") == "1",
+        require_tokenizer_hash_match=os.environ.get("CRAFTLY_REQUIRE_TOKENIZER_HASH_MATCH", "1")
+        == "1",
         auth_enabled=os.environ.get("CRAFTLY_AUTH_ENABLED", "1") == "1",
         quota_enabled=os.environ.get("CRAFTLY_QUOTA_ENABLED", "1") == "1",
         max_prompt_characters=int(os.environ.get("CRAFTLY_MAX_PROMPT_CHARACTERS", "131072")),
@@ -260,7 +269,9 @@ def create_app(config: NativeServingConfig | None = None) -> FastAPI:
         max_queue_depth=int(os.environ.get("CRAFTLY_MAX_QUEUE_DEPTH", "64")),
         max_concurrent_generations=int(os.environ.get("CRAFTLY_MAX_CONCURRENT_GENERATIONS", "1")),
         queue_timeout_seconds=float(os.environ.get("CRAFTLY_QUEUE_TIMEOUT_SECONDS", "10")),
-        generation_timeout_seconds=float(os.environ.get("CRAFTLY_GENERATION_TIMEOUT_SECONDS", "120")),
+        generation_timeout_seconds=float(
+            os.environ.get("CRAFTLY_GENERATION_TIMEOUT_SECONDS", "120")
+        ),
     )
     if not active_config.checkpoint_manifest:
         raise ValueError("CRAFTLY_CHECKPOINT_MANIFEST is required")
@@ -294,7 +305,9 @@ def create_app(config: NativeServingConfig | None = None) -> FastAPI:
 
     @app.get("/v1/models")
     async def models() -> dict[str, Any]:
-        return {"data": [{"id": active_config.model_name, "object": "model", "owned_by": "craftly"}]}
+        return {
+            "data": [{"id": active_config.model_name, "object": "model", "owned_by": "craftly"}]
+        }
 
     @app.get("/metrics", response_class=PlainTextResponse)
     async def metrics() -> str:
@@ -309,14 +322,22 @@ def create_app(config: NativeServingConfig | None = None) -> FastAPI:
             if active_config.required_scope not in scopes and "training:admin" not in scopes:
                 raise HTTPException(status_code=403, detail="missing model generation scope")
         if payload.stream:
-            return StreamingResponse(_stream_response(state, payload), media_type="text/event-stream")
+            return StreamingResponse(
+                _stream_response(state, payload), media_type="text/event-stream"
+            )
         text, token_count, latency_ms = await state.generate_async(payload)
         return {
             "id": f"chatcmpl-{uuid.uuid4()}",
             "object": "chat.completion",
             "created": int(time.time()),
             "model": active_config.model_name,
-            "choices": [{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "length"}],
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": text},
+                    "finish_reason": "length",
+                }
+            ],
             "usage": {"completion_tokens": token_count, "total_tokens": token_count},
             "craftly": {"latency_ms": round(latency_ms, 3), "scratch_only": True},
         }
@@ -351,7 +372,9 @@ async def _stream_response(state: NativeServingState, request: ChatCompletionReq
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Serve a Craftly scratch checkpoint with a native OpenAI-compatible API.")
+    parser = argparse.ArgumentParser(
+        description="Serve a Craftly scratch checkpoint with a native OpenAI-compatible API."
+    )
     parser.add_argument("--checkpoint-manifest", required=True)
     parser.add_argument("--tokenizer-path", required=True)
     parser.add_argument("--model-name", default="craftly-scratch")
@@ -396,4 +419,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -1,4 +1,4 @@
-﻿"""Dataset quality inspection reports for clean Craftly JSONL shards."""
+"""Dataset quality inspection reports for clean Craftly JSONL shards."""
 
 from __future__ import annotations
 
@@ -81,7 +81,9 @@ def inspect_clean_jsonl(paths: list[str | Path]) -> QualityInspectionReport:
     )
 
 
-def write_quality_report(paths: list[str | Path], output_path: str | Path) -> QualityInspectionReport:
+def write_quality_report(
+    paths: list[str | Path], output_path: str | Path
+) -> QualityInspectionReport:
     report = inspect_clean_jsonl(paths)
     target = Path(output_path)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -100,4 +102,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -10,15 +10,15 @@ import re
 import sqlite3
 import time
 import tracemalloc
+from collections.abc import Iterable
 from contextlib import closing
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from pydantic import Field
 
 from src.craftly.learning.quality import iter_jsonl, stable_hash
 from src.craftly.shared.schemas import StrictModel
-
 
 TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|0x[0-9A-Fa-f]+|\d+")
 COMMENT_RE = re.compile(r"(?m)(^\s*#.*$|//.*$|/\*.*?\*/)", re.DOTALL)
@@ -97,7 +97,9 @@ def _fingerprint_tokens(text: str) -> list[str]:
 def simhash64(text: str) -> int:
     weights = [0] * 64
     for token in _fingerprint_tokens(text):
-        digest = int.from_bytes(hashlib.blake2b(token.encode("utf-8", "replace"), digest_size=8).digest(), "big")
+        digest = int.from_bytes(
+            hashlib.blake2b(token.encode("utf-8", "replace"), digest_size=8).digest(), "big"
+        )
         for bit in range(64):
             weights[bit] += 1 if digest & (1 << bit) else -1
     value = 0
@@ -122,7 +124,18 @@ def normalized_structure_hash(text: str, language_hint: str | None) -> str | Non
             return None
         payload = ast.dump(tree, annotate_fields=True, include_attributes=False)
         return stable_hash(f"python-ast:{payload}")
-    if normalized_language in {"c", "cpp", "c_cpp", "c_cpp_header", "go", "java", "javascript", "rust", "solidity", "typescript"}:
+    if normalized_language in {
+        "c",
+        "cpp",
+        "c_cpp",
+        "c_cpp_header",
+        "go",
+        "java",
+        "javascript",
+        "rust",
+        "solidity",
+        "typescript",
+    }:
         without_comments = COMMENT_RE.sub(" ", text)
         tokens = TOKEN_RE.findall(without_comments)
         if len(tokens) < 8:
@@ -181,9 +194,18 @@ class SQLiteLSHDedupIndex:
         if value is None:
             return True
         statements = {
-            ("exact_hashes", "content_hash"): "INSERT OR IGNORE INTO exact_hashes(content_hash) VALUES (?)",
-            ("structure_hashes", "structure_hash"): "INSERT OR IGNORE INTO structure_hashes(structure_hash) VALUES (?)",
-            ("lineage_hashes", "lineage_hash"): "INSERT OR IGNORE INTO lineage_hashes(lineage_hash) VALUES (?)",
+            (
+                "exact_hashes",
+                "content_hash",
+            ): "INSERT OR IGNORE INTO exact_hashes(content_hash) VALUES (?)",
+            (
+                "structure_hashes",
+                "structure_hash",
+            ): "INSERT OR IGNORE INTO structure_hashes(structure_hash) VALUES (?)",
+            (
+                "lineage_hashes",
+                "lineage_hash",
+            ): "INSERT OR IGNORE INTO lineage_hashes(lineage_hash) VALUES (?)",
         }
         try:
             statement = statements[(table, column)]
@@ -226,7 +248,9 @@ class SQLiteLSHDedupIndex:
         return False, comparisons
 
     def add_fingerprint(self, value: int) -> None:
-        cursor = self.connection.execute("INSERT INTO fingerprints(simhash_hex) VALUES (?)", (f"{value:016x}",))
+        cursor = self.connection.execute(
+            "INSERT INTO fingerprints(simhash_hex) VALUES (?)", (f"{value:016x}",)
+        )
         fingerprint_id = int(cursor.lastrowid)
         self.connection.executemany(
             "INSERT INTO fingerprint_bands(band_key,fingerprint_id) VALUES (?,?)",
@@ -271,7 +295,9 @@ class PostgresLSHDedupIndex:
             await self._pool.close()
             self._pool = None
 
-    async def check_and_add(self, row: dict[str, Any], *, hamming_threshold: int = 3) -> DistributedDedupDecision:
+    async def check_and_add(
+        self, row: dict[str, Any], *, hamming_threshold: int = 3
+    ) -> DistributedDedupDecision:
         if not 0 <= hamming_threshold <= 64:
             raise ValueError("hamming_threshold must be between 0 and 64")
         text = _row_text(row)
@@ -365,7 +391,10 @@ class PostgresLSHDedupIndex:
                 comparisons = 0
                 for candidate in candidates:
                     comparisons += 1
-                    if hamming_distance(fingerprint, int(candidate["simhash_hex"], 16)) <= hamming_threshold:
+                    if (
+                        hamming_distance(fingerprint, int(candidate["simhash_hex"], 16))
+                        <= hamming_threshold
+                    ):
                         await transaction.rollback()
                         return DistributedDedupDecision(
                             accepted=False,
@@ -426,9 +455,15 @@ def deduplicate_jsonl(
         raise ValueError("hamming_threshold must be between 0 and 64")
     target = Path(output_path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    resolved_index = Path(index_path) if index_path is not None else target.with_suffix(target.suffix + ".dedup.sqlite3")
+    resolved_index = (
+        Path(index_path)
+        if index_path is not None
+        else target.with_suffix(target.suffix + ".dedup.sqlite3")
+    )
     temporary_output = target.with_suffix(target.suffix + ".partial")
-    accepted = exact_duplicates = structural_duplicates = lineage_duplicates = near_duplicates = comparisons = 0
+    accepted = exact_duplicates = structural_duplicates = lineage_duplicates = near_duplicates = (
+        comparisons
+    ) = 0
     by_source: dict[str, dict[str, int]] = {}
     index = SQLiteLSHDedupIndex(resolved_index, reset=True)
     try:
@@ -576,7 +611,9 @@ def run_dedup_scale_validation(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Stream exact/structural/lineage/near deduplication into a SQLite LSH index.")
+    parser = argparse.ArgumentParser(
+        description="Stream exact/structural/lineage/near deduplication into a SQLite LSH index."
+    )
     parser.add_argument("--input", nargs="+")
     parser.add_argument("--output")
     parser.add_argument("--index")

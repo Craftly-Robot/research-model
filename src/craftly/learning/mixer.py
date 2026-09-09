@@ -1,4 +1,4 @@
-﻿"""Token-aware data mixing controller for Craftly training corpora."""
+"""Token-aware data mixing controller for Craftly training corpora."""
 
 from __future__ import annotations
 
@@ -14,13 +14,19 @@ from typing import Any
 from pydantic import Field, model_validator
 
 from src.craftly.learning.quality import iter_jsonl, stable_hash
-from src.craftly.model_ops.tokenizer_pipeline import ShardBuildConfig, ShardManifest, build_token_shards, load_tokenizer
+from src.craftly.model_ops.tokenizer_pipeline import (
+    ShardBuildConfig,
+    ShardManifest,
+    build_token_shards,
+    load_tokenizer,
+)
 from src.craftly.shared.config_contracts import (
     MixRatiosContract as MixConfig,
+)
+from src.craftly.shared.config_contracts import (
     load_mix_ratios_contract,
 )
 from src.craftly.shared.schemas import StrictModel
-
 
 SCRATCH_INSTRUCTION_RATIOS = {
     "instruction_security_coding": 0.40,
@@ -109,7 +115,7 @@ class ScratchMixConfig(StrictModel):
     strict_offensive_filter: bool = True
 
     @model_validator(mode="after")
-    def validate_scratch_ratios(self) -> "ScratchMixConfig":
+    def validate_scratch_ratios(self) -> ScratchMixConfig:
         missing = set(SCRATCH_INSTRUCTION_RATIOS) - set(self.ratios)
         if missing:
             raise ValueError(f"missing scratch mix buckets: {sorted(missing)}")
@@ -167,7 +173,11 @@ def classify_row(row: dict[str, Any]) -> str:
         return "agentic"
     if "cyber" in category or "security" in category or "defensive_security" in labels:
         return "cybersecurity"
-    if "code" in category or "code" in labels or any(token in text for token in ("def ", "class ", "function ", "fn ", "package ")):
+    if (
+        "code" in category
+        or "code" in labels
+        or any(token in text for token in ("def ", "class ", "function ", "fn ", "package "))
+    ):
         return "code"
     return "general"
 
@@ -185,7 +195,12 @@ def _load_rows(
     *,
     min_quality_score: float,
 ) -> tuple[dict[str, list[dict[str, Any]]], int]:
-    buckets: dict[str, list[dict[str, Any]]] = {"general": [], "code": [], "cybersecurity": [], "agentic": []}
+    buckets: dict[str, list[dict[str, Any]]] = {
+        "general": [],
+        "code": [],
+        "cybersecurity": [],
+        "agentic": [],
+    }
     excluded = 0
     seen: set[str] = set()
     for path in input_paths:
@@ -197,8 +212,12 @@ def _load_rows(
                 excluded += 1
                 continue
             quality = row.get("quality", {}) if isinstance(row.get("quality"), dict) else {}
-            training_gate = row.get("training_gate", {}) if isinstance(row.get("training_gate"), dict) else {}
-            quality_score = max(float(quality.get("quality_score", 0.0)), float(training_gate.get("score", 0.0)))
+            training_gate = (
+                row.get("training_gate", {}) if isinstance(row.get("training_gate"), dict) else {}
+            )
+            quality_score = max(
+                float(quality.get("quality_score", 0.0)), float(training_gate.get("score", 0.0))
+            )
             if quality_score < min_quality_score:
                 excluded += 1
                 continue
@@ -357,7 +376,9 @@ def build_mix(
         buckets=reports,
         excluded_holdout_rows=excluded,
     )
-    (root / "mix_manifest.json").write_text(json.dumps(manifest.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+    (root / "mix_manifest.json").write_text(
+        json.dumps(manifest.model_dump(), indent=2, sort_keys=True), encoding="utf-8"
+    )
     return manifest
 
 
@@ -380,7 +401,11 @@ def _labels(row: dict[str, Any]) -> set[str]:
     quality = _quality(row)
     metadata = _metadata(row)
     labels = {str(item).lower() for item in quality.get("labels", [])}
-    labels.update(str(item).lower() for item in metadata.get("labels", []) if isinstance(metadata.get("labels", []), list))
+    labels.update(
+        str(item).lower()
+        for item in metadata.get("labels", [])
+        if isinstance(metadata.get("labels", []), list)
+    )
     category = str(row.get("category") or metadata.get("category") or "").lower()
     if category:
         labels.add(category)
@@ -402,7 +427,9 @@ def _license(row: dict[str, Any]) -> str:
 def _quality_score(row: dict[str, Any]) -> float:
     quality = _quality(row)
     gate = _training_gate(row)
-    return max(float(quality.get("quality_score", 0.0) or 0.0), float(gate.get("score", 0.0) or 0.0))
+    return max(
+        float(quality.get("quality_score", 0.0) or 0.0), float(gate.get("score", 0.0) or 0.0)
+    )
 
 
 def classify_scratch_bucket(row: dict[str, Any]) -> str:
@@ -412,12 +439,45 @@ def classify_scratch_bucket(row: dict[str, Any]) -> str:
     if (
         "defensive_security" in labels
         or data_type in {"security_advisory", "security_reference"}
-        or any(term in text for term in ("cwe-", "cve-", "vulnerability", "secure coding", "owasp", "mitigation", "authentication", "authorization"))
+        or any(
+            term in text
+            for term in (
+                "cwe-",
+                "cve-",
+                "vulnerability",
+                "secure coding",
+                "owasp",
+                "mitigation",
+                "authentication",
+                "authorization",
+            )
+        )
     ):
         return "instruction_security_coding"
-    if data_type == "debug_trace" or any(term in text for term in ("traceback", "compile error", "undefined reference", "stack trace", "panic:", "exception")):
+    if data_type == "debug_trace" or any(
+        term in text
+        for term in (
+            "traceback",
+            "compile error",
+            "undefined reference",
+            "stack trace",
+            "panic:",
+            "exception",
+        )
+    ):
         return "debugging_error_logs"
-    if data_type in {"patch", "test"} or any(term in text for term in ("diff --git", "\n+++ ", "\n--- ", "regression test", "pytest", "unittest", "assert ")):
+    if data_type in {"patch", "test"} or any(
+        term in text
+        for term in (
+            "diff --git",
+            "\n+++ ",
+            "\n--- ",
+            "regression test",
+            "pytest",
+            "unittest",
+            "assert ",
+        )
+    ):
         return "verified_patch_tests"
     if "agentic_coding" in labels:
         return "instruction_security_coding"
@@ -438,11 +498,15 @@ def convert_to_instruction_row(row: dict[str, Any], *, bucket: str) -> dict[str,
     prompt = "Analyze this approved source and produce a defensive coding answer."
     correct_answer = "Summarize the risk or engineering task, propose a safe implementation direction, and include verification."
     patch = "No direct patch is present. Provide a patch plan tied to the context."
-    tests = "Verify with regression tests, static checks, and compile/runtime checks where applicable."
+    tests = (
+        "Verify with regression tests, static checks, and compile/runtime checks where applicable."
+    )
     verification = "expected: safe defensive reasoning with no live-target attack workflow"
 
     if bucket == "instruction_security_coding":
-        prompt = "Turn this approved cybersecurity/coding context into a defensive instruction response."
+        prompt = (
+            "Turn this approved cybersecurity/coding context into a defensive instruction response."
+        )
         correct_answer = (
             "Identify vulnerability surfaces or implementation requirements, explain the defensive rationale, "
             "avoid unsupported claims, and propose safe code or architecture changes."
@@ -450,20 +514,33 @@ def convert_to_instruction_row(row: dict[str, Any], *, bucket: str) -> dict[str,
         patch = "Patch plan: validate inputs, preserve behavior, add narrow checks, and document security assumptions."
         tests = "Tests: include malicious-input regression, normal behavior regression, and static-analysis verification."
     elif bucket == "verified_patch_tests":
-        prompt = "Extract a patch-generation training example from this approved patch/test context."
-        correct_answer = "Explain the bug, the intended fix, and why the tests prove the regression is closed."
+        prompt = (
+            "Extract a patch-generation training example from this approved patch/test context."
+        )
+        correct_answer = (
+            "Explain the bug, the intended fix, and why the tests prove the regression is closed."
+        )
         patch = source_text[:2500]
         tests = "Tests: run the included or implied assertions; add a failing-before/passing-after regression case."
-        verification = "expected: patch and tests are treated as supervised scratch pretraining text"
+        verification = (
+            "expected: patch and tests are treated as supervised scratch pretraining text"
+        )
     elif bucket == "debugging_error_logs":
         prompt = "Debug this runtime or compilation failure and produce the smallest safe fix plan."
         correct_answer = "Identify the likely failing line or invariant, explain the cause, and propose a minimal safe correction."
         patch = "Patch plan: add the missing guard, dependency, type check, or compile fix indicated by the trace."
         tests = "Tests: reproduce the failure, apply the fix, rerun the failing command, and add a regression assertion."
     elif bucket == "high_quality_docs_code":
-        prompt = "Convert this high-quality documentation or code context into implementation guidance."
+        prompt = (
+            "Convert this high-quality documentation or code context into implementation guidance."
+        )
         correct_answer = "Extract reusable design rules, APIs, constraints, and verification steps."
-        if "def " in source_text or "class " in source_text or "function " in source_text or "fn " in source_text:
+        if (
+            "def " in source_text
+            or "class " in source_text
+            or "function " in source_text
+            or "fn " in source_text
+        ):
             patch = "Implementation plan: preserve API behavior, add tests, and keep changes local to the owning module."
 
     text = (
@@ -539,7 +616,11 @@ def build_scratch_instruction_mix(
             if not bucket_allowed_for_curriculum(bucket, active.curriculum_mode):
                 rejected += 1
                 continue
-            if active.curriculum_mode == "defensive_security_only" and active.strict_offensive_filter and contains_offensive_misuse(text):
+            if (
+                active.curriculum_mode == "defensive_security_only"
+                and active.strict_offensive_filter
+                and contains_offensive_misuse(text)
+            ):
                 rejected += 1
                 offensive_rejected += 1
                 continue
@@ -587,7 +668,11 @@ def build_scratch_instruction_mix(
                 if active.preserve_raw_docs:
                     original_text = _row_text(row)
                     row["text"] = original_text
-            row["scratch_mix"] = {"bucket": bucket, "estimated_tokens": tokens, "target_ratio": normalized.get(bucket, 0.0)}
+            row["scratch_mix"] = {
+                "bucket": bucket,
+                "estimated_tokens": tokens,
+                "target_ratio": normalized.get(bucket, 0.0),
+            }
             handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
 
     total_tokens = sum(token_totals.values())
@@ -595,7 +680,9 @@ def build_scratch_instruction_mix(
         ScratchMixBucketReport(
             bucket=bucket,
             input_rows=len(rows),
-            output_rows=sum(1 for row in selected if row.get("scratch_mix", {}).get("bucket") == bucket),
+            output_rows=sum(
+                1 for row in selected if row.get("scratch_mix", {}).get("bucket") == bucket
+            ),
             output_tokens=int(token_totals[bucket]),
             target_ratio=round(normalized.get(bucket, 0.0), 6),
             actual_ratio=round(token_totals[bucket] / max(1, total_tokens), 6),
@@ -605,10 +692,18 @@ def build_scratch_instruction_mix(
     recommendations: list[str] = []
     for item in bucket_reports:
         if item.output_rows == 0:
-            recommendations.append(f"bucket {item.bucket} has zero rows; add higher-yield approved sources for this class")
+            recommendations.append(
+                f"bucket {item.bucket} has zero rows; add higher-yield approved sources for this class"
+            )
         elif item.actual_ratio < item.target_ratio * 0.5:
-            recommendations.append(f"bucket {item.bucket} is under target; available source data is scarce")
-    status = "passed" if selected and not any(item.output_rows == 0 for item in bucket_reports) else "warning"
+            recommendations.append(
+                f"bucket {item.bucket} is under target; available source data is scarce"
+            )
+    status = (
+        "passed"
+        if selected and not any(item.output_rows == 0 for item in bucket_reports)
+        else "warning"
+    )
     report = ScratchInstructionMixReport(
         status=status,
         input_paths=[str(path) for path in input_paths],
@@ -627,7 +722,9 @@ def build_scratch_instruction_mix(
     )
     report_target = Path(report_path)
     report_target.parent.mkdir(parents=True, exist_ok=True)
-    report_target.write_text(json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+    report_target.write_text(
+        json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8"
+    )
     return report
 
 
@@ -641,7 +738,13 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--curriculum-mode",
         default="balanced",
-        choices=["balanced", "fundamentals_only", "defensive_security_only", "debug_patch_only", "agentic_coding_only"],
+        choices=[
+            "balanced",
+            "fundamentals_only",
+            "defensive_security_only",
+            "debug_patch_only",
+            "agentic_coding_only",
+        ],
     )
     parser.add_argument("--allow-offensive-misuse-rows", action="store_true")
     parser.add_argument("--output-jsonl", help="Output path for --scratch-instruction-mix.")
@@ -658,8 +761,12 @@ def _parse_args() -> argparse.Namespace:
 def main() -> None:
     args = _parse_args()
     if args.scratch_instruction_mix:
-        output_path = args.output_jsonl or str(Path(args.output_dir) / "scratch_instruction_mix.jsonl")
-        report_path = args.report_path or str(Path(args.output_dir) / "scratch_instruction_mix_report.json")
+        output_path = args.output_jsonl or str(
+            Path(args.output_dir) / "scratch_instruction_mix.jsonl"
+        )
+        report_path = args.report_path or str(
+            Path(args.output_dir) / "scratch_instruction_mix_report.json"
+        )
         report = build_scratch_instruction_mix(
             input_paths=args.inputs,
             output_path=output_path,
@@ -689,4 +796,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

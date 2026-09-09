@@ -1,4 +1,4 @@
-﻿"""Alembic environment for Craftly production Postgres migrations."""
+"""Alembic environment for Craftly production Postgres migrations."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ import os
 from logging.config import fileConfig
 
 from alembic import context
-
 
 config = context.config
 if config.config_file_name is not None:
@@ -47,4 +46,3 @@ if context.is_offline_mode():
     run_migrations_offline()
 else:
     run_migrations_online()
-

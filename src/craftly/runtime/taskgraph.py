@@ -1,4 +1,4 @@
-﻿"""Durable MVP TaskGraph runtime."""
+"""Durable MVP TaskGraph runtime."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ from pydantic import Field
 
 from src.craftly.db import LocalStore
 from src.craftly.shared.schemas import StrictModel
-
 
 TASK_NODE_ORDER = [
     ("understand", "Understand request and repository target"),
@@ -156,9 +155,13 @@ class TaskGraphRuntime:
             node = TaskNode(
                 kind=kind,
                 title=title,
-                instructions=self.instructions_for(kind, prompt=prompt, mode=mode, apply_patch=apply_patch),
+                instructions=self.instructions_for(
+                    kind, prompt=prompt, mode=mode, apply_patch=apply_patch
+                ),
                 depends_on=dependencies,
-                inputs={"prompt": prompt, "mode": mode, "max_steps": max_steps} if kind == "understand" else {},
+                inputs={"prompt": prompt, "mode": mode, "max_steps": max_steps}
+                if kind == "understand"
+                else {},
             )
             nodes.append(node)
             node_ids[kind] = node.node_id
@@ -227,7 +230,9 @@ class TaskGraphRuntime:
         )
         if claimed:
             started = claimed[0]
-            return self.advance_report(task_graph_id, "running", started, self.store.list_tasks(task_graph_id))
+            return self.advance_report(
+                task_graph_id, "running", started, self.store.list_tasks(task_graph_id)
+            )
         if tasks and all(task["status"] == "completed" for task in tasks):
             self.store.update_task_graph_status(task_graph_id, "completed")
             return self.advance_report(task_graph_id, "completed", None, tasks)
@@ -254,7 +259,9 @@ class TaskGraphRuntime:
             return self.advance(task["task_graph_id"])
         return self.report(task["task_graph_id"])
 
-    def fail_task(self, task_id: str, request: TaskFailRequest, *, claim_next: bool = True) -> TaskAdvanceResponse:
+    def fail_task(
+        self, task_id: str, request: TaskFailRequest, *, claim_next: bool = True
+    ) -> TaskAdvanceResponse:
         task = self.store.get_task(task_id)
         if task is None:
             raise KeyError(f"unknown task: {task_id}")
@@ -275,7 +282,9 @@ class TaskGraphRuntime:
                 error=request.error,
                 finished=False,
             )
-            self.store.update_task_attempt(task_id, attempt=next_attempt, outputs=retry_outputs, error=request.error)
+            self.store.update_task_attempt(
+                task_id, attempt=next_attempt, outputs=retry_outputs, error=request.error
+            )
             self.store.update_task_graph_status(task["task_graph_id"], "running")
             if claim_next:
                 return self.advance(task["task_graph_id"])
@@ -287,7 +296,9 @@ class TaskGraphRuntime:
             error=request.error,
             finished=True,
         )
-        self.store.update_task_attempt(task_id, attempt=next_attempt, outputs=retry_outputs, error=request.error)
+        self.store.update_task_attempt(
+            task_id, attempt=next_attempt, outputs=retry_outputs, error=request.error
+        )
         self.store.update_task_graph_status(task["task_graph_id"], "failed")
         return self.report(task["task_graph_id"])
 
@@ -355,7 +366,8 @@ class TaskGraphRuntime:
         return [
             task
             for task in tasks
-            if task["status"] == "queued" and all(dependency in completed for dependency in task["depends_on"])
+            if task["status"] == "queued"
+            and all(dependency in completed for dependency in task["depends_on"])
         ]
 
     def advance_report(
@@ -375,4 +387,3 @@ class TaskGraphRuntime:
             completed_task_count=sum(1 for task in tasks if task["status"] == "completed"),
             failed_task_count=sum(1 for task in tasks if task["status"] == "failed"),
         )
-

@@ -7,8 +7,8 @@ import json
 import os
 import queue
 import random
-import sys
 import socket
+import sys
 import time
 from pathlib import Path
 from threading import Event, RLock, Thread
@@ -89,14 +89,22 @@ class WorkspaceProgressReporter(ProgressReporter):
         local = parsed.hostname in {"localhost", "127.0.0.1", "::1"}
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise ValueError("CRAFTLY_WORKSPACE_URL must be an absolute HTTP(S) URL")
-        if parsed.scheme != "https" and not local and os.environ.get("CRAFTLY_ALLOW_INSECURE_WORKSPACE") != "1":
+        if (
+            parsed.scheme != "https"
+            and not local
+            and os.environ.get("CRAFTLY_ALLOW_INSECURE_WORKSPACE") != "1"
+        ):
             raise ValueError("remote workspace progress endpoint must use HTTPS")
         super().__init__(path=path, to_stdout=to_stdout)
         self.workspace_url = workspace_url.rstrip("/")
         self.job_id = job_id
         self.attempt_id = attempt_id
         self.access_token = access_token
-        self.wal_path = Path(wal_path) if wal_path else Path(path or "progress.jsonl").with_name("progress-wal.jsonl")
+        self.wal_path = (
+            Path(wal_path)
+            if wal_path
+            else Path(path or "progress.jsonl").with_name("progress-wal.jsonl")
+        )
         self.wal_path.parent.mkdir(parents=True, exist_ok=True)
         self.batch_size = min(max(batch_size, 1), 100)
         self.flush_interval_seconds = max(flush_interval_seconds, 0.1)
@@ -114,7 +122,9 @@ class WorkspaceProgressReporter(ProgressReporter):
         self.rank = int(os.environ.get("RANK", os.environ.get("SLURM_PROCID", "0")))
         self.world_size = int(os.environ.get("WORLD_SIZE", os.environ.get("SLURM_NTASKS", "1")))
         self.node = socket.gethostname()
-        self.worker = Thread(target=self._delivery_loop, name="craftly-progress-delivery", daemon=True)
+        self.worker = Thread(
+            target=self._delivery_loop, name="craftly-progress-delivery", daemon=True
+        )
         self.worker.start()
         atexit.register(self.close)
 
@@ -134,7 +144,10 @@ class WorkspaceProgressReporter(ProgressReporter):
             return "evaluation"
         if lowered == "heartbeat":
             return "heartbeat"
-        if any(key in metrics for key in ["step", "loss", "validation_loss", "tokens_per_second", "gpu_memory_bytes"]):
+        if any(
+            key in metrics
+            for key in ["step", "loss", "validation_loss", "tokens_per_second", "gpu_memory_bytes"]
+        ):
             return "metric"
         return "status"
 
@@ -168,7 +181,11 @@ class WorkspaceProgressReporter(ProgressReporter):
             "tokens_per_second": metrics.get("tokens_per_second"),
             "gpu_memory_bytes": metrics.get("gpu_memory_bytes"),
             "message": metrics.get("message") or metrics.get("error"),
-            "payload": {key: value for key, value in metrics.items() if key not in known and value is not None},
+            "payload": {
+                key: value
+                for key, value in metrics.items()
+                if key not in known and value is not None
+            },
         }
         self._enqueue(event, durable=kind in {"error", "checkpoint", "evaluation"})
         return payload
@@ -181,7 +198,9 @@ class WorkspaceProgressReporter(ProgressReporter):
                 self._write_wal([event])
             else:
                 with self.coalesced_lock:
-                    self.coalesced_metrics[(str(event.get("stage")), int(event.get("rank", 0)), str(event.get("kind")))] = event
+                    self.coalesced_metrics[
+                        (str(event.get("stage")), int(event.get("rank", 0)), str(event.get("kind")))
+                    ] = event
                 self.dropped_metrics += 1
 
     def _write_wal(self, events: list[dict[str, Any]]) -> None:
@@ -222,7 +241,9 @@ class WorkspaceProgressReporter(ProgressReporter):
             for line in lines:
                 try:
                     row = json.loads(line)
-                    delivered = row.get("attempt_id") == self.attempt_id and self._send(list(row.get("events") or []))
+                    delivered = row.get("attempt_id") == self.attempt_id and self._send(
+                        list(row.get("events") or [])
+                    )
                 except (json.JSONDecodeError, TypeError, ValueError):
                     delivered = False
                 if not delivered:
@@ -250,7 +271,12 @@ class WorkspaceProgressReporter(ProgressReporter):
         last_flush = time.monotonic()
         last_heartbeat = time.monotonic()
         failure_streak = 0
-        while not self.stop_event.is_set() or not self.pending.empty() or batch or self.coalesced_metrics:
+        while (
+            not self.stop_event.is_set()
+            or not self.pending.empty()
+            or batch
+            or self.coalesced_metrics
+        ):
             timeout = max(0.05, min(self.flush_interval_seconds, self.heartbeat_seconds) / 2)
             try:
                 batch.append(self.pending.get(timeout=timeout))
@@ -264,7 +290,11 @@ class WorkspaceProgressReporter(ProgressReporter):
             if now - last_heartbeat >= self.heartbeat_seconds:
                 batch.append(self._heartbeat())
                 last_heartbeat = now
-            if batch and (len(batch) >= self.batch_size or now - last_flush >= self.flush_interval_seconds or self.stop_event.is_set()):
+            if batch and (
+                len(batch) >= self.batch_size
+                or now - last_flush >= self.flush_interval_seconds
+                or self.stop_event.is_set()
+            ):
                 sending = batch[:100]
                 del batch[: len(sending)]
                 if not self._send(sending):

@@ -1,4 +1,4 @@
-﻿"""Native Craftly JWT auth middleware.
+"""Native Craftly JWT auth middleware.
 
 Quota remains a gateway policy hook, but auth is production-shaped and
 environment controlled.
@@ -12,8 +12,9 @@ import hmac
 import json
 import os
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
@@ -46,7 +47,7 @@ class AuthConfig:
     )
 
     @classmethod
-    def from_env(cls) -> "AuthConfig":
+    def from_env(cls) -> AuthConfig:
         return cls(
             enabled=os.environ.get("CRAFTLY_AUTH_ENABLED", "0") == "1",
             quota_enabled=os.environ.get("CRAFTLY_QUOTA_ENABLED", "0") == "1",
@@ -156,7 +157,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self.config = config
 
-    async def dispatch(self, request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
         path = request.url.path
         if is_exempt(path, self.config) or not is_protected(path, self.config):
             response = await call_next(request)
@@ -172,7 +175,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
         try:
             claims = verify_jwt(auth_header.split(" ", 1)[1].strip(), config=self.config)
         except AuthError as exc:
-            return JSONResponse(status_code=exc.status_code, content={"error": exc.code, "detail": exc.detail})
+            return JSONResponse(
+                status_code=exc.status_code, content={"error": exc.code, "detail": exc.detail}
+            )
         request.state.user_id = str(claims["sub"])
         request.state.jwt_claims = claims
         response = await call_next(request)
@@ -197,7 +202,10 @@ def auth_status(config: AuthConfig | None = None) -> dict[str, Any]:
 
 def validate_token_issue_request(config: AuthConfig, supplied_key: str | None) -> None:
     if config.enabled and not config.allow_token_issue:
-        raise AuthError("token_issue_disabled", "Token issuance is disabled in production mode.", 403)
-    if config.token_issue_key and not hmac.compare_digest(supplied_key or "", config.token_issue_key):
+        raise AuthError(
+            "token_issue_disabled", "Token issuance is disabled in production mode.", 403
+        )
+    if config.token_issue_key and not hmac.compare_digest(
+        supplied_key or "", config.token_issue_key
+    ):
         raise AuthError("invalid_token_issue_key", "Token issuance key is invalid.", 403)
-

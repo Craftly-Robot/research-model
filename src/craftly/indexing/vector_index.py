@@ -1,4 +1,4 @@
-﻿"""Repository vector index contracts and local/production backend adapters."""
+"""Repository vector index contracts and local/production backend adapters."""
 
 from __future__ import annotations
 
@@ -13,12 +13,12 @@ import threading
 import time
 import uuid
 from collections import Counter
+from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import Any, Callable, Iterable, Literal, Protocol
+from typing import Any, Literal, Protocol
 from urllib.parse import urlparse
 
 import httpx
-
 from pydantic import Field
 
 from src.craftly.db import LocalStore
@@ -57,6 +57,7 @@ class ScratchEmbeddingConfig(StrictModel):
 
 
 if nn is not None:
+
     class ScratchCodeEmbeddingModel(nn.Module):
         """Craftly-owned random-initialized dual-encoder backbone."""
 
@@ -86,12 +87,16 @@ if nn is not None:
             if isinstance(module, nn.Linear) and module.bias is not None:
                 nn.init.zeros_(module.bias)
 
-        def forward(self, input_ids: "torch.Tensor", attention_mask: "torch.Tensor") -> "torch.Tensor":
+        def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
             if input_ids.ndim != 2 or attention_mask.shape != input_ids.shape:
-                raise ValueError("input_ids and attention_mask must have matching [batch, sequence] shapes")
+                raise ValueError(
+                    "input_ids and attention_mask must have matching [batch, sequence] shapes"
+                )
             if input_ids.shape[1] > self.config.max_sequence_length:
                 raise ValueError("embedding input exceeds configured maximum sequence length")
-            if input_ids.numel() and (int(input_ids.min()) < 0 or int(input_ids.max()) >= self.config.vocab_size):
+            if input_ids.numel() and (
+                int(input_ids.min()) < 0 or int(input_ids.max()) >= self.config.vocab_size
+            ):
                 raise ValueError("embedding input contains an out-of-vocabulary token ID")
             positions = torch.arange(input_ids.shape[1], device=input_ids.device).unsqueeze(0)
             hidden = self.token_embeddings(input_ids) + self.position_embeddings(positions)
@@ -103,33 +108,37 @@ if nn is not None:
 
         def contrastive_loss(
             self,
-            query_ids: "torch.Tensor",
-            query_mask: "torch.Tensor",
-            positive_ids: "torch.Tensor",
-            positive_mask: "torch.Tensor",
-        ) -> "torch.Tensor":
+            query_ids: torch.Tensor,
+            query_mask: torch.Tensor,
+            positive_ids: torch.Tensor,
+            positive_mask: torch.Tensor,
+        ) -> torch.Tensor:
             query = self(query_ids, query_mask)
             positive = self(positive_ids, positive_mask)
             logits = query @ positive.transpose(0, 1) / self.config.temperature
             labels = torch.arange(logits.shape[0], device=logits.device)
-            return 0.5 * (F.cross_entropy(logits, labels) + F.cross_entropy(logits.transpose(0, 1), labels))
+            return 0.5 * (
+                F.cross_entropy(logits, labels) + F.cross_entropy(logits.transpose(0, 1), labels)
+            )
 
         def training_loss(
             self,
-            query_ids: "torch.Tensor",
-            query_mask: "torch.Tensor",
-            positive_ids: "torch.Tensor",
-            positive_mask: "torch.Tensor",
+            query_ids: torch.Tensor,
+            query_mask: torch.Tensor,
+            positive_ids: torch.Tensor,
+            positive_mask: torch.Tensor,
             *,
-            hard_negative_ids: "torch.Tensor | None" = None,
-            hard_negative_mask: "torch.Tensor | None" = None,
-        ) -> "torch.Tensor":
+            hard_negative_ids: torch.Tensor | None = None,
+            hard_negative_mask: torch.Tensor | None = None,
+        ) -> torch.Tensor:
             query = self(query_ids, query_mask)
             positive = self(positive_ids, positive_mask)
             candidates = positive
             if hard_negative_ids is not None:
                 if hard_negative_mask is None or hard_negative_ids.ndim != 3:
-                    raise ValueError("hard negatives require matching [batch, negatives, sequence] tensors")
+                    raise ValueError(
+                        "hard negatives require matching [batch, negatives, sequence] tensors"
+                    )
                 batch, negatives, sequence = hard_negative_ids.shape
                 hard = self(
                     hard_negative_ids.reshape(batch * negatives, sequence),
@@ -137,10 +146,15 @@ if nn is not None:
                 )
                 candidates = torch.cat([positive, hard], dim=0)
             labels = torch.arange(query.shape[0], device=query.device)
-            query_loss = F.cross_entropy(query @ candidates.transpose(0, 1) / self.config.temperature, labels)
-            positive_loss = F.cross_entropy(positive @ query.transpose(0, 1) / self.config.temperature, labels)
+            query_loss = F.cross_entropy(
+                query @ candidates.transpose(0, 1) / self.config.temperature, labels
+            )
+            positive_loss = F.cross_entropy(
+                positive @ query.transpose(0, 1) / self.config.temperature, labels
+            )
             return 0.5 * (query_loss + positive_loss)
 else:
+
     class ScratchCodeEmbeddingModel:  # type: ignore[no-redef]
         def __init__(self, _config: ScratchEmbeddingConfig) -> None:
             raise RuntimeError("PyTorch is required for the Craftly scratch embedding model")
@@ -158,7 +172,9 @@ def save_scratch_embedding_checkpoint(
     try:
         from safetensors.torch import save_file
     except ImportError as exc:
-        raise RuntimeError("safetensors is required for secure embedding checkpoint serialization") from exc
+        raise RuntimeError(
+            "safetensors is required for secure embedding checkpoint serialization"
+        ) from exc
     for name, value in {
         "tokenizer_sha256": tokenizer_sha256,
         "dataset_manifest_sha256": dataset_manifest_sha256,
@@ -170,8 +186,7 @@ def save_scratch_embedding_checkpoint(
     checkpoint = target / "embedding_model.safetensors"
     temporary = target / ".embedding_model.safetensors.tmp"
     tensors = {
-        name: value.detach().cpu().contiguous()
-        for name, value in model.state_dict().items()
+        name: value.detach().cpu().contiguous() for name, value in model.state_dict().items()
     }
     save_file(tensors, str(temporary), metadata={"format": "craftly-scratch-embedding-v1"})
     os.replace(temporary, checkpoint)
@@ -189,7 +204,9 @@ def save_scratch_embedding_checkpoint(
         "status": "built_not_gpu_proven",
     }
     manifest_path = target / "embedding_manifest.json"
-    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
     return {**manifest, "manifest_path": str(manifest_path), "checkpoint_path": str(checkpoint)}
 
 
@@ -310,7 +327,9 @@ def _atomic_jsonl(path: Path, rows: Iterable[EmbeddingPair]) -> tuple[int, str]:
     count = 0
     with temporary.open("wb") as handle:
         for row in rows:
-            payload = (json.dumps(row.model_dump(mode="json"), sort_keys=True, ensure_ascii=True) + "\n").encode("utf-8")
+            payload = (
+                json.dumps(row.model_dump(mode="json"), sort_keys=True, ensure_ascii=True) + "\n"
+            ).encode("utf-8")
             handle.write(payload)
             digest.update(payload)
             count += 1
@@ -344,11 +363,15 @@ def build_embedding_pairs(
             by_symbol.setdefault(symbol.lower(), []).append(chunk)
     pairs: dict[str, EmbeddingPair] = {}
 
-    def add(query: str, positive: str, category: str, lineage: str, metadata: dict[str, Any]) -> None:
+    def add(
+        query: str, positive: str, category: str, lineage: str, metadata: dict[str, Any]
+    ) -> None:
         if not query.strip() or not positive.strip():
             return
         identity = hashlib.sha256(
-            "\x1f".join([str(revision["id"]), category, lineage, query, positive]).encode("utf-8", "surrogatepass")
+            "\x1f".join([str(revision["id"]), category, lineage, query, positive]).encode(
+                "utf-8", "surrogatepass"
+            )
         ).hexdigest()
         candidates = [
             str(item["content"])
@@ -357,7 +380,9 @@ def build_embedding_pairs(
             and item.get("language") == metadata.get("language")
             and str(item.get("path")) != str(metadata.get("path"))
         ]
-        candidates.sort(key=lambda text: hashlib.sha256((identity + text).encode("utf-8")).hexdigest())
+        candidates.sort(
+            key=lambda text: hashlib.sha256((identity + text).encode("utf-8")).hexdigest()
+        )
         pairs[identity] = EmbeddingPair(
             pair_id=identity,
             query=query,
@@ -404,7 +429,11 @@ def build_embedding_pairs(
                 chunk_search_text(target),
                 "symbol_call",
                 f"{lineage}->{target['path']}:{target.get('symbol_name')}",
-                {"chunk_id": target["id"], "path": target["path"], "language": target.get("language")},
+                {
+                    "chunk_id": target["id"],
+                    "path": target["path"],
+                    "language": target.get("language"),
+                },
             )
         if "test" in path.lower() or "spec" in path.lower():
             for called in metadata.get("calls", []):
@@ -416,14 +445,20 @@ def build_embedding_pairs(
                         chunk_search_text(target),
                         "code_test",
                         f"{path}->{target['path']}:{target.get('symbol_name')}",
-                        {"chunk_id": target["id"], "path": target["path"], "language": target.get("language")},
+                        {
+                            "chunk_id": target["id"],
+                            "path": target["path"],
+                            "language": target.get("language"),
+                        },
                     )
 
     ordered = [pairs[key] for key in sorted(pairs)]
     path = Path(output_path).resolve()
     count, digest = _atomic_jsonl(path, ordered)
     categories = Counter(pair.category for pair in ordered)
-    blockers = [] if count >= minimum_pairs else [f"pair count {count} is below required {minimum_pairs}"]
+    blockers = (
+        [] if count >= minimum_pairs else [f"pair count {count} is below required {minimum_pairs}"]
+    )
     return EmbeddingPairBuildReport(
         status="blocked" if blockers else "passed",
         project_id=project_id,
@@ -475,14 +510,18 @@ def split_embedding_pairs(
     if not validation and len(training) > 1:
         validation.append(training.pop())
     if not training or not validation:
-        raise ValueError("embedding dataset cannot produce non-empty lineage-safe train and validation splits")
+        raise ValueError(
+            "embedding dataset cannot produce non-empty lineage-safe train and validation splits"
+        )
     train_lineages = {pair.lineage_key for pair in training}
     if train_lineages.intersection(pair.lineage_key for pair in validation):
         raise RuntimeError("embedding lineage leaked across train and validation")
     return training, validation
 
 
-def _tokenize_embedding_texts(tokenizer: Any, texts: list[str], *, max_length: int, device: Any) -> tuple[Any, Any]:
+def _tokenize_embedding_texts(
+    tokenizer: Any, texts: list[str], *, max_length: int, device: Any
+) -> tuple[Any, Any]:
     encoded = [tokenizer.encode(text).ids[:max_length] for text in texts]
     if not encoded or any(not item for item in encoded):
         raise ValueError("tokenizer produced an empty embedding sequence")
@@ -515,9 +554,14 @@ def _save_optimizer_safely(optimizer: Any, output_dir: Path) -> None:
                 scalars[key] = value
             else:
                 raise TypeError(f"unsupported optimizer state value: {key}")
-    save_file(tensors, str(output_dir / "optimizer.safetensors"), metadata={"format": "craftly-adamw-v1"})
+    save_file(
+        tensors, str(output_dir / "optimizer.safetensors"), metadata={"format": "craftly-adamw-v1"}
+    )
     (output_dir / "optimizer.json").write_text(
-        json.dumps({"param_groups": state["param_groups"], "scalars": scalars}, indent=2, sort_keys=True) + "\n",
+        json.dumps(
+            {"param_groups": state["param_groups"], "scalars": scalars}, indent=2, sort_keys=True
+        )
+        + "\n",
         encoding="utf-8",
     )
 
@@ -550,10 +594,16 @@ def evaluate_embedding_model(
         for start in range(0, len(selected), 64):
             batch = selected[start : start + 64]
             query_ids, query_mask = _tokenize_embedding_texts(
-                tokenizer, [item.query for item in batch], max_length=model.config.max_sequence_length, device=device
+                tokenizer,
+                [item.query for item in batch],
+                max_length=model.config.max_sequence_length,
+                device=device,
             )
             positive_ids, positive_mask = _tokenize_embedding_texts(
-                tokenizer, [item.positive for item in batch], max_length=model.config.max_sequence_length, device=device
+                tokenizer,
+                [item.positive for item in batch],
+                max_length=model.config.max_sequence_length,
+                device=device,
             )
             query_vectors.append(model(query_ids, query_mask).cpu())
             positive_vectors.append(model(positive_ids, positive_mask).cpu())
@@ -566,7 +616,11 @@ def evaluate_embedding_model(
         rank = int((order[index] == index).nonzero(as_tuple=False)[0].item()) + 1
         ranks.append(rank)
     diagonal = similarities.diag()
-    off_diagonal = similarities[~torch.eye(len(selected), dtype=torch.bool)] if len(selected) > 1 else torch.zeros(1)
+    off_diagonal = (
+        similarities[~torch.eye(len(selected), dtype=torch.bool)]
+        if len(selected) > 1
+        else torch.zeros(1)
+    )
     dimension_std = float(torch.cat([queries, positives]).std(dim=0).mean().item())
     off_mean = float(off_diagonal.mean().item())
     collapse = dimension_std < 1e-4 or off_mean > 0.98 or not math.isfinite(dimension_std)
@@ -603,14 +657,26 @@ def _load_embedding_checkpoint(
     manifest_path = checkpoint_dir / "embedding_manifest.json"
     state_path = checkpoint_dir / "training_state.json"
     weights_path = checkpoint_dir / "embedding_model.safetensors"
-    for path in (manifest_path, state_path, weights_path, checkpoint_dir / "optimizer.json", checkpoint_dir / "optimizer.safetensors"):
+    for path in (
+        manifest_path,
+        state_path,
+        weights_path,
+        checkpoint_dir / "optimizer.json",
+        checkpoint_dir / "optimizer.safetensors",
+    ):
         if not path.is_file():
             raise FileNotFoundError(f"resume checkpoint is incomplete: {path}")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     state = EmbeddingCheckpointState.model_validate_json(state_path.read_text(encoding="utf-8"))
-    if manifest.get("tokenizer_sha256") != tokenizer_sha256 or state.tokenizer_sha256 != tokenizer_sha256:
+    if (
+        manifest.get("tokenizer_sha256") != tokenizer_sha256
+        or state.tokenizer_sha256 != tokenizer_sha256
+    ):
         raise RuntimeError("resume checkpoint tokenizer hash mismatch")
-    if manifest.get("dataset_manifest_sha256") != dataset_sha256 or state.dataset_sha256 != dataset_sha256:
+    if (
+        manifest.get("dataset_manifest_sha256") != dataset_sha256
+        or state.dataset_sha256 != dataset_sha256
+    ):
         raise RuntimeError("resume checkpoint embedding dataset hash mismatch")
     actual = hashlib.sha256(weights_path.read_bytes()).hexdigest()
     if actual != manifest.get("checkpoint_sha256"):
@@ -667,10 +733,16 @@ def _validation_loss(
             if len(batch) < 2:
                 continue
             query_ids, query_mask = _tokenize_embedding_texts(
-                tokenizer, [item.query for item in batch], max_length=model.config.max_sequence_length, device=device
+                tokenizer,
+                [item.query for item in batch],
+                max_length=model.config.max_sequence_length,
+                device=device,
             )
             positive_ids, positive_mask = _tokenize_embedding_texts(
-                tokenizer, [item.positive for item in batch], max_length=model.config.max_sequence_length, device=device
+                tokenizer,
+                [item.positive for item in batch],
+                max_length=model.config.max_sequence_length,
+                device=device,
             )
             loss = model.contrastive_loss(query_ids, query_mask, positive_ids, positive_mask)
             if not torch.isfinite(loss):
@@ -798,7 +870,9 @@ def train_scratch_embedding_model(
     random.Random(config.seed + step).shuffle(shuffled)
     use_autocast = device.type == "cuda" and config.precision in {"fp16", "bf16"}
     autocast_dtype = torch.float16 if config.precision == "fp16" else torch.bfloat16
-    scaler = torch.amp.GradScaler("cuda", enabled=device.type == "cuda" and config.precision == "fp16")
+    scaler = torch.amp.GradScaler(
+        "cuda", enabled=device.type == "cuda" and config.precision == "fp16"
+    )
     last_loss: float | None = None
     last_metrics: EmbeddingRetrievalMetrics | None = None
     stopped_early = False
@@ -815,10 +889,16 @@ def train_scratch_embedding_model(
                 hard_negatives_per_query=config.hard_negatives_per_query,
             )
             query_ids, query_mask = _tokenize_embedding_texts(
-                tokenizer, [item.query for item in batch], max_length=config.model.max_sequence_length, device=device
+                tokenizer,
+                [item.query for item in batch],
+                max_length=config.model.max_sequence_length,
+                device=device,
             )
             positive_ids, positive_mask = _tokenize_embedding_texts(
-                tokenizer, [item.positive for item in batch], max_length=config.model.max_sequence_length, device=device
+                tokenizer,
+                [item.positive for item in batch],
+                max_length=config.model.max_sequence_length,
+                device=device,
             )
             hard_ids = hard_mask = None
             if config.hard_negatives_per_query:
@@ -827,8 +907,12 @@ def train_scratch_embedding_model(
                     tokenizer, flat, max_length=config.model.max_sequence_length, device=device
                 )
                 hard_ids = flat_ids.reshape(config.batch_size, config.hard_negatives_per_query, -1)
-                hard_mask = flat_mask.reshape(config.batch_size, config.hard_negatives_per_query, -1)
-            with torch.autocast(device_type=device.type, dtype=autocast_dtype, enabled=use_autocast):
+                hard_mask = flat_mask.reshape(
+                    config.batch_size, config.hard_negatives_per_query, -1
+                )
+            with torch.autocast(
+                device_type=device.type, dtype=autocast_dtype, enabled=use_autocast
+            ):
                 loss = model.training_loss(
                     query_ids,
                     query_mask,
@@ -1040,26 +1124,31 @@ class VectorIndexBackend(Protocol):
     config: VectorBackendConfig
 
     def search(
-        self, *, organization_id: str = "local", project_id: str,
-        revision_id: str = "", query: str, top_k: int = 12,
-    ) -> VectorSearchReport:
-        ...
+        self,
+        *,
+        organization_id: str = "local",
+        project_id: str,
+        revision_id: str = "",
+        query: str,
+        top_k: int = 12,
+    ) -> VectorSearchReport: ...
 
     def sync_project(
-        self, *, organization_id: str = "local", project_id: str,
-        revision_id: str = "", batch_size: int = 64,
-    ) -> VectorSyncReport:
-        ...
+        self,
+        *,
+        organization_id: str = "local",
+        project_id: str,
+        revision_id: str = "",
+        batch_size: int = 64,
+    ) -> VectorSyncReport: ...
 
 
 class EmbeddingProvider(Protocol):
     dims: int
 
-    def embed(self, text: str) -> list[float]:
-        ...
+    def embed(self, text: str) -> list[float]: ...
 
-    def embed_many(self, texts: list[str]) -> list[list[float]]:
-        ...
+    def embed_many(self, texts: list[str]) -> list[list[float]]: ...
 
 
 class LocalHashingEmbeddingProvider:
@@ -1123,14 +1212,19 @@ class HttpEmbeddingProvider:
     def embed_many(self, texts: list[str]) -> list[list[float]]:
         if not texts or len(texts) > 256:
             raise ValueError("embedding batch size must be between 1 and 256")
-        if any(not isinstance(text, str) or not text or len(text.encode("utf-8")) > 2_000_000 for text in texts):
+        if any(
+            not isinstance(text, str) or not text or len(text.encode("utf-8")) > 2_000_000
+            for text in texts
+        ):
             raise ValueError("embedding inputs must be non-empty strings no larger than 2MB")
         with self._lock:
             if time.monotonic() < self._circuit_open_until:
                 raise RuntimeError("embedding provider circuit is open")
         request_input: str | list[str] = texts[0] if len(texts) == 1 else texts
         try:
-            response = self.client.post(self.endpoint, json={"model": self.model, "input": request_input})
+            response = self.client.post(
+                self.endpoint, json={"model": self.model, "input": request_input}
+            )
             response.raise_for_status()
             if len(response.content) > 64 * 1024 * 1024:
                 raise RuntimeError("embedding provider response exceeded 64MB")
@@ -1176,16 +1270,22 @@ def validate_embedding_manifest(config: VectorBackendConfig) -> dict[str, Any]:
         raise RuntimeError("embedding manifest dimension mismatch")
     tokenizer_hash = str(manifest.get("tokenizer_sha256") or "")
     checkpoint_hash = str(manifest.get("checkpoint_sha256") or "")
-    if not re.fullmatch(r"[0-9a-f]{64}", tokenizer_hash) or not re.fullmatch(r"[0-9a-f]{64}", checkpoint_hash):
+    if not re.fullmatch(r"[0-9a-f]{64}", tokenizer_hash) or not re.fullmatch(
+        r"[0-9a-f]{64}", checkpoint_hash
+    ):
         raise RuntimeError("embedding manifest requires tokenizer and checkpoint SHA-256 bindings")
     return manifest
 
 
-def create_embedding_provider(config: VectorBackendConfig, *, allow_local_hashing: bool) -> EmbeddingProvider:
+def create_embedding_provider(
+    config: VectorBackendConfig, *, allow_local_hashing: bool
+) -> EmbeddingProvider:
     endpoint = config.embedding_url or os.environ.get("CRAFTLY_EMBEDDING_URL")
     if endpoint:
         validate_embedding_manifest(config)
-        return HttpEmbeddingProvider(endpoint=endpoint, model=config.embedding_model, dims=config.dims)
+        return HttpEmbeddingProvider(
+            endpoint=endpoint, model=config.embedding_model, dims=config.dims
+        )
     if allow_local_hashing:
         return LocalHashingEmbeddingProvider(dims=config.dims)
     raise RuntimeError("production vector backend requires embedding_url/CRAFTLY_EMBEDDING_URL")
@@ -1193,7 +1293,9 @@ def create_embedding_provider(config: VectorBackendConfig, *, allow_local_hashin
 
 def _validated_embedding(value: Any, *, dims: int) -> list[float]:
     if not isinstance(value, list) or len(value) != dims:
-        raise RuntimeError(f"embedding provider returned invalid vector dimensions; expected {dims}")
+        raise RuntimeError(
+            f"embedding provider returned invalid vector dimensions; expected {dims}"
+        )
     vector = [float(item) for item in value]
     if any(not math.isfinite(item) for item in vector):
         raise RuntimeError("embedding provider returned a non-finite vector")
@@ -1244,15 +1346,26 @@ class LocalVectorIndex:
     It is not semantic enough or scalable enough for production retrieval.
     """
 
-    def __init__(self, store: LocalStore | None = None, *, dims: int = 384, config: VectorBackendConfig | None = None) -> None:
+    def __init__(
+        self,
+        store: LocalStore | None = None,
+        *,
+        dims: int = 384,
+        config: VectorBackendConfig | None = None,
+    ) -> None:
         self.store = store or LocalStore()
         self.config = config or VectorBackendConfig(backend="local_hashing", dims=dims)
         self.dims = self.config.dims
         self.embedding_provider = create_embedding_provider(self.config, allow_local_hashing=True)
 
     def search(
-        self, *, organization_id: str = "local", project_id: str,
-        revision_id: str = "", query: str, top_k: int = 12,
+        self,
+        *,
+        organization_id: str = "local",
+        project_id: str,
+        revision_id: str = "",
+        query: str,
+        top_k: int = 12,
     ) -> VectorSearchReport:
         self.store.require_project_access(project_id, organization_id)
         query_vector = self.embedding_provider.embed(query)
@@ -1284,8 +1397,12 @@ class LocalVectorIndex:
         )
 
     def sync_project(
-        self, *, organization_id: str = "local", project_id: str,
-        revision_id: str = "", batch_size: int = 64,
+        self,
+        *,
+        organization_id: str = "local",
+        project_id: str,
+        revision_id: str = "",
+        batch_size: int = 64,
     ) -> VectorSyncReport:
         self.store.require_project_access(project_id, organization_id)
         if batch_size < 1 or batch_size > 256:
@@ -1316,7 +1433,9 @@ class FaissVectorIndex(LocalVectorIndex):
     when explicitly allowed by using `local_hashing`.
     """
 
-    def __init__(self, store: LocalStore | None = None, *, config: VectorBackendConfig | None = None) -> None:
+    def __init__(
+        self, store: LocalStore | None = None, *, config: VectorBackendConfig | None = None
+    ) -> None:
         try:
             import faiss  # noqa: F401
         except ImportError as exc:
@@ -1325,7 +1444,9 @@ class FaissVectorIndex(LocalVectorIndex):
 
 
 class HnswVectorIndex(LocalVectorIndex):
-    def __init__(self, store: LocalStore | None = None, *, config: VectorBackendConfig | None = None) -> None:
+    def __init__(
+        self, store: LocalStore | None = None, *, config: VectorBackendConfig | None = None
+    ) -> None:
         try:
             import hnswlib  # noqa: F401
         except ImportError as exc:
@@ -1334,7 +1455,9 @@ class HnswVectorIndex(LocalVectorIndex):
 
 
 class QdrantVectorIndex(LocalVectorIndex):
-    def __init__(self, store: LocalStore | None = None, *, config: VectorBackendConfig | None = None) -> None:
+    def __init__(
+        self, store: LocalStore | None = None, *, config: VectorBackendConfig | None = None
+    ) -> None:
         active = config or VectorBackendConfig(backend="qdrant")
         active = active.model_copy(
             update={
@@ -1344,14 +1467,20 @@ class QdrantVectorIndex(LocalVectorIndex):
         )
         if active.qdrant_collection == "craftly_code_chunks":
             version_suffix = hashlib.sha256(active.embedding_model.encode("utf-8")).hexdigest()[:12]
-            active = active.model_copy(update={"qdrant_collection": f"craftly_code_chunks_{version_suffix}"})
+            active = active.model_copy(
+                update={"qdrant_collection": f"craftly_code_chunks_{version_suffix}"}
+            )
         if not active.qdrant_url:
-            raise RuntimeError("Qdrant backend requested but qdrant_url/CRAFTLY_QDRANT_URL is not configured")
+            raise RuntimeError(
+                "Qdrant backend requested but qdrant_url/CRAFTLY_QDRANT_URL is not configured"
+            )
         self.embedding_provider = create_embedding_provider(active, allow_local_hashing=False)
         try:
             from qdrant_client import QdrantClient  # type: ignore
         except ImportError as exc:
-            raise RuntimeError("Qdrant backend requested but qdrant-client is not installed") from exc
+            raise RuntimeError(
+                "Qdrant backend requested but qdrant-client is not installed"
+            ) from exc
         self.store = store or LocalStore()
         self.config = active
         self.dims = active.dims
@@ -1367,7 +1496,9 @@ class QdrantVectorIndex(LocalVectorIndex):
         operations: list[Any] = []
         try:
             aliases = self.client.get_aliases().aliases
-            if any(getattr(item, "alias_name", None) == self.config.qdrant_alias for item in aliases):
+            if any(
+                getattr(item, "alias_name", None) == self.config.qdrant_alias for item in aliases
+            ):
                 operations.append(
                     models.DeleteAliasOperation(
                         delete_alias=models.DeleteAlias(alias_name=self.config.qdrant_alias)
@@ -1391,7 +1522,9 @@ class QdrantVectorIndex(LocalVectorIndex):
     @staticmethod
     def _point_id(organization_id: str, project_id: str, revision_id: str, chunk_id: str) -> str:
         del revision_id
-        return str(uuid.uuid5(uuid.NAMESPACE_URL, f"craftly:{organization_id}:{project_id}:{chunk_id}"))
+        return str(
+            uuid.uuid5(uuid.NAMESPACE_URL, f"craftly:{organization_id}:{project_id}:{chunk_id}")
+        )
 
     def _ensure_collection(self) -> None:
         from qdrant_client import models
@@ -1418,8 +1551,12 @@ class QdrantVectorIndex(LocalVectorIndex):
                     on_disk=self.config.production_mode,
                 ),
                 shard_number=shard_count,
-                replication_factor=self.config.qdrant_replication_factor if self.config.production_mode else 1,
-                write_consistency_factor=(self.config.qdrant_replication_factor // 2) + 1 if self.config.production_mode else 1,
+                replication_factor=self.config.qdrant_replication_factor
+                if self.config.production_mode
+                else 1,
+                write_consistency_factor=(self.config.qdrant_replication_factor // 2) + 1
+                if self.config.production_mode
+                else 1,
             )
         for field_name in ("organization_id", "project_id", "revision_id", "content_hash"):
             try:
@@ -1431,21 +1568,31 @@ class QdrantVectorIndex(LocalVectorIndex):
                 )
             except Exception as exc:
                 if "already exists" not in str(exc).lower():
-                    raise RuntimeError(f"Qdrant payload index creation failed for {field_name}: {exc}") from exc
+                    raise RuntimeError(
+                        f"Qdrant payload index creation failed for {field_name}: {exc}"
+                    ) from exc
 
     @staticmethod
     def _tenant_filter(models: Any, organization_id: str, project_id: str, revision_id: str) -> Any:
         must = [
-            models.FieldCondition(key="organization_id", match=models.MatchValue(value=organization_id)),
+            models.FieldCondition(
+                key="organization_id", match=models.MatchValue(value=organization_id)
+            ),
             models.FieldCondition(key="project_id", match=models.MatchValue(value=project_id)),
         ]
         if revision_id:
-            must.append(models.FieldCondition(key="revision_id", match=models.MatchValue(value=revision_id)))
+            must.append(
+                models.FieldCondition(key="revision_id", match=models.MatchValue(value=revision_id))
+            )
         return models.Filter(must=must)
 
     def sync_project(
-        self, *, organization_id: str = "local", project_id: str,
-        revision_id: str = "", batch_size: int = 64,
+        self,
+        *,
+        organization_id: str = "local",
+        project_id: str,
+        revision_id: str = "",
+        batch_size: int = 64,
     ) -> VectorSyncReport:
         from qdrant_client import models
 
@@ -1458,7 +1605,9 @@ class QdrantVectorIndex(LocalVectorIndex):
             raise RuntimeError("Qdrant sync requires the active committed index revision")
         chunks = self.store.list_chunks(project_id)
         if any(str(chunk.get("index_revision") or "") != revision_id for chunk in chunks):
-            raise RuntimeError("local chunks are not consistently bound to the active index revision")
+            raise RuntimeError(
+                "local chunks are not consistently bound to the active index revision"
+            )
         sensitive = [
             str(chunk["id"])
             for chunk in chunks
@@ -1498,7 +1647,9 @@ class QdrantVectorIndex(LocalVectorIndex):
             batch = chunks[start : start + batch_size]
             changed_batch: list[dict[str, Any]] = []
             for chunk in batch:
-                point_id = self._point_id(organization_id, project_id, revision_id, str(chunk["id"]))
+                point_id = self._point_id(
+                    organization_id, project_id, revision_id, str(chunk["id"])
+                )
                 desired_ids.add(point_id)
                 if existing_hashes.get(point_id) == str(chunk.get("chunk_hash") or ""):
                     reused_ids.append(point_id)
@@ -1512,7 +1663,9 @@ class QdrantVectorIndex(LocalVectorIndex):
                 raise RuntimeError("embedding provider returned the wrong number of vectors")
             points = []
             for chunk, text, vector in zip(changed_batch, texts, vectors, strict=True):
-                point_id = self._point_id(organization_id, project_id, revision_id, str(chunk["id"]))
+                point_id = self._point_id(
+                    organization_id, project_id, revision_id, str(chunk["id"])
+                )
                 text_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
                 points.append(
                     models.PointStruct(
@@ -1544,7 +1697,9 @@ class QdrantVectorIndex(LocalVectorIndex):
         if reused_ids:
             if not hasattr(self.client, "set_payload"):
                 if self.config.production_mode:
-                    raise RuntimeError("Qdrant client cannot update revision payload for reused vectors")
+                    raise RuntimeError(
+                        "Qdrant client cannot update revision payload for reused vectors"
+                    )
             else:
                 self.client.set_payload(
                     collection_name=self.config.qdrant_collection,
@@ -1573,8 +1728,13 @@ class QdrantVectorIndex(LocalVectorIndex):
         )
 
     def search(
-        self, *, organization_id: str = "local", project_id: str,
-        revision_id: str = "", query: str, top_k: int = 12,
+        self,
+        *,
+        organization_id: str = "local",
+        project_id: str,
+        revision_id: str = "",
+        query: str,
+        top_k: int = 12,
     ) -> VectorSearchReport:
         if top_k < 1 or top_k > 500:
             raise ValueError("top_k must be between 1 and 500")
@@ -1590,7 +1750,9 @@ class QdrantVectorIndex(LocalVectorIndex):
             query_filter = self._tenant_filter(models, organization_id, project_id, revision_id)
             if hasattr(self.client, "query_points"):
                 response = self.client.query_points(
-                    collection_name=self.config.qdrant_alias if self.config.production_mode else self.config.qdrant_collection,
+                    collection_name=self.config.qdrant_alias
+                    if self.config.production_mode
+                    else self.config.qdrant_collection,
                     query=vector,
                     limit=top_k,
                     query_filter=query_filter,
@@ -1598,7 +1760,9 @@ class QdrantVectorIndex(LocalVectorIndex):
                 hits = response.points
             else:
                 hits = self.client.search(
-                    collection_name=self.config.qdrant_alias if self.config.production_mode else self.config.qdrant_collection,
+                    collection_name=self.config.qdrant_alias
+                    if self.config.production_mode
+                    else self.config.qdrant_collection,
                     query_vector=vector,
                     limit=top_k,
                     query_filter=query_filter,
@@ -1636,7 +1800,9 @@ class QdrantVectorIndex(LocalVectorIndex):
 
 
 class PgVectorIndex(LocalVectorIndex):
-    def __init__(self, store: LocalStore | None = None, *, config: VectorBackendConfig | None = None) -> None:
+    def __init__(
+        self, store: LocalStore | None = None, *, config: VectorBackendConfig | None = None
+    ) -> None:
         active = config or VectorBackendConfig(backend="pgvector")
         active = active.model_copy(
             update={
@@ -1645,12 +1811,16 @@ class PgVectorIndex(LocalVectorIndex):
             }
         )
         if not active.postgres_dsn:
-            raise RuntimeError("pgvector backend requested but postgres_dsn/CRAFTLY_DATABASE_URL is not configured")
+            raise RuntimeError(
+                "pgvector backend requested but postgres_dsn/CRAFTLY_DATABASE_URL is not configured"
+            )
         create_embedding_provider(active, allow_local_hashing=False)
         super().__init__(store, config=active)
 
 
-def create_vector_index(store: LocalStore | None = None, config: VectorBackendConfig | None = None) -> VectorIndexBackend:
+def create_vector_index(
+    store: LocalStore | None = None, config: VectorBackendConfig | None = None
+) -> VectorIndexBackend:
     active = config or VectorBackendConfig()
     if active.backend == "local_hashing":
         return LocalVectorIndex(store, config=active)
@@ -1672,12 +1842,24 @@ def vector_capabilities() -> list[VectorIndexCapability]:
             available=True,
             reason="built-in deterministic hashed embeddings",
             production_grade=False,
-            notes=["dev and validation fallback only", "exact scan", "not semantic enough for production"],
+            notes=[
+                "dev and validation fallback only",
+                "exact scan",
+                "not semantic enough for production",
+            ],
         )
     ]
     for backend, package, production_notes in [
-        ("faiss", "faiss", ["dependency available", "persistent ANN implementation is not complete"]),
-        ("hnsw", "hnswlib", ["dependency available", "persistent ANN implementation is not complete"]),
+        (
+            "faiss",
+            "faiss",
+            ["dependency available", "persistent ANN implementation is not complete"],
+        ),
+        (
+            "hnsw",
+            "hnswlib",
+            ["dependency available", "persistent ANN implementation is not complete"],
+        ),
     ]:
         try:
             __import__(package)
@@ -1698,23 +1880,32 @@ def vector_capabilities() -> list[VectorIndexCapability]:
     capabilities.append(
         VectorIndexCapability(
             backend="qdrant",
-            available=bool(os.environ.get("CRAFTLY_QDRANT_URL") and os.environ.get("CRAFTLY_EMBEDDING_URL")),
+            available=bool(
+                os.environ.get("CRAFTLY_QDRANT_URL") and os.environ.get("CRAFTLY_EMBEDDING_URL")
+            ),
             reason="CRAFTLY_QDRANT_URL and CRAFTLY_EMBEDDING_URL configured"
             if os.environ.get("CRAFTLY_QDRANT_URL") and os.environ.get("CRAFTLY_EMBEDDING_URL")
             else "CRAFTLY_QDRANT_URL or CRAFTLY_EMBEDDING_URL not configured",
-            production_grade=bool(os.environ.get("CRAFTLY_QDRANT_URL") and os.environ.get("CRAFTLY_EMBEDDING_URL")),
+            production_grade=bool(
+                os.environ.get("CRAFTLY_QDRANT_URL") and os.environ.get("CRAFTLY_EMBEDDING_URL")
+            ),
             notes=["distributed vector database", "best for long-term memory and many projects"],
         )
     )
     capabilities.append(
         VectorIndexCapability(
             backend="pgvector",
-            available=bool(os.environ.get("CRAFTLY_DATABASE_URL") and os.environ.get("CRAFTLY_EMBEDDING_URL")),
+            available=bool(
+                os.environ.get("CRAFTLY_DATABASE_URL") and os.environ.get("CRAFTLY_EMBEDDING_URL")
+            ),
             reason="CRAFTLY_DATABASE_URL and CRAFTLY_EMBEDDING_URL configured"
             if os.environ.get("CRAFTLY_DATABASE_URL") and os.environ.get("CRAFTLY_EMBEDDING_URL")
             else "CRAFTLY_DATABASE_URL or CRAFTLY_EMBEDDING_URL not configured",
             production_grade=False,
-            notes=["configuration contract only", "native pgvector persistence/query implementation is not complete"],
+            notes=[
+                "configuration contract only",
+                "native pgvector persistence/query implementation is not complete",
+            ],
         )
     )
     return capabilities
@@ -1725,9 +1916,13 @@ def _embedding_progress(event: dict[str, Any]) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build and train the Craftly scratch code embedding model")
+    parser = argparse.ArgumentParser(
+        description="Build and train the Craftly scratch code embedding model"
+    )
     commands = parser.add_subparsers(dest="command", required=True)
-    pairs = commands.add_parser("build-pairs", help="Build verified retrieval pairs from a committed local index")
+    pairs = commands.add_parser(
+        "build-pairs", help="Build verified retrieval pairs from a committed local index"
+    )
     pairs.add_argument("--sqlite-path", required=True)
     pairs.add_argument("--project-id", required=True)
     pairs.add_argument("--output", required=True)
@@ -1750,7 +1945,9 @@ def main() -> None:
         print(json.dumps(report.model_dump(mode="json"), indent=2, sort_keys=True))
         raise SystemExit(0 if report.status == "passed" else 2)
     config_path = Path(args.config).resolve(strict=True)
-    config = EmbeddingTrainingConfig.model_validate_json(config_path.read_text(encoding="utf-8-sig"))
+    config = EmbeddingTrainingConfig.model_validate_json(
+        config_path.read_text(encoding="utf-8-sig")
+    )
     report = train_scratch_embedding_model(
         pairs_path=args.pairs,
         tokenizer_path=args.tokenizer,
@@ -1765,4 +1962,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

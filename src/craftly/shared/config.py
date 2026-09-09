@@ -13,8 +13,14 @@ ROOT = Path(__file__).resolve().parents[3]
 
 
 def active_profile_path() -> Path:
-    override = os.environ.get("CRAFTLY_ACTIVE_MODEL_PROFILE_PATH") or os.environ.get("CRAFTLY_ACTIVE_MODEL_PROFILE_PATH")
-    return Path(override).expanduser().resolve() if override else ROOT / "config" / "active_model_profile.json"
+    override = os.environ.get("CRAFTLY_ACTIVE_MODEL_PROFILE_PATH") or os.environ.get(
+        "CRAFTLY_ACTIVE_MODEL_PROFILE_PATH"
+    )
+    return (
+        Path(override).expanduser().resolve()
+        if override
+        else ROOT / "config" / "active_model_profile.json"
+    )
 
 
 def load_active_profile() -> dict[str, Any]:
@@ -33,5 +39,3 @@ def env_value(*names: str, default: str | None = None) -> str | None:
         if value:
             return value
     return default
-
-

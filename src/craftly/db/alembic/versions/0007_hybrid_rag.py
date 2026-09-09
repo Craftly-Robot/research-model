@@ -11,7 +11,6 @@ from pathlib import Path
 
 from alembic import op
 
-
 revision = "0007_hybrid_rag"
 down_revision = "0006_dataset_trust"
 branch_labels = None

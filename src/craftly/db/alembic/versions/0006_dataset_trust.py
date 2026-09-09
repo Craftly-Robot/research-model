@@ -11,7 +11,6 @@ from pathlib import Path
 
 from alembic import op
 
-
 revision = "0006_dataset_trust"
 down_revision = "0005_agent_collaboration"
 branch_labels = None

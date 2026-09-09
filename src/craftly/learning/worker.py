@@ -1,4 +1,4 @@
-﻿"""Distributed Craftly crawler worker entrypoint."""
+"""Distributed Craftly crawler worker entrypoint."""
 
 from __future__ import annotations
 
@@ -66,17 +66,40 @@ async def run_crawler_worker(config: CrawlerWorkerConfig) -> dict[str, object]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run a distributed Craftly crawler worker.")
-    parser.add_argument("--sources", default=os.environ.get("CRAFTLY_DATA_SOURCES", "config/data_sources.ultimate.json"))
+    parser.add_argument(
+        "--sources",
+        default=os.environ.get("CRAFTLY_DATA_SOURCES", "config/data_sources.ultimate.json"),
+    )
     parser.add_argument("--postgres-dsn", default=os.environ.get("CRAFTLY_DATABASE_URL", ""))
-    parser.add_argument("--raw-output-dir", default=os.environ.get("CRAFTLY_RAW_OUTPUT_DIR", "artifacts/craftly/data-engine/raw"))
-    parser.add_argument("--clean-output-dir", default=os.environ.get("CRAFTLY_CLEAN_OUTPUT_DIR", "artifacts/craftly/data-engine/clean"))
+    parser.add_argument(
+        "--raw-output-dir",
+        default=os.environ.get("CRAFTLY_RAW_OUTPUT_DIR", "artifacts/craftly/data-engine/raw"),
+    )
+    parser.add_argument(
+        "--clean-output-dir",
+        default=os.environ.get("CRAFTLY_CLEAN_OUTPUT_DIR", "artifacts/craftly/data-engine/clean"),
+    )
     parser.add_argument("--worker-id", default=os.environ.get("CRAFTLY_WORKER_ID", "worker-0"))
-    parser.add_argument("--batch-docs", type=int, default=int(os.environ.get("CRAFTLY_BATCH_DOCS", "10000")))
-    parser.add_argument("--loops", type=int, default=int(os.environ.get("CRAFTLY_WORKER_LOOPS", "1")))
-    parser.add_argument("--workers", type=int, default=int(os.environ.get("CRAFTLY_ASYNC_WORKERS", "16")))
-    parser.add_argument("--max-depth", type=int, default=int(os.environ.get("CRAFTLY_CRAWL_MAX_DEPTH", "2")))
-    parser.add_argument("--delay-seconds", type=float, default=float(os.environ.get("CRAFTLY_CRAWL_DELAY_SECONDS", "1.0")))
-    parser.add_argument("--shard-rows", type=int, default=int(os.environ.get("CRAFTLY_SHARD_ROWS", "10000")))
+    parser.add_argument(
+        "--batch-docs", type=int, default=int(os.environ.get("CRAFTLY_BATCH_DOCS", "10000"))
+    )
+    parser.add_argument(
+        "--loops", type=int, default=int(os.environ.get("CRAFTLY_WORKER_LOOPS", "1"))
+    )
+    parser.add_argument(
+        "--workers", type=int, default=int(os.environ.get("CRAFTLY_ASYNC_WORKERS", "16"))
+    )
+    parser.add_argument(
+        "--max-depth", type=int, default=int(os.environ.get("CRAFTLY_CRAWL_MAX_DEPTH", "2"))
+    )
+    parser.add_argument(
+        "--delay-seconds",
+        type=float,
+        default=float(os.environ.get("CRAFTLY_CRAWL_DELAY_SECONDS", "1.0")),
+    )
+    parser.add_argument(
+        "--shard-rows", type=int, default=int(os.environ.get("CRAFTLY_SHARD_ROWS", "10000"))
+    )
     return parser.parse_args()
 
 
@@ -105,5 +128,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-

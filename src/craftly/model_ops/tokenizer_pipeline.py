@@ -1,4 +1,4 @@
-﻿"""Tokenizer training and token sharding pipeline for Craftly scratch pretraining."""
+"""Tokenizer training and token sharding pipeline for Craftly scratch pretraining."""
 
 from __future__ import annotations
 
@@ -8,14 +8,14 @@ import random
 import struct
 import time
 import uuid
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable, Literal
+from typing import Any, Literal
 
 from pydantic import Field
 
-from src.craftly.shared.schemas import StrictModel
 from src.craftly.shared.integrity import sha256_file
-
+from src.craftly.shared.schemas import StrictModel
 
 SPECIAL_TOKENS = [
     "<|document_end|>",
@@ -200,7 +200,11 @@ def iter_texts(paths: list[str | Path]) -> Iterable[str]:
             yield source.read_text(encoding="utf-8", errors="replace")
 
 
-def train_bpe_tokenizer(input_paths: list[str | Path], output_path: str | Path, config: TokenizerTrainConfig | None = None) -> Path:
+def train_bpe_tokenizer(
+    input_paths: list[str | Path],
+    output_path: str | Path,
+    config: TokenizerTrainConfig | None = None,
+) -> Path:
     from tokenizers import Tokenizer
     from tokenizers.decoders import ByteLevel as ByteLevelDecoder
     from tokenizers.models import BPE
@@ -298,7 +302,9 @@ def build_token_shards(
             if not token_ids:
                 continue
             token_ids.append(boundary_token_id)
-            split = forced_split or ("val" if rng.random() < active.validation_fraction else "train")
+            split = forced_split or (
+                "val" if rng.random() < active.validation_fraction else "train"
+            )
             buffer = val_buffer if split == "val" else train_buffer
             buffer.extend(token_ids)
             if split == "val":
@@ -383,7 +389,9 @@ def corpus_stats(paths: list[str | Path]) -> tuple[int, int]:
 def write_tokenizer_stress_file(root: str | Path) -> Path:
     target = Path(root) / "tokenizer_stress_samples.jsonl"
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps({"text": TOKENIZER_STRESS_TEXT}, sort_keys=True) + "\n", encoding="utf-8")
+    target.write_text(
+        json.dumps({"text": TOKENIZER_STRESS_TEXT}, sort_keys=True) + "\n", encoding="utf-8"
+    )
     return target
 
 
@@ -418,7 +426,9 @@ def _load_production_dataset_binding(
             expected = str(artifact_sha256.get(name) or "")
             if len(expected) != 64 or sha256_file(artifact) != expected:
                 raise ValueError(f"dataset artifact integrity failed: {name}")
-        train_paths = {str(Path(path).expanduser().resolve(strict=True)) for path in config.input_paths}
+        train_paths = {
+            str(Path(path).expanduser().resolve(strict=True)) for path in config.input_paths
+        }
         val_paths = {
             str(Path(path).expanduser().resolve(strict=True))
             for path in config.validation_input_paths
@@ -426,7 +436,9 @@ def _load_production_dataset_binding(
         if train_paths != {str(Path(str(artifacts["train"])).expanduser().resolve(strict=True))}:
             raise ValueError("tokenizer train input is not the promoted dataset train split")
         if val_paths != {str(Path(str(artifacts["val"])).expanduser().resolve(strict=True))}:
-            raise ValueError("tokenizer validation input is not the promoted dataset validation split")
+            raise ValueError(
+                "tokenizer validation input is not the promoted dataset validation split"
+            )
         split = (payload.get("reports") or {}).get("split_manifest") or {}
         if int(split.get("cross_split_group_collisions", -1)) != 0:
             raise ValueError("dataset split contains cross-family collisions")
@@ -456,7 +468,9 @@ def _token_audit_metrics(tokenizer: Any, paths: list[str | Path]) -> dict[str, f
             whitespace += int(bool(decoded) and not decoded.strip())
             punctuation += int(
                 bool(decoded)
-                and all(not character.isalnum() and not character.isspace() for character in decoded)
+                and all(
+                    not character.isalnum() and not character.isspace() for character in decoded
+                )
             )
     denominator = max(1, total)
     return {
@@ -580,7 +594,9 @@ def train_real_corpus_tokenizer(config: RealCorpusTokenizerConfig) -> TokenizerA
     artifact_manifest = TokenizerArtifactManifest(
         status="passed" if not audit_failures else "failed",
         dataset_id=config.dataset_id,
-        dataset_manifest_path=str(Path(config.dataset_manifest_path).resolve()) if config.dataset_manifest_path else "",
+        dataset_manifest_path=str(Path(config.dataset_manifest_path).resolve())
+        if config.dataset_manifest_path
+        else "",
         dataset_manifest_sha256=dataset_manifest_sha256,
         tokenizer_path=str(trained.resolve()),
         tokenizer_sha256=sha256_file(trained),
@@ -611,7 +627,9 @@ def train_real_corpus_tokenizer(config: RealCorpusTokenizerConfig) -> TokenizerA
         tokenizer_manifest_path=str(tokenizer_manifest_path),
         tokenizer_manifest_sha256=sha256_file(tokenizer_manifest_path),
         shard_manifest_sha256=sha256_file(shard_manifest_path),
-        dataset_manifest_path=str(Path(config.dataset_manifest_path).resolve()) if config.dataset_manifest_path else "",
+        dataset_manifest_path=str(Path(config.dataset_manifest_path).resolve())
+        if config.dataset_manifest_path
+        else "",
         dataset_manifest_sha256=dataset_manifest_sha256,
         source_sha256=manifest.source_sha256,
         split_strategy=manifest.split_strategy,
@@ -630,7 +648,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input", nargs="+", required=True)
     parser.add_argument("--tokenizer-out")
     parser.add_argument("--shards-out")
-    parser.add_argument("--output-dir", help="Use with --real-corpus-audit to write tokenizer, shards, and audit report.")
+    parser.add_argument(
+        "--output-dir",
+        help="Use with --real-corpus-audit to write tokenizer, shards, and audit report.",
+    )
     parser.add_argument("--dataset-id", default="craftly-corpus")
     parser.add_argument("--vocab-size", type=int, default=128_000)
     parser.add_argument("--min-frequency", type=int, default=2)
@@ -671,7 +692,9 @@ def main() -> None:
             raise SystemExit(2)
         return
     if not args.tokenizer_out or not args.shards_out:
-        raise SystemExit("--tokenizer-out and --shards-out are required unless --real-corpus-audit is used")
+        raise SystemExit(
+            "--tokenizer-out and --shards-out are required unless --real-corpus-audit is used"
+        )
     tokenizer_path = train_bpe_tokenizer(
         args.input,
         args.tokenizer_out,
@@ -693,4 +716,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

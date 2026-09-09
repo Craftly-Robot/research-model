@@ -1,4 +1,4 @@
-﻿"""Post-checkpoint evaluation gates for scratch pretraining runs."""
+"""Post-checkpoint evaluation gates for scratch pretraining runs."""
 
 from __future__ import annotations
 
@@ -8,10 +8,14 @@ import math
 from pathlib import Path
 from typing import Any
 
-
-from src.craftly.evaluation.benchmarks import BenchmarkHarness, BenchmarkRunReport, built_in_security_tasks
+from src.craftly.evaluation.benchmarks import (
+    BenchmarkHarness,
+    BenchmarkRunReport,
+    built_in_security_tasks,
+)
 from src.craftly.model_ops.foundation import CheckpointManifest, sha256_file
-from src.craftly.shared.schemas import EvaluationGate as EvalGate, StrictModel
+from src.craftly.shared.schemas import EvaluationGate as EvalGate
+from src.craftly.shared.schemas import StrictModel
 
 
 class CheckpointEvalReport(StrictModel):
@@ -30,7 +34,9 @@ class CheckpointEvalReport(StrictModel):
         return target
 
 
-def _load_training_report(path_or_payload: str | Path | dict[str, Any] | None) -> dict[str, Any] | None:
+def _load_training_report(
+    path_or_payload: str | Path | dict[str, Any] | None,
+) -> dict[str, Any] | None:
     if path_or_payload is None:
         return None
     if isinstance(path_or_payload, dict):
@@ -59,7 +65,9 @@ def _checkpoint_integrity_gate(manifest: CheckpointManifest) -> EvalGate:
     return EvalGate(
         name="checkpoint_integrity",
         status=status,
-        reason="checkpoint files exist and hashes match" if status == "pass" else "checkpoint files missing or hash mismatch",
+        reason="checkpoint files exist and hashes match"
+        if status == "pass"
+        else "checkpoint files missing or hash mismatch",
         metrics={"files": len(manifest.files), "missing": missing, "mismatched": mismatched},
     )
 
@@ -74,9 +82,13 @@ def _training_loss_gate(training_report: dict[str, Any] | None) -> EvalGate:
     losses = [float(item) for item in training_report.get("train_losses", [])]
     finite = all(math.isfinite(item) for item in losses)
     if not losses:
-        return EvalGate(name="training_loss", status="fail", reason="training report has no train_losses")
+        return EvalGate(
+            name="training_loss", status="fail", reason="training report has no train_losses"
+        )
     if not finite:
-        return EvalGate(name="training_loss", status="fail", reason="training loss contains NaN or infinity")
+        return EvalGate(
+            name="training_loss", status="fail", reason="training loss contains NaN or infinity"
+        )
     first = losses[0]
     final = losses[-1]
     improvement = (first - final) / max(abs(first), 1e-9)
@@ -112,27 +124,41 @@ def _validation_loss_gate(training_report: dict[str, Any] | None) -> EvalGate:
         steps = int(training_report.get("steps", 0) or 0)
         if validate_every <= 0:
             reason = "validation was disabled for this training run"
-            recommendation = "set --validate-every to a positive value for checkpoint quality evaluation"
+            recommendation = (
+                "set --validate-every to a positive value for checkpoint quality evaluation"
+            )
         elif steps < validate_every:
             reason = "no validation interval was reached during this training run"
             recommendation = "set --validate-every less than or equal to --train-steps"
         else:
             reason = "no validation batches were produced; increase corpus size or validation_fraction for quality evaluation"
-            recommendation = "increase corpus size or validation_fraction so validation loss is measured"
+            recommendation = (
+                "increase corpus size or validation_fraction so validation loss is measured"
+            )
         return EvalGate(
             name="validation_loss",
             status="warn",
             reason=reason,
-            metrics={"steps": steps, "validate_every": validate_every, "recommendation": recommendation},
+            metrics={
+                "steps": steps,
+                "validate_every": validate_every,
+                "recommendation": recommendation,
+            },
         )
     values = [float(item["loss"]) for item in losses]
     finite = all(math.isfinite(item) for item in values)
     if not finite:
-        return EvalGate(name="validation_loss", status="fail", reason="validation loss contains NaN or infinity")
+        return EvalGate(
+            name="validation_loss", status="fail", reason="validation loss contains NaN or infinity"
+        )
     first = values[0]
     final = values[-1]
     status = "pass" if len(values) == 1 or final <= first * 1.5 else "fail"
-    reason = "validation loss is finite and non-exploding" if status == "pass" else "validation loss exploded"
+    reason = (
+        "validation loss is finite and non-exploding"
+        if status == "pass"
+        else "validation loss exploded"
+    )
     return EvalGate(
         name="validation_loss",
         status=status,
@@ -141,16 +167,24 @@ def _validation_loss_gate(training_report: dict[str, Any] | None) -> EvalGate:
     )
 
 
-def _checkpoint_selection_gate(training_report: dict[str, Any] | None, checkpoint_manifest_path: Path) -> EvalGate:
+def _checkpoint_selection_gate(
+    training_report: dict[str, Any] | None, checkpoint_manifest_path: Path
+) -> EvalGate:
     if training_report is None:
-        return EvalGate(name="checkpoint_selection", status="warn", reason="no training report provided")
+        return EvalGate(
+            name="checkpoint_selection", status="warn", reason="no training report provided"
+        )
     best_manifest = str(training_report.get("best_checkpoint_manifest") or "")
     final_manifest = str(training_report.get("checkpoint_manifest") or "")
     best_loss = float(training_report.get("best_validation_loss", -1.0))
     best_step = int(training_report.get("best_validation_step", 0) or 0)
     selected = str(checkpoint_manifest_path)
     status = "pass" if best_manifest and selected == best_manifest else "warn"
-    reason = "validation-best checkpoint selected" if status == "pass" else "final or unknown checkpoint selected"
+    reason = (
+        "validation-best checkpoint selected"
+        if status == "pass"
+        else "final or unknown checkpoint selected"
+    )
     return EvalGate(
         name="checkpoint_selection",
         status=status,
@@ -172,7 +206,9 @@ def evaluate_checkpoint(
     output_dir: str | Path = "artifacts/craftly/checkpoint-eval",
 ) -> CheckpointEvalReport:
     manifest_path = Path(checkpoint_manifest_path)
-    manifest = CheckpointManifest.model_validate(json.loads(manifest_path.read_text(encoding="utf-8-sig")))
+    manifest = CheckpointManifest.model_validate(
+        json.loads(manifest_path.read_text(encoding="utf-8-sig"))
+    )
     active_training_report = _load_training_report(training_report)
 
     benchmark_dir = Path(output_dir) / "benchmarks"
@@ -188,18 +224,30 @@ def evaluate_checkpoint(
         EvalGate(
             name="built_in_security_benchmark",
             status="pass" if benchmark_report.status == "passed" else "fail",
-            reason="built-in defensive security benchmark passed" if benchmark_report.status == "passed" else "built-in defensive benchmark failed",
-            metrics={"score": benchmark_report.score, "total": benchmark_report.total, "passed": benchmark_report.passed},
+            reason="built-in defensive security benchmark passed"
+            if benchmark_report.status == "passed"
+            else "built-in defensive benchmark failed",
+            metrics={
+                "score": benchmark_report.score,
+                "total": benchmark_report.total,
+                "passed": benchmark_report.passed,
+            },
         ),
     ]
     blocking = [gate for gate in gates if gate.status == "fail"]
     recommendations: list[str] = []
     if any(gate.name == "validation_loss" and gate.status == "warn" for gate in gates):
-        recommendations.append("increase corpus size or validation_fraction so validation loss is measured")
+        recommendations.append(
+            "increase corpus size or validation_fraction so validation loss is measured"
+        )
     if any(gate.name == "training_loss" and gate.status == "fail" for gate in gates):
-        recommendations.append("reduce learning rate, inspect data quality, or lower batch/sequence settings")
+        recommendations.append(
+            "reduce learning rate, inspect data quality, or lower batch/sequence settings"
+        )
     if any(gate.name == "checkpoint_integrity" and gate.status == "fail" for gate in gates):
-        recommendations.append("treat checkpoint as invalid and rerun training from a verified manifest")
+        recommendations.append(
+            "treat checkpoint as invalid and rerun training from a verified manifest"
+        )
 
     report = CheckpointEvalReport(
         status="passed" if not blocking else "failed",
@@ -234,4 +282,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

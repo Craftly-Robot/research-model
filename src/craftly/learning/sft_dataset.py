@@ -132,7 +132,7 @@ CANONICAL_DEFENSIVE_SFT_SEED_DATA: list[dict[str, Any]] = [
             "### Secure Patch\n"
             "<|patch_start|>\n"
             "def login(username, password):\n"
-            "    query = \"SELECT id, role FROM accounts WHERE user = %s AND pass = %s\"\n"
+            '    query = "SELECT id, role FROM accounts WHERE user = %s AND pass = %s"\n'
             "    return db.execute(query, (username, password)).fetchone()\n"
             "<|patch_end|>\n\n"
             "Parameterized statements guarantee parameters are treated as literal constants by the database engine."
@@ -390,7 +390,9 @@ class SFTDatasetEngine:
         self.records = expanded
         return expanded
 
-    def partition(self, val_ratio: float = 0.1, seed: int = 1337) -> tuple[list[SFTRecord], list[SFTRecord]]:
+    def partition(
+        self, val_ratio: float = 0.1, seed: int = 1337
+    ) -> tuple[list[SFTRecord], list[SFTRecord]]:
         """Split into training and validation sets deterministically."""
         rng = random.Random(seed)
         records = list(self.records)
@@ -408,7 +410,7 @@ class SFTDatasetEngine:
         return target
 
     @classmethod
-    def load_jsonl(cls, input_file: str | Path) -> "SFTDatasetEngine":
+    def load_jsonl(cls, input_file: str | Path) -> SFTDatasetEngine:
         """Load records from JSONL."""
         source = Path(input_file).resolve()
         records: list[SFTRecord] = []

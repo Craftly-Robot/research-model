@@ -1,4 +1,4 @@
-﻿"""Dataset version manifests and append-only local ledger."""
+"""Dataset version manifests and append-only local ledger."""
 
 from __future__ import annotations
 
@@ -79,7 +79,9 @@ class DatasetLedger:
 
 def artifact_from_path(path: str | Path, *, role: str) -> DatasetArtifact:
     source = Path(path)
-    return DatasetArtifact(path=str(source), role=role, size_bytes=source.stat().st_size, sha256=file_sha256(source))
+    return DatasetArtifact(
+        path=str(source), role=role, size_bytes=source.stat().st_size, sha256=file_sha256(source)
+    )
 
 
 def build_version_id(dataset_id: str, artifact_hashes: list[str]) -> str:
@@ -90,4 +92,3 @@ def build_version_id(dataset_id: str, artifact_hashes: list[str]) -> str:
     for item in sorted(artifact_hashes):
         digest.update(item.encode("utf-8"))
     return digest.hexdigest()[:16]
-

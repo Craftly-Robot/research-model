@@ -20,14 +20,16 @@ from urllib.parse import urlparse
 import httpx
 
 from src.craftly.model_ops.foundation import CheckpointManifest, sha256_file
-from src.craftly.shared.config_contracts import ActiveModelConfigContract
 from src.craftly.shared.config import load_active_profile
+from src.craftly.shared.config_contracts import ActiveModelConfigContract
 
 
 class ModelBackend:
     name: str = "base"
 
-    async def generate(self, prompt: str, *, temperature: float = 0.2, max_tokens: int = 1024) -> str:
+    async def generate(
+        self, prompt: str, *, temperature: float = 0.2, max_tokens: int = 1024
+    ) -> str:
         raise NotImplementedError
 
     async def aclose(self) -> None:
@@ -40,7 +42,9 @@ class ModelBackend:
 class MockModelBackend(ModelBackend):
     name = "mock"
 
-    async def generate(self, prompt: str, *, temperature: float = 0.2, max_tokens: int = 1024) -> str:
+    async def generate(
+        self, prompt: str, *, temperature: float = 0.2, max_tokens: int = 1024
+    ) -> str:
         return (
             "Mock Craftly response. I inspected the request and would create a minimal, tested patch. "
             f"Prompt: {prompt[:500]}"
@@ -56,7 +60,9 @@ class CraftlyServingBackend(ModelBackend):
         self.api_key = api_key
         self.client = httpx.AsyncClient(timeout=60)
 
-    async def generate(self, prompt: str, *, temperature: float = 0.2, max_tokens: int = 1024) -> str:
+    async def generate(
+        self, prompt: str, *, temperature: float = 0.2, max_tokens: int = 1024
+    ) -> str:
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
         response = await self.client.post(
             f"{self.endpoint}/chat/completions",
@@ -127,14 +133,19 @@ def build_active_backend() -> ModelBackend:
                 or os.environ.get("CRAFTLY_MODEL_NAME")
                 or "craftly-scratch"
             ),
-            api_key=os.environ.get("CRAFTLY_MODEL_API_KEY") or os.environ.get("CRAFTLY_MODEL_API_KEY"),
+            api_key=os.environ.get("CRAFTLY_MODEL_API_KEY")
+            or os.environ.get("CRAFTLY_MODEL_API_KEY"),
         )
     return MockModelBackend()
 
 
 def list_model_profiles() -> dict[str, Any]:
-    endpoint = os.environ.get("CRAFTLY_MODEL_ENDPOINT") or os.environ.get("CRAFTLY_MODEL_ENDPOINT", "http://127.0.0.1:8000/v1")
-    model_name = os.environ.get("CRAFTLY_MODEL_NAME") or os.environ.get("CRAFTLY_MODEL_NAME", "craftly-scratch")
+    endpoint = os.environ.get("CRAFTLY_MODEL_ENDPOINT") or os.environ.get(
+        "CRAFTLY_MODEL_ENDPOINT", "http://127.0.0.1:8000/v1"
+    )
+    model_name = os.environ.get("CRAFTLY_MODEL_NAME") or os.environ.get(
+        "CRAFTLY_MODEL_NAME", "craftly-scratch"
+    )
     return {
         "mock": {"backend": "mock", "quality": "test double only, not a real model"},
         "craftly-scratch-local": {
@@ -148,7 +159,11 @@ def list_model_profiles() -> dict[str, Any]:
 
 def activate_model_profile(name: str, *, run_id: str = "craftly-profile") -> dict[str, Any]:
     profiles = list_model_profiles()
-    key = "craftly-scratch-local" if name in {"craftly-scratch-local", "craftly-scratch-local"} else name
+    key = (
+        "craftly-scratch-local"
+        if name in {"craftly-scratch-local", "craftly-scratch-local"}
+        else name
+    )
     if key not in profiles:
         raise ValueError(f"unknown model profile: {name}")
     return {"run_id": run_id, "activated": name, "profile": profiles[key]}
@@ -253,39 +268,54 @@ def promote_scratch_checkpoint(
     from src.craftly.evaluation.benchmark_suites import BenchmarkSuitesReport
 
     evaluation_contract = BenchmarkSuitesReport.model_validate(evaluation)
-    if evaluation_contract.status != "passed" or evaluation_contract.evaluation_mode != "executable_model":
+    if (
+        evaluation_contract.status != "passed"
+        or evaluation_contract.evaluation_mode != "executable_model"
+    ):
         raise ValueError("checkpoint promotion requires a passed executable_model benchmark report")
     if not evaluation_contract.suites:
         raise ValueError("evaluation report contains no executable suites")
     for suite in evaluation_contract.suites:
         if suite.status != "passed" or suite.total < 1 or suite.pass_at_k.get("pass@1", 0.0) <= 0.0:
-            raise ValueError(f"evaluation suite {suite.name!r} has no positive passed pass@1 result")
+            raise ValueError(
+                f"evaluation suite {suite.name!r} has no positive passed pass@1 result"
+            )
         report = suite.report or {}
         bound_manifest = report.get("checkpoint_manifest")
         bound_tokenizer = report.get("tokenizer_path")
         tasks = report.get("tasks")
         if not bound_manifest or Path(str(bound_manifest)).expanduser().resolve() != manifest_path:
-            raise ValueError(f"evaluation suite {suite.name!r} is not bound to the selected checkpoint")
+            raise ValueError(
+                f"evaluation suite {suite.name!r} is not bound to the selected checkpoint"
+            )
         if not bound_tokenizer or Path(str(bound_tokenizer)).expanduser().resolve() != tokenizer:
-            raise ValueError(f"evaluation suite {suite.name!r} is not bound to the selected tokenizer")
+            raise ValueError(
+                f"evaluation suite {suite.name!r} is not bound to the selected tokenizer"
+            )
         if not isinstance(tasks, list) or len(tasks) != suite.total:
             raise ValueError(f"evaluation suite {suite.name!r} has incomplete task evidence")
         for task in tasks:
             if not isinstance(task, dict):
-                raise ValueError(f"evaluation suite {suite.name!r} contains malformed task evidence")
+                raise ValueError(
+                    f"evaluation suite {suite.name!r} contains malformed task evidence"
+                )
             candidates = task.get("candidates")
             if (
                 not isinstance(candidates, list)
                 or len(candidates) != int(task.get("candidate_count", 0))
                 or not candidates
             ):
-                raise ValueError(f"evaluation suite {suite.name!r} contains incomplete candidate evidence")
+                raise ValueError(
+                    f"evaluation suite {suite.name!r} contains incomplete candidate evidence"
+                )
             if any(
                 not isinstance(candidate, dict)
                 or not re.fullmatch(r"[0-9a-f]{64}", str(candidate.get("output_sha256") or ""))
                 for candidate in candidates
             ):
-                raise ValueError(f"evaluation suite {suite.name!r} contains invalid candidate hashes")
+                raise ValueError(
+                    f"evaluation suite {suite.name!r} contains invalid candidate hashes"
+                )
 
     evidence = {
         "checkpoint_manifest_sha256": sha256_file(manifest_path),
@@ -294,7 +324,9 @@ def promote_scratch_checkpoint(
     }
     blockers: list[str] = []
     if promotion_mode == "validation":
-        blockers.append("validation checkpoint has not passed the governed 50-task production scorecard")
+        blockers.append(
+            "validation checkpoint has not passed the governed 50-task production scorecard"
+        )
     else:
         if scorecard_report is None:
             raise ValueError("production promotion requires --scorecard-report")
@@ -308,7 +340,9 @@ def promote_scratch_checkpoint(
             or not 50 <= scorecard_contract.task_count <= 100
             or len(scorecard_contract.tasks) != scorecard_contract.task_count
         ):
-            raise ValueError("production promotion requires a passed scorecard with at least 50 tasks")
+            raise ValueError(
+                "production promotion requires a passed scorecard with at least 50 tasks"
+            )
         expected_scorecard_evidence = {
             "checkpoint_manifest_sha256": evidence["checkpoint_manifest_sha256"],
             "tokenizer_sha256": evidence["tokenizer_sha256"],
@@ -334,7 +368,9 @@ def promote_scratch_checkpoint(
     endpoint_value = _validate_serving_endpoint(endpoint)
     profile = {
         "name": f"{model_name}-{promotion_mode}",
-        "kind": "local" if urlparse(endpoint_value).hostname in {"127.0.0.1", "localhost", "::1"} else "remote",
+        "kind": "local"
+        if urlparse(endpoint_value).hostname in {"127.0.0.1", "localhost", "::1"}
+        else "remote",
         "family": "craftly-scratch",
         "size_class": manifest.architecture_name,
         "backend": "craftly_serving",
@@ -401,7 +437,9 @@ def _parse_args() -> argparse.Namespace:
     promote.add_argument("--output", required=True)
     promote.add_argument("--endpoint", required=True)
     promote.add_argument("--model-name", default="craftly-scratch")
-    promote.add_argument("--promotion-mode", choices=["validation", "production"], default="validation")
+    promote.add_argument(
+        "--promotion-mode", choices=["validation", "production"], default="validation"
+    )
     return parser.parse_args()
 
 
@@ -424,4 +462,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

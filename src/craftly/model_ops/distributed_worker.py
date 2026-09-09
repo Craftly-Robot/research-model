@@ -16,7 +16,6 @@ import subprocess  # nosec B404 - fixed scontrol argv, shell is never used
 import sys
 from pathlib import Path
 
-
 ALLOWED_MODULE = "src.craftly.model_ops.pretrain_loop"
 SAFE_HOST = re.compile(r"^[A-Za-z0-9._-]{1,253}$")
 
@@ -81,14 +80,18 @@ def normalize_slurm_environment() -> None:
     )
 
 
-def kubernetes_torchrun_argv(*, nodes: int, processes_per_node: int, training_args: list[str]) -> list[str]:
+def kubernetes_torchrun_argv(
+    *, nodes: int, processes_per_node: int, training_args: list[str]
+) -> list[str]:
     node_rank = _positive_int(_required_env("RANK"), name="RANK")
     if node_rank >= nodes:
         raise ValueError("Kubernetes replica rank exceeds configured node count")
     master_addr = _required_env("MASTER_ADDR")
     if not SAFE_HOST.fullmatch(master_addr):
         raise ValueError("MASTER_ADDR contains unsafe characters")
-    master_port = _positive_int(os.environ.get("MASTER_PORT", "29500"), name="MASTER_PORT", maximum=65535)
+    master_port = _positive_int(
+        os.environ.get("MASTER_PORT", "29500"), name="MASTER_PORT", maximum=65535
+    )
     if master_port < 1024:
         raise ValueError("MASTER_PORT must be an unprivileged port")
     torchrun = shutil.which("torchrun")
@@ -141,7 +144,10 @@ def parse_args() -> argparse.Namespace:
     if args.target == "megatron":
         root_value = os.environ.get("CRAFTLY_MEGATRON_ROOT", "")
         root = Path(root_value).expanduser().resolve() if root_value else None
-        if len(args.training_args) < 3 or args.training_args[:2] != ["-u", str((root / "pretrain_gpt.py").resolve()) if root else ""]:
+        if len(args.training_args) < 3 or args.training_args[:2] != [
+            "-u",
+            str((root / "pretrain_gpt.py").resolve()) if root else "",
+        ]:
             parser.error("Megatron target must execute CRAFTLY_MEGATRON_ROOT/pretrain_gpt.py")
     return args
 

@@ -1,4 +1,4 @@
-﻿"""Generate an executable first-run plan for serious Craftly data collection."""
+"""Generate an executable first-run plan for serious Craftly data collection."""
 
 from __future__ import annotations
 
@@ -12,7 +12,10 @@ from pydantic import Field
 
 from src.craftly.learning.capacity import CapacityPlanConfig, build_capacity_plan
 from src.craftly.learning.production_check import DataPlatformReadinessConfig, run_readiness_check
-from src.craftly.learning.resource_catalog import ResourceCatalogReport, write_resource_catalog_report
+from src.craftly.learning.resource_catalog import (
+    ResourceCatalogReport,
+    write_resource_catalog_report,
+)
 from src.craftly.learning.source_registry import SourceRegistry
 from src.craftly.shared.schemas import StrictModel
 
@@ -53,12 +56,18 @@ def build_data_run_plan(config: DataRunPlanConfig) -> DataRunPlan:
     root.mkdir(parents=True, exist_ok=True)
     registry = SourceRegistry.from_files(config.source_paths)
     registry_report = registry.validate()
-    merged_registry_path = Path(config.merged_registry_path) if config.merged_registry_path else root / "sources.merged.json"
+    merged_registry_path = (
+        Path(config.merged_registry_path)
+        if config.merged_registry_path
+        else root / "sources.merged.json"
+    )
     registry.write(merged_registry_path)
     resource_catalog: ResourceCatalogReport | None = None
     resource_catalog_path = root / "resource_catalog_report.json"
     if len(config.source_paths) == 1:
-        resource_catalog = write_resource_catalog_report(config.source_paths[0], resource_catalog_path)
+        resource_catalog = write_resource_catalog_report(
+            config.source_paths[0], resource_catalog_path
+        )
 
     readiness = run_readiness_check(
         DataPlatformReadinessConfig(
@@ -80,7 +89,11 @@ def build_data_run_plan(config: DataRunPlanConfig) -> DataRunPlan:
         )
     )
     skip_train = " --skip-train" if config.skip_train else ""
-    endpoint = f" --object-store-endpoint-url {config.object_store_endpoint_url}" if config.object_store_endpoint_url else ""
+    endpoint = (
+        f" --object-store-endpoint-url {config.object_store_endpoint_url}"
+        if config.object_store_endpoint_url
+        else ""
+    )
     commands = {
         "readiness": (
             "python -m src.craftly.learning.production_check "
@@ -116,7 +129,9 @@ def build_data_run_plan(config: DataRunPlanConfig) -> DataRunPlan:
         resource_catalog_path=str(resource_catalog_path) if resource_catalog else None,
         commands=commands,
     )
-    (root / "run_plan.json").write_text(json.dumps(plan.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+    (root / "run_plan.json").write_text(
+        json.dumps(plan.model_dump(), indent=2, sort_keys=True), encoding="utf-8"
+    )
     (root / "commands.ps1").write_text("\n".join(commands.values()) + "\n", encoding="utf-8")
     return plan
 
@@ -168,4 +183,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

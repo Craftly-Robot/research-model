@@ -1,4 +1,4 @@
-﻿"""Source budget allocation driven by reputation scores."""
+"""Source budget allocation driven by reputation scores."""
 
 from __future__ import annotations
 
@@ -82,7 +82,11 @@ def _weighted_allocations(
         if granted_this_round == 0:
             ranked = sorted(
                 active,
-                key=lambda name: (-(raw_shares[name] - int(raw_shares[name])), -weights[name], name),
+                key=lambda name: (
+                    -(raw_shares[name] - int(raw_shares[name])),
+                    -weights[name],
+                    name,
+                ),
             )
             for name in ranked:
                 if remaining <= 0:
@@ -110,7 +114,9 @@ def build_source_budget_plan(
         has_evidence = rep is not None
         score = float(rep.get("reputation_score", 0.0)) if rep else 0.0
         action = str(rep.get("action", "block")) if rep else "block"
-        category_multiplier = 1.25 if source.category in {"defensive_security", "vulnerability_database"} else 1.0
+        category_multiplier = (
+            1.25 if source.category in {"defensive_security", "vulnerability_database"} else 1.0
+        )
         action_multiplier = {
             "promote": 1.4,
             "watch": 1.0,
@@ -179,7 +185,9 @@ def write_source_budget_plan(output_path: str | Path, **kwargs: object) -> Sourc
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Allocate Craftly crawl budget from source reputation.")
+    parser = argparse.ArgumentParser(
+        description="Allocate Craftly crawl budget from source reputation."
+    )
     parser.add_argument("--sources", required=True)
     parser.add_argument("--reputation-report")
     parser.add_argument("--target-total-docs", type=int, required=True)
@@ -196,4 +204,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

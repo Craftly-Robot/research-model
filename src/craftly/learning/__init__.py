@@ -1,4 +1,4 @@
-﻿"""Lazy facade for the Craftly learning pipeline.
+"""Lazy facade for the Craftly learning pipeline.
 
 The CLI modules in this package are designed to run with ``python -m``.
 Keeping this package initializer lazy prevents those modules from being
@@ -11,8 +11,14 @@ from importlib import import_module
 from typing import Any
 
 _EXPORTS = {
-    "ContaminationDetector": ("src.craftly.learning.benchmark_contamination_filter", "ContaminationDetector"),
-    "ContaminationReport": ("src.craftly.learning.benchmark_contamination_filter", "ContaminationReport"),
+    "ContaminationDetector": (
+        "src.craftly.learning.benchmark_contamination_filter",
+        "ContaminationDetector",
+    ),
+    "ContaminationReport": (
+        "src.craftly.learning.benchmark_contamination_filter",
+        "ContaminationReport",
+    ),
     "CrawlConfig": ("src.craftly.learning.web_ingest", "CrawlConfig"),
     "DataEngine": ("src.craftly.learning.data_engine", "DataEngine"),
     "DataEngineConfig": ("src.craftly.learning.data_engine", "DataEngineConfig"),
@@ -46,7 +52,8 @@ def __getattr__(name: str) -> Any:
     if name not in _EXPORTS:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     module_name, attr_name = _EXPORTS[name]
-    value = getattr(import_module(module_name), attr_name)  # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import
+    value = getattr(
+        import_module(module_name), attr_name
+    )  # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import
     globals()[name] = value
     return value
-
