@@ -92,6 +92,23 @@ from src.craftly.training_workspace import (
 from src.craftly.verifier import VerificationRequest, VerifierRuntime
 
 app = FastAPI(title="Craftly Consolidated Gateway", version="2.0.0")
+
+
+@app.exception_handler(PermissionError)
+async def permission_error_handler(request: Request, exc: PermissionError) -> HTTPException:
+    return HTTPException(status_code=403, detail=str(exc))
+
+
+@app.exception_handler(KeyError)
+async def key_error_handler(request: Request, exc: KeyError) -> HTTPException:
+    return HTTPException(status_code=404, detail=str(exc))
+
+
+@app.exception_handler(ValueError)
+async def value_error_handler(request: Request, exc: ValueError) -> HTTPException:
+    return HTTPException(status_code=400, detail=str(exc))
+
+
 QUOTA_CONFIG = install_quota(app)
 AUTH_CONFIG = install_auth(app)
 install_observability(app)
