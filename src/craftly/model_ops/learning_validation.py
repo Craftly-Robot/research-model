@@ -426,20 +426,10 @@ def write_expanded_eval_suite(
 
 
 def iter_jsonl_texts(path: str | Path) -> Iterable[str]:
-    source = Path(path)
-    with source.open("r", encoding="utf-8-sig") as handle:
-        for line_number, line in enumerate(handle, start=1):
-            if not line.strip():
-                continue
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError as exc:
-                raise ValueError(
-                    f"invalid JSONL in {source} at line {line_number}: {exc.msg}"
-                ) from exc
-            text = str(row.get("text") or row.get("content") or row.get("prompt") or "")
-            if text:
-                yield text
+    """Yield text content from JSONL rows. Delegates to quality.iter_jsonl_texts."""
+    from src.craftly.learning.quality import iter_jsonl_texts as _iter
+
+    yield from _iter(path)
 
 
 def _token_kind(decoded: str) -> str:

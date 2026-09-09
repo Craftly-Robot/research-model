@@ -180,23 +180,13 @@ def _resolved_hashes(paths: Iterable[str | Path]) -> dict[str, str]:
 
 
 def iter_texts(paths: list[str | Path]) -> Iterable[str]:
+    """Yield text from JSONL files or plain text files."""
+    from src.craftly.learning.quality import iter_jsonl_texts
+
     for path in paths:
         source = Path(path)
         if source.suffix == ".jsonl":
-            with source.open("r", encoding="utf-8-sig", errors="replace") as handle:
-                for line_number, line in enumerate(handle, start=1):
-                    if not line.strip():
-                        continue
-                    try:
-                        row = json.loads(line)
-                    except json.JSONDecodeError as exc:
-                        snippet = line[:240].replace("\n", "\\n")
-                        raise ValueError(
-                            f"invalid JSONL in {source} at line {line_number}: {exc.msg}; snippet={snippet!r}"
-                        ) from exc
-                    text = str(row.get("text") or row.get("content") or row.get("prompt") or "")
-                    if text:
-                        yield text
+            yield from iter_jsonl_texts(source)
         else:
             yield source.read_text(encoding="utf-8", errors="replace")
 

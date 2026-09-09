@@ -13,6 +13,7 @@ from pydantic import Field
 
 from src.craftly.shared.schemas import StrictModel
 
+# --- Regex patterns ---
 SECRET_RE = re.compile(
     r"(?i)(-----BEGIN .*PRIVATE KEY-----|AKIA[0-9A-Z]{16}|api[_-]?key\s*[:=]\s*['\"][A-Za-z0-9_\-]{20,})"
 )
@@ -20,6 +21,23 @@ EMAIL_RE = re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b")
 HEX_ADDRESS_RE = re.compile(r"\b0x[0-9a-fA-F]{6,}\b")
 CVE_RE = re.compile(r"\bCVE-\d{4}-\d{4,7}\b", re.IGNORECASE)
 CWE_RE = re.compile(r"\bCWE-\d{1,5}\b", re.IGNORECASE)
+
+# --- Quality scoring thresholds ---
+_LENGTH_BASELINE = 180
+_LENGTH_RANGE = 2500
+_SECURITY_SIGNAL_MAX_HITS = 5
+_AGENTIC_SIGNAL_MAX_HITS = 4
+_CODE_SIGNAL_MAX_HITS = 5
+_NOISE_PENALTY_FACTOR = 0.18
+_LEXICAL_DIVERSITY_MULTIPLIER = 4
+_STRUCTURE_LINE_TARGET = 80
+_STRUCTURE_PATCH_BONUS = 0.3
+_SECURITY_CODE_BONUS = 0.08
+_PATCH_TRACE_BONUS = 0.05
+_RISK_FLAG_HEAVY_NOISE_THRESHOLD = 3
+_RISK_FLAG_REPEATED_LINE_THRESHOLD = 0.18
+_RISK_FLAG_LOW_LEXICAL_THRESHOLD = 0.12
+_MIN_LINE_LENGTH_FOR_DEDUP = 12
 
 DEFENSIVE_SECURITY_TERMS = {
     "authentication",
@@ -169,6 +187,14 @@ def iter_jsonl(path: str | Path) -> Iterable[dict[str, Any]]:
                     ) from exc
 
 
+def iter_jsonl_texts(path: str | Path) -> Iterable[str]:
+    """Yield text content from JSONL rows, checking common text fields."""
+    for row in iter_jsonl(path):
+        text = str(row.get("text") or row.get("content") or row.get("prompt") or "")
+        if text:
+            yield text
+
+
 def infer_language(text: str, url: str = "") -> str | None:
     lowered_url = url.lower()
     suffix_map = {
@@ -274,7 +300,7 @@ def _text_metrics(normalized: str) -> dict[str, float]:
     line_counts: dict[str, int] = {}
     for line in normalized.splitlines():
         key = line.strip()
-        if len(key) < 12:
+        if len(key) < _MIN_LINE_LENGTH_FOR_DEDUP:
             continue
         line_counts[key] = line_counts.get(key, 0) + 1
         if line_counts[key] == 2:
@@ -326,14 +352,21 @@ def quality_score(
     noise_hits = _count_matches(normalized, NOISE_TERMS)
 
     components = {
-        "length": _bounded((length - 180) / 2500),
-        "security_signal": _bounded(security_hits / 5),
-        "agentic_signal": _bounded(agentic_hits / 4),
-        "code_signal": _bounded((code_hits + (1 if "code" in labels else 0)) / 5),
+        "length": _bounded((length - _LENGTH_BASELINE) / _LENGTH_RANGE),
+        "security_signal": _bounded(security_hits / _SECURITY_SIGNAL_MAX_HITS),
+        "agentic_signal": _bounded(agentic_hits / _AGENTIC_SIGNAL_MAX_HITS),
+        "code_signal": _bounded(
+            (code_hits + (1 if "code" in labels else 0)) / _CODE_SIGNAL_MAX_HITS
+        ),
         "test_signal": 1.0 if "tests" in labels else 0.0,
-        "structure": _bounded((metrics["line_count"] / 80) + (0.3 if "patch" in labels else 0.0)),
-        "low_noise": _bounded(1.0 - (noise_hits * 0.18) - metrics["repeated_line_ratio"]),
-        "lexical_diversity": _bounded(metrics["unique_word_ratio"] * 4),
+        "structure": _bounded(
+            (metrics["line_count"] / _STRUCTURE_LINE_TARGET)
+            + (_STRUCTURE_PATCH_BONUS if "patch" in labels else 0.0)
+        ),
+        "low_noise": _bounded(
+            1.0 - (noise_hits * _NOISE_PENALTY_FACTOR) - metrics["repeated_line_ratio"]
+        ),
+        "lexical_diversity": _bounded(metrics["unique_word_ratio"] * _LEXICAL_DIVERSITY_MULTIPLIER),
     }
     score = (
         0.14 * components["length"]
@@ -346,18 +379,18 @@ def quality_score(
         + 0.08 * components["lexical_diversity"]
     )
     if "defensive_security" in labels and "code" in labels:
-        score += 0.08
+        score += _SECURITY_CODE_BONUS
     if "patch" in labels or "runtime_trace" in labels:
-        score += 0.05
+        score += _PATCH_TRACE_BONUS
 
     risk_flags: list[str] = []
     if noise_hits:
         risk_flags.append("navigation_or_boilerplate_noise")
-    if noise_hits >= 3:
+    if noise_hits >= _RISK_FLAG_HEAVY_NOISE_THRESHOLD:
         risk_flags.append("heavy_boilerplate_noise")
-    if metrics["repeated_line_ratio"] > 0.18:
+    if metrics["repeated_line_ratio"] > _RISK_FLAG_REPEATED_LINE_THRESHOLD:
         risk_flags.append("repeated_lines")
-    if metrics["unique_word_ratio"] < 0.12:
+    if metrics["unique_word_ratio"] < _RISK_FLAG_LOW_LEXICAL_THRESHOLD:
         risk_flags.append("low_lexical_diversity")
     return (
         round(_bounded(score), 6),
