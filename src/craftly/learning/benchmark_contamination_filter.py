@@ -15,7 +15,8 @@ from pydantic import Field
 
 from src.craftly.learning.near_dedup import normalized_structure_hash
 from src.craftly.learning.quality import iter_jsonl, stable_hash
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import print_report
+from src.craftly.shared.schemas import StrictModel, print_report
 
 DEFAULT_BENCHMARK_PATTERNS = [
     r"\bhumaneval\b",
@@ -495,7 +496,7 @@ def main() -> None:
         protected_index_path=args.protected_index,
         minimum_similarity=args.minimum_similarity,
     )
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
 
 
 if __name__ == "__main__":

@@ -16,7 +16,7 @@ from urllib.robotparser import RobotFileParser
 import httpx
 from pydantic import Field, field_validator, model_validator
 
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import StrictModel, print_report
 
 TAG_RE = re.compile(r"<(script|style).*?</\1>", re.IGNORECASE | re.DOTALL)
 HTML_RE = re.compile(r"<[^>]+>")
@@ -263,7 +263,7 @@ def main() -> None:
         CrawlConfig(max_docs=args.max_docs, delay_seconds=args.delay_seconds)
     )
     report = asyncio.run(ingestor.ingest(load_sources(args.sources), args.output))
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
 
 
 if __name__ == "__main__":

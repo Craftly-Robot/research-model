@@ -20,7 +20,7 @@ from src.craftly.model_ops.torch_decoder import (
     require_torch,
     select_torch_device,
 )
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import StrictModel, print_report
 
 try:
     import torch
@@ -698,7 +698,7 @@ def main() -> None:
             max_repetition_ratio=args.max_repetition_ratio,
         ),
     )
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
     raise SystemExit(
         0
         if report.status

@@ -14,7 +14,8 @@ from pydantic import Field
 
 from src.craftly.learning.production_check import DataPlatformReadinessConfig, run_readiness_check
 from src.craftly.learning.worker import CrawlerWorkerConfig, run_crawler_worker
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import print_report
+from src.craftly.shared.schemas import StrictModel, print_report
 
 
 class SupervisorConfig(StrictModel):
@@ -202,7 +203,7 @@ def _config_from_args(args: argparse.Namespace) -> SupervisorConfig:
 
 def main() -> None:
     report = asyncio.run(run_supervisor(_config_from_args(_parse_args())))
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
     if report.status == "failed":
         raise SystemExit(2)
 

@@ -16,7 +16,8 @@ from typing import Any, Literal
 from pydantic import Field
 
 from src.craftly.learning.quality import iter_jsonl, stable_hash
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import print_report
+from src.craftly.shared.schemas import StrictModel, print_report
 
 HIGH_RISK_ACTION_TERMS = {
     "deploy malware",
@@ -173,7 +174,7 @@ def main() -> None:
         report_target.write_text(
             json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8"
         )
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
 
 
 if __name__ == "__main__":

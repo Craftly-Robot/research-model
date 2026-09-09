@@ -8,7 +8,7 @@ import math
 
 from pydantic import Field
 
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import StrictModel, print_report
 
 
 class CapacityPlanConfig(StrictModel):
@@ -91,7 +91,7 @@ def main() -> None:
             target_days=args.target_days,
         )
     )
-    print(json.dumps(plan.model_dump(), indent=2, sort_keys=True))
+    print_report(plan)
 
 
 if __name__ == "__main__":

@@ -15,7 +15,8 @@ from typing import Any, Literal
 from pydantic import Field
 
 from src.craftly.shared.integrity import sha256_file
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import print_report
+from src.craftly.shared.schemas import StrictModel, print_report
 
 SPECIAL_TOKENS = [
     "<|document_end|>",
@@ -687,7 +688,7 @@ def main() -> None:
                 dataset_manifest_path=args.dataset_manifest,
             )
         )
-        print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+        print_report(report)
         if report.status != "passed":
             raise SystemExit(2)
         return
@@ -711,7 +712,7 @@ def main() -> None:
         ),
         dataset_id=args.dataset_id,
     )
-    print(json.dumps(manifest.model_dump(), indent=2, sort_keys=True))
+    print_report(manifest)
 
 
 if __name__ == "__main__":

@@ -12,7 +12,8 @@ from typing import Any
 from pydantic import Field
 
 from src.craftly.learning.quality import iter_jsonl, stable_hash
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import write_report, print_report
+from src.craftly.shared.schemas import StrictModel, write_report, print_report
 
 
 class DatasetValidationConfig(StrictModel):
@@ -56,7 +57,7 @@ class DatasetValidationReport(StrictModel):
         root = Path(output_dir)
         root.mkdir(parents=True, exist_ok=True)
         target = root / "dataset_validation_report.json"
-        target.write_text(json.dumps(self.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+        write_report(self, target)
         write_markdown(self, root / "dataset_validation_report.md")
         return target
 
@@ -246,7 +247,7 @@ def main() -> None:
         )
     )
     report.write(args.output_dir)
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
     if report.status != "passed":
         raise SystemExit(2)
 

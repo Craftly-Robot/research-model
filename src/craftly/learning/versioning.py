@@ -10,7 +10,8 @@ from typing import Any
 from pydantic import Field
 
 from src.craftly.learning.storage import StoredObject, file_sha256
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import write_report
+from src.craftly.shared.schemas import StrictModel, write_report
 
 
 class DatasetArtifact(StrictModel):
@@ -51,7 +52,7 @@ class DatasetVersionManifest(StrictModel):
     def write(self, path: str | Path) -> Path:
         target = Path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(self.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+        write_report(self, target)
         return target
 
 

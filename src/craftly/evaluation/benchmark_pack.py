@@ -23,7 +23,8 @@ from src.craftly.evaluation.benchmark_suites import (
 from src.craftly.evaluation.benchmarks import built_in_security_tasks
 from src.craftly.learning.benchmark_contamination_filter import build_protected_fingerprint_index
 from src.craftly.shared.integrity import sha256_file as _sha256_file
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import print_report
+from src.craftly.shared.schemas import StrictModel, print_report
 
 
 class BenchmarkPackConfig(StrictModel):
@@ -619,7 +620,7 @@ def main() -> None:
         return
     if args.materialize_public:
         report = materialize_public_benchmark_pack(args.target_dir)
-        print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+        print_report(report)
         if report.status != "passed":
             raise SystemExit(2)
         return
@@ -639,7 +640,7 @@ def main() -> None:
         ),
         output_dir=args.output_dir,
     )
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
     if report.status != "passed":
         raise SystemExit(2)
 

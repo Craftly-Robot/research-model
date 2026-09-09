@@ -9,7 +9,8 @@ from pathlib import Path
 from pydantic import Field
 
 from src.craftly.learning.quality import iter_jsonl
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import write_report, print_report
+from src.craftly.shared.schemas import StrictModel, write_report, print_report
 
 
 class SourceQualityScore(StrictModel):
@@ -70,7 +71,7 @@ def write_source_quality_report(
     report = build_source_quality_report(paths)
     target = Path(output_path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+    write_report(report, target)
     return report
 
 
@@ -82,7 +83,7 @@ def main() -> None:
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
     report = write_source_quality_report(args.input, args.output)
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
 
 
 if __name__ == "__main__":

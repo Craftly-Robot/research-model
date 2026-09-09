@@ -63,7 +63,8 @@ from src.craftly.shared.config_contracts import (
     load_dataset_trust_policy,
 )
 from src.craftly.shared.integrity import sha256_file as _sha256_file
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import write_report, print_report
+from src.craftly.shared.schemas import StrictModel, write_report, print_report
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 CHECKOUT_RE = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
@@ -207,7 +208,7 @@ class ProductionDatasetManifest(StrictModel):
         root = Path(output_dir)
         root.mkdir(parents=True, exist_ok=True)
         target = root / "dataset_version_manifest.json"
-        target.write_text(json.dumps(self.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+        write_report(self, target)
         write_markdown(self, root / "dataset_version_manifest.md")
         return target
 
@@ -1679,7 +1680,7 @@ def main() -> None:
         seed=args.seed,
     )
     manifest = build_production_dataset(config)
-    print(json.dumps(manifest.model_dump(), indent=2, sort_keys=True))
+    print_report(manifest)
     if manifest.status not in {"passed", "promoted"}:
         raise SystemExit(2)
 

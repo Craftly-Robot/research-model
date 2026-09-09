@@ -26,7 +26,8 @@ from src.craftly.model_ops.checkpoint_compare import (
 from src.craftly.model_ops.tokenizer_pipeline import load_tokenizer
 from src.craftly.model_ops.torch_decoder import select_torch_device
 from src.craftly.shared.integrity import sha256_file
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import write_report, print_report
+from src.craftly.shared.schemas import StrictModel, write_report, print_report
 from src.craftly.tools.sandbox import (
     DockerSandboxRunner,
     HardenedSandboxPolicy,
@@ -80,7 +81,7 @@ class BenchmarkSuitesReport(StrictModel):
         root = Path(output_dir)
         root.mkdir(parents=True, exist_ok=True)
         target = root / "benchmark_suites_report.json"
-        target.write_text(json.dumps(self.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+        write_report(self, target)
         write_markdown(self, root / "benchmark_suites_report.md")
         return target
 
@@ -910,7 +911,7 @@ def main() -> None:
     else:
         report = run_benchmark_suites(specs)
     report.write(args.output_dir)
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
     if report.status != "passed":
         raise SystemExit(2)
 

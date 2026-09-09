@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,24 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
+
+
+def report_json(report: StrictModel, *, indent: int = 2) -> str:
+    """Serialize a Pydantic report model to a JSON string."""
+    return report.model_dump_json(indent=indent)
+
+
+def write_report(report: StrictModel, path: str | Path) -> Path:
+    """Write a Pydantic report model to a JSON file. Returns the path written."""
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(report_json(report), encoding="utf-8")
+    return target
+
+
+def print_report(report: StrictModel) -> None:
+    """Print a Pydantic report model as formatted JSON to stdout."""
+    print(report_json(report))
 
 
 class EvaluationGate(StrictModel):

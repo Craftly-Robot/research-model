@@ -10,7 +10,8 @@ from pathlib import Path
 from pydantic import Field
 
 from src.craftly.learning.quality import iter_jsonl
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import print_report
+from src.craftly.shared.schemas import StrictModel, print_report
 
 DEFAULT_ALLOWED_LICENSES = {
     "apache-2.0",
@@ -118,7 +119,7 @@ def main() -> None:
     report = filter_jsonl_by_license(
         args.input, args.output, strict_unknown=not args.allow_unknown_license
     )
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
 
 
 if __name__ == "__main__":

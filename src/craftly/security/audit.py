@@ -19,7 +19,8 @@ from pydantic import Field
 
 from src.craftly.deployment.k8s_validate import validate_manifests
 from src.craftly.shared.config_contracts import load_security_audit_contract
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import write_report, print_report
+from src.craftly.shared.schemas import StrictModel, write_report, print_report
 
 SECRET_PATTERN = re.compile(r"(?i)(api[_-]?key|secret|password|token)\s*=\s*['\"][^'\"]{12,}['\"]")
 SSRF_PATTERN = re.compile(
@@ -60,7 +61,7 @@ class SecurityAuditReport(StrictModel):
         root = Path(output_dir)
         root.mkdir(parents=True, exist_ok=True)
         target = root / "security_audit_report.json"
-        target.write_text(json.dumps(self.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+        write_report(self, target)
         write_markdown(self, root / "security_audit_report.md")
         return target
 
@@ -783,7 +784,7 @@ def main() -> None:
         run_pip_audit=not args.no_pip_audit,
         strict_external_tools=args.strict_external_tools,
     )
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
     if report.status != "passed":
         raise SystemExit(2)
 

@@ -32,7 +32,8 @@ from src.craftly.learning.web_ingest import (
     text_from_html,
 )
 from src.craftly.shared.progress import NullProgressReporter, ProgressReporter
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import print_report
+from src.craftly.shared.schemas import StrictModel, print_report
 
 LINK_RE = re.compile(r"""href=["']([^"'#]+)["']""", re.IGNORECASE)
 
@@ -872,7 +873,7 @@ async def run_cli(args: argparse.Namespace) -> DataEngineReport:
 def main() -> None:
     args = parse_args()
     report = asyncio.run(run_cli(args))
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
 
 
 if __name__ == "__main__":

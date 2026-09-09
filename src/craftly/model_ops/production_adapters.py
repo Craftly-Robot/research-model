@@ -32,7 +32,7 @@ from src.craftly.model_ops.torch_decoder import (
     load_trusted_checkpoint,
     require_torch,
 )
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import StrictModel, write_report, print_report
 
 try:
     import torch
@@ -54,7 +54,7 @@ class AdapterReport(StrictModel):
         root = Path(output_dir)
         root.mkdir(parents=True, exist_ok=True)
         target = root / name
-        target.write_text(json.dumps(self.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+        write_report(self, target)
         return target
 
 
@@ -673,7 +673,7 @@ def main() -> None:
             megatron_root=args.megatron_root,
             execute=args.execute,
         )
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
     if report.status == "blocked_missing_dependency":
         raise SystemExit(2)
 

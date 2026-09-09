@@ -32,12 +32,9 @@ from src.craftly.shared.config_contracts import (
 )
 from src.craftly.shared.config_contracts import (
     EvalScheduleContract as EvalSchedule,
-)
-from src.craftly.shared.config_contracts import (
     load_eval_schedule_contract,
 )
-from src.craftly.shared.schemas import EvaluationGate as RegressionFlag
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import EvaluationGate as RegressionFlag, StrictModel, print_report
 
 try:
     import torch
@@ -446,7 +443,7 @@ def main() -> None:
         previous_report=args.previous_report,
         device=args.device,
     )
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
     if report.status == "failed":
         raise SystemExit(2)
 

@@ -10,7 +10,7 @@ from typing import Any, Literal
 
 from pydantic import Field
 
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import StrictModel, write_report, print_report
 
 TrainPolicy = Literal[
     "pretrain", "agentic_task", "eval_holdout", "research_reference", "governance_review"
@@ -102,7 +102,7 @@ def write_resource_catalog_report(
     report = build_resource_catalog_report(path, train_first_limit=train_first_limit)
     target = Path(output_path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+    write_report(report, target)
     return report
 
 
@@ -119,7 +119,7 @@ def main() -> None:
         write_resource_catalog_report(
             args.catalog, args.output, train_first_limit=args.train_first_limit
         )
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
 
 
 if __name__ == "__main__":

@@ -14,7 +14,8 @@ from src.craftly.evaluation.benchmarks import (
     built_in_security_tasks,
 )
 from src.craftly.model_ops.foundation import CheckpointManifest, sha256_file
-from src.craftly.shared.schemas import EvaluationGate as EvalGate
+from src.craftly.shared.schemas import write_report, print_report
+from src.craftly.shared.schemas import EvaluationGate as EvalGate, write_report, print_report
 from src.craftly.shared.schemas import StrictModel
 
 
@@ -30,7 +31,7 @@ class CheckpointEvalReport(StrictModel):
         root = Path(output_dir)
         root.mkdir(parents=True, exist_ok=True)
         target = root / "checkpoint_eval_report.json"
-        target.write_text(json.dumps(self.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+        write_report(self, target)
         return target
 
 
@@ -276,7 +277,7 @@ def main() -> None:
         training_report=args.training_report,
         output_dir=args.output_dir,
     )
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
     raise SystemExit(0 if report.status == "passed" else 1)
 
 

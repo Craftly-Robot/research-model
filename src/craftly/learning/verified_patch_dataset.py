@@ -15,7 +15,8 @@ from pydantic import Field
 
 from src.craftly.learning.quality import stable_hash
 from src.craftly.learning.repo_patch_extraction import SECURITY_PATCH_TERMS
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import print_report
+from src.craftly.shared.schemas import StrictModel, print_report
 
 DEFAULT_ALLOWED_LICENSES = {
     "apache-2.0",
@@ -315,7 +316,7 @@ def main() -> None:
     report_path.write_text(
         json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8"
     )
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
 
 
 if __name__ == "__main__":

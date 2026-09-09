@@ -32,7 +32,8 @@ from src.craftly.learning.storage import ObjectStoreConfig, verify_object_store_
 from src.craftly.security.audit import run_security_audit
 from src.craftly.shared.config_contracts import load_active_model_contract
 from src.craftly.shared.integrity import canonical_json_bytes, sha256_file
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import write_report, print_report
+from src.craftly.shared.schemas import StrictModel, write_report, print_report
 
 
 class ProofCheckResult(StrictModel):
@@ -104,7 +105,7 @@ class ProductionProofReport(StrictModel):
         root = Path(output_dir)
         root.mkdir(parents=True, exist_ok=True)
         path = root / "production_proof_report.json"
-        path.write_text(json.dumps(self.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+        write_report(self, path)
         write_markdown(self, root / "production_proof_report.md")
         return path
 
@@ -1162,7 +1163,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     config = config_from_env(parse_args())
     report = asyncio.run(run_production_proof(config))
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
     if report.status != "passed":
         raise SystemExit(2)
 

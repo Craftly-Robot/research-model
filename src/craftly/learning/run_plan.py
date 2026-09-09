@@ -17,7 +17,8 @@ from src.craftly.learning.resource_catalog import (
     write_resource_catalog_report,
 )
 from src.craftly.learning.source_registry import SourceRegistry
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import print_report
+from src.craftly.shared.schemas import StrictModel, print_report
 
 
 class DataRunPlanConfig(StrictModel):
@@ -176,7 +177,7 @@ def config_from_args(args: argparse.Namespace) -> DataRunPlanConfig:
 
 def main() -> None:
     plan = build_data_run_plan(config_from_args(parse_args()))
-    print(json.dumps(plan.model_dump(), indent=2, sort_keys=True))
+    print_report(plan)
     if plan.status != "ready":
         raise SystemExit(2)
 

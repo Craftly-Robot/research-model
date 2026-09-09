@@ -35,7 +35,7 @@ from src.craftly.model_ops.tokenizer_pipeline import (
     load_tokenizer,
     train_bpe_tokenizer,
 )
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import StrictModel, print_report
 
 INSTRUCTION_CATEGORIES = [
     "fundamentals",
@@ -958,7 +958,7 @@ def main() -> None:
         device=args.device,
         dtype=args.dtype,
     )
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
     raise SystemExit(0 if report.status == "passed" else 1)
 
 

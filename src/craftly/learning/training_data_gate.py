@@ -18,7 +18,8 @@ from typing import Any
 from pydantic import Field
 
 from src.craftly.learning.quality import iter_jsonl, stable_hash
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import print_report
+from src.craftly.shared.schemas import StrictModel, print_report
 
 PATCH_DATA_TYPES = {"patch", "debug_trace"}
 SECURITY_DATA_TYPES = {"security_advisory", "security_reference"}
@@ -376,7 +377,7 @@ def main() -> None:
             eval_holdout_fraction=args.eval_holdout_fraction,
         ),
     )
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
 
 
 if __name__ == "__main__":

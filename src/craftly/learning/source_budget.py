@@ -10,7 +10,8 @@ from pathlib import Path
 from pydantic import Field
 
 from src.craftly.learning.source_registry import SourceRegistry
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import write_report, print_report
+from src.craftly.shared.schemas import StrictModel, write_report, print_report
 
 
 class SourceBudget(StrictModel):
@@ -180,7 +181,7 @@ def write_source_budget_plan(output_path: str | Path, **kwargs: object) -> Sourc
     plan = build_source_budget_plan(**kwargs)
     target = Path(output_path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(plan.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+    write_report(plan, target)
     return plan
 
 
@@ -199,7 +200,7 @@ def main() -> None:
         reputation_report_path=args.reputation_report,
         target_total_docs=args.target_total_docs,
     )
-    print(json.dumps(plan.model_dump(), indent=2, sort_keys=True))
+    print_report(plan)
 
 
 if __name__ == "__main__":

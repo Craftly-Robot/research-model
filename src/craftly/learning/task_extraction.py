@@ -12,7 +12,8 @@ from typing import Any
 from pydantic import Field
 
 from src.craftly.learning.quality import CVE_RE, CWE_RE, iter_jsonl, stable_hash
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import print_report
+from src.craftly.shared.schemas import StrictModel, print_report
 
 CODE_FENCE_RE = re.compile(r"```([a-zA-Z0-9_+\-.#]*)\n(.*?)```", re.DOTALL)
 DIFF_RE = re.compile(r"(?ms)^diff --git .*?(?=^diff --git |\Z)")
@@ -486,7 +487,7 @@ def main() -> None:
         report_target.write_text(
             json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8"
         )
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
 
 
 if __name__ == "__main__":

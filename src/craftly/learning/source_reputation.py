@@ -11,7 +11,7 @@ from typing import Any
 
 from pydantic import Field
 
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import StrictModel, write_report, print_report
 
 
 class SourceReputationScore(StrictModel):
@@ -245,7 +245,7 @@ def write_source_reputation_report(
     report = build_source_reputation_report(**kwargs)
     target = Path(output_path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+    write_report(report, target)
     return report
 
 
@@ -272,7 +272,7 @@ def main() -> None:
         source_registry_path=args.source_registry,
         minimum_reviewed_records=args.minimum_reviewed_records,
     )
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
 
 
 if __name__ == "__main__":

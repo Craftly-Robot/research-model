@@ -18,7 +18,8 @@ from typing import Any
 from pydantic import Field
 
 from src.craftly.learning.quality import iter_jsonl, stable_hash
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import print_report
+from src.craftly.shared.schemas import StrictModel, print_report
 
 TOKEN_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*|0x[0-9A-Fa-f]+|\d+")
 COMMENT_RE = re.compile(r"(?m)(^\s*#.*$|//.*$|/\*.*?\*/)", re.DOTALL)
@@ -627,7 +628,7 @@ def main() -> None:
             output_dir=args.scale_output_dir,
             hamming_threshold=args.hamming_threshold,
         )
-        print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+        print_report(report)
         raise SystemExit(0 if report.status == "passed" else 2)
     if not args.input or not args.output:
         parser.error("--input and --output are required unless --scale-dry-records is used")
@@ -637,7 +638,7 @@ def main() -> None:
         hamming_threshold=args.hamming_threshold,
         index_path=args.index,
     )
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
 
 
 if __name__ == "__main__":

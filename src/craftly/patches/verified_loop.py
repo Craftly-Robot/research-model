@@ -17,7 +17,8 @@ from pydantic import Field
 from src.craftly.db import LocalStore
 from src.craftly.indexing import ContextBuilder, RepositoryIndexer
 from src.craftly.patches.service import FileEdit, PatchService, PatchVerifyRequest
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import write_report, print_report
+from src.craftly.shared.schemas import StrictModel, write_report, print_report
 
 
 class RepositoryPatchLoopRequest(StrictModel):
@@ -153,8 +154,8 @@ def main() -> None:
     )
     target = Path(args.output)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(report.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    write_report(report, target)
+    print_report(report)
     if report.status != "passed":
         raise SystemExit(2)
 

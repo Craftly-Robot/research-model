@@ -11,7 +11,8 @@ from pydantic import Field
 from src.craftly.db.migration_runner import load_migrations
 from src.craftly.learning.benchmark_contamination_filter import load_patterns
 from src.craftly.learning.source_registry import SourceRegistry
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import print_report
+from src.craftly.shared.schemas import StrictModel, print_report
 
 
 class ReadinessCheck(StrictModel):
@@ -155,7 +156,7 @@ def config_from_args(args: argparse.Namespace) -> DataPlatformReadinessConfig:
 
 def main() -> None:
     report = run_readiness_check(config_from_args(parse_args()))
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
     if report.status == "block":
         raise SystemExit(2)
 

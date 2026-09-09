@@ -11,7 +11,8 @@ from pathlib import Path
 from pydantic import Field
 
 from src.craftly.learning.quality import stable_hash
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import print_report
+from src.craftly.shared.schemas import StrictModel, print_report
 
 SECURITY_PATCH_TERMS = (
     "auth",
@@ -145,7 +146,7 @@ def main() -> None:
     report = extract_security_patch_tasks(
         args.repo, args.output, license_name=args.license, max_commits=args.max_commits
     )
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
 
 
 if __name__ == "__main__":

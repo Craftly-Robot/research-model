@@ -27,7 +27,8 @@ from src.craftly.indexing.vector_index import VectorBackendConfig, validate_embe
 from src.craftly.model_ops.backends import active_model_health
 from src.craftly.model_ops.foundation import model_profile
 from src.craftly.shared.config import load_active_profile
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import write_report, print_report
+from src.craftly.shared.schemas import StrictModel, write_report, print_report
 from src.craftly.training_workspace import TrainingProfileRegistry
 
 ReadinessStatus = Literal[
@@ -63,7 +64,7 @@ class ProductionReadinessReport(StrictModel):
         root = Path(output_dir)
         root.mkdir(parents=True, exist_ok=True)
         target = root / "production_readiness_report.json"
-        target.write_text(json.dumps(self.model_dump(), indent=2, sort_keys=True), encoding="utf-8")
+        write_report(self, target)
         write_markdown(self, root / "production_readiness_report.md")
         return target
 
@@ -961,7 +962,7 @@ def main() -> None:
     args = _parse_args()
     report = run_production_readiness(mode=args.mode, benchmark_dir=args.benchmark_dir)
     report.write(args.output_dir)
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
     if report.status != "passed":
         raise SystemExit(2)
 

@@ -11,7 +11,7 @@ from typing import Any, Literal
 
 from pydantic import Field
 
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import StrictModel, print_report
 
 ApprovalStatus = Literal["pending", "approved", "rejected"]
 ReviewStatus = Literal["queued", "approved", "rejected"]
@@ -238,7 +238,7 @@ def main() -> None:
         )
     else:
         result = store.report()
-    print(json.dumps(result.model_dump(), indent=2, sort_keys=True))
+    print_report(result)
 
 
 if __name__ == "__main__":

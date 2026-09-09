@@ -22,11 +22,9 @@ from src.craftly.model_ops.tokenizer_pipeline import (
 )
 from src.craftly.shared.config_contracts import (
     MixRatiosContract as MixConfig,
-)
-from src.craftly.shared.config_contracts import (
     load_mix_ratios_contract,
 )
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import StrictModel, print_report
 
 SCRATCH_INSTRUCTION_RATIOS = {
     "instruction_security_coding": 0.40,
@@ -779,7 +777,7 @@ def main() -> None:
                 strict_offensive_filter=not args.allow_offensive_misuse_rows,
             ),
         )
-        print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+        print_report(report)
         raise SystemExit(0 if report.status in {"passed", "warning"} else 1)
     manifest = build_mix(
         input_paths=args.inputs,
@@ -791,7 +789,7 @@ def main() -> None:
         sequence_length=args.sequence_length,
         validation_fraction=args.validation_fraction,
     )
-    print(json.dumps(manifest.model_dump(), indent=2, sort_keys=True))
+    print_report(manifest)
 
 
 if __name__ == "__main__":

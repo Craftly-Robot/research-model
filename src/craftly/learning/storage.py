@@ -15,7 +15,8 @@ from urllib.parse import urlparse
 from pydantic import Field
 
 from src.craftly.shared.integrity import sha256_file as file_sha256
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import print_report
+from src.craftly.shared.schemas import StrictModel, print_report
 
 
 class StoredObject(StrictModel):
@@ -416,7 +417,7 @@ def main() -> None:
         work_dir=args.work_dir,
         key=args.key,
     )
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
     if report.status != "passed":
         raise SystemExit(2)
 

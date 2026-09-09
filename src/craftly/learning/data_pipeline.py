@@ -75,7 +75,8 @@ from src.craftly.model_ops.tokenizer_pipeline import (
     train_bpe_tokenizer,
 )
 from src.craftly.shared.progress import ProgressReporter, progress_from_options
-from src.craftly.shared.schemas import StrictModel
+from src.craftly.shared.schemas import print_report
+from src.craftly.shared.schemas import StrictModel, print_report
 
 
 class DataPipelineConfig(StrictModel):
@@ -1376,7 +1377,7 @@ def config_from_args(args: argparse.Namespace) -> DataPipelineConfig:
 
 def main() -> None:
     report = asyncio.run(run_data_pipeline(config_from_args(parse_args())))
-    print(json.dumps(report.model_dump(), indent=2, sort_keys=True))
+    print_report(report)
 
 
 if __name__ == "__main__":
